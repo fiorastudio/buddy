@@ -29,6 +29,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
+        name: "familiar_hatch",
+        description: "Hatch a new Familiar companion.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            species: { type: "string" }
+          },
+          required: ["name", "species"]
+        },
+      },
+      {
         name: "familiar_status",
         description: "Get the current status of your Familiar companion.",
         inputSchema: {
@@ -36,13 +48,45 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {},
         },
       },
+      {
+        name: "familiar_remember",
+        description: "Manually add a memory for your Familiar to observe.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            content: { type: "string" },
+            importance: { type: "number" }
+          },
+          required: ["content"]
+        },
+      },
+      {
+        name: "familiar_dream",
+        description: "Trigger memory consolidation (Dreaming).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            depth: { type: "string", enum: ["light", "deep"] }
+          },
+          required: ["depth"]
+        },
+      }
     ],
   };
 });
 
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name } = request.params;
+  const { name, arguments: args } = request.params;
+
+  if (name === "familiar_hatch") {
+    const { name, species } = args as { name: string, species: string };
+    const id = Math.random().toString(36).substring(7);
+    db.prepare("INSERT INTO companions (id, name, species) VALUES (?, ?, ?)").run(id, name, species);
+    return {
+      content: [{ type: "text", text: `Successfully hatched ${name} the ${species}!` }],
+    };
+  }
 
   if (name === "familiar_status") {
     const companion = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
@@ -52,7 +96,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
     return {
-      content: [{ type: "text", text: `Name: ${companion.name}\nSpecies: ${companion.species}\nLevel: ${companion.level}` }],
+      content: [{ type: "text", text: `Name: ${companion.name}\nSpecies: ${companion.species}\nLevel: ${companion.level}\nXP: ${companion.xp}` }],
+    };
+  }
+
+  if (name === "familiar_remember") {
+    const { content, importance = 1 } = args as { content: string, importance?: number };
+    const companion = db.prepare("SELECT id FROM companions LIMIT 1").get() as any;
+    if (!companion) return { content: [{ type: "text", text: "Hatch a companion first!" }] };
+    
+    const id = Math.random().toString(36).substring(7);
+    db.prepare("INSERT INTO memories (id, companion_id, content, importance, tag) VALUES (?, ?, ?, ?, ?)")
+      .run(id, companion.id, content, importance, 'raw');
+    
+    return {
+      content: [{ type: "text", text: "Memory stored. I'll dream about this later." }],
+    };
+  }
+
+  if (name === "familiar_dream") {
+    const { depth } = args as { depth: 'light' | 'deep' };
+    // Placeholder for actual consolidation logic
+    return {
+      content: [{ type: "text", text: `Consolidation (${depth} dream) started. Checking patterns...` }],
     };
   }
 
