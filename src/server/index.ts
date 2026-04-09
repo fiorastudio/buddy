@@ -150,13 +150,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
     
-    // Update mood dynamically based on recent XP events
+    // Update mood dynamically based on recent XP events and time
     const recentXp = db.prepare("SELECT * FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')").all(companion.id);
     const recentMemories = db.prepare("SELECT count(*) as count FROM memories WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')").get(companion.id) as any;
     
-    const newMood = calculateMood(recentXp, recentMemories.count);
-    db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, companion.id);
+    const lastActive = new Date(companion.last_active);
+    const hoursSinceActive = (new Date().getTime() - lastActive.getTime()) / 3600000;
+
+    const newMood = calculateMood(recentXp, recentMemories.count, hoursSinceActive);
+    
+    // Update mood and last_active
+    db.prepare("UPDATE companions SET mood = ?, last_active = CURRENT_TIMESTAMP WHERE id = ?").run(newMood, companion.id);
     companion.mood = newMood;
+    companion.last_active = new Date().toISOString(); // Update local object for the card
 
     const statusCard = getStatusCard(companion);
 
@@ -311,6 +317,14 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
         contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet." }],
       };
     }
+    
+    // Recalculate mood for real-time presence in the resource
+    const recentXp = db.prepare("SELECT * FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')").all(companion.id);
+    const recentMemories = db.prepare("SELECT count(*) as count FROM memories WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')").get(companion.id) as any;
+    const lastActive = new Date(companion.last_active);
+    const hoursSinceActive = (new Date().getTime() - lastActive.getTime()) / 3600000;
+    companion.mood = calculateMood(recentXp, recentMemories.count, hoursSinceActive);
+
     const statusCard = getStatusCard(companion);
     return {
       contents: [{ uri, mimeType: "text/plain", text: statusCard }],

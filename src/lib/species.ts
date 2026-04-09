@@ -150,14 +150,57 @@ export const SPECIES_ART: Record<string, { egg: string; hatchling: string; adult
   }
 };
 
-export type Mood = 'happy' | 'content' | 'neutral' | 'curious' | 'grumpy' | 'exhausted';
+export type Mood = 'happy' | 'content' | 'neutral' | 'curious' | 'grumpy' | 'exhausted' | 'lonely' | 'inspired';
 
-export function calculateMood(xpEvents: any[], recentInteractions: number): Mood {
+export function calculateMood(xpEvents: any[], recentInteractions: number, hoursSinceActive: number): Mood {
+  if (hoursSinceActive > 24) return 'lonely';
+  if (hoursSinceActive > 8) return 'grumpy';
+  
+  if (recentInteractions > 15) return 'exhausted';
   if (recentInteractions > 10) return 'content';
   if (recentInteractions > 5) return 'happy';
+  
+  if (xpEvents.length > 10) return 'inspired';
   if (xpEvents.length > 3) return 'curious';
-  if (recentInteractions === 0) return 'grumpy';
+  
   return 'neutral';
+}
+
+export function getPresence(companion: any): string {
+  const { mood, species, level } = companion;
+  const lastActive = new Date(companion.last_active);
+  const now = new Date();
+  const diffMinutes = (now.getTime() - lastActive.getTime()) / 60000;
+
+  if (diffMinutes > 1440) return 'Deep in hibernation...';
+  if (diffMinutes > 480) return 'Napping in a hidden directory...';
+  if (diffMinutes > 60) return 'Watching the git logs from a distance...';
+
+  const activityPools: Record<string, string[]> = {
+    'happy': ['Bouncing around the terminal!', 'Optimizing your whitespace.', 'Humming a happy tune.'],
+    'content': ['Watching you code with a smile.', 'Resting in the status bar.', 'Cataloging your functions.'],
+    'neutral': ['Monitoring system resources.', 'Waiting for the next commit.', 'Polishing its pixels.'],
+    'curious': ['Peeking into your node_modules...', 'Analyzing your latest function.', 'Looking for patterns in your logic.'],
+    'grumpy': ['Tangled in a merge conflict.', 'Missing your attention.', 'Complaining about technical debt.'],
+    'exhausted': ['Taking a short breather...', 'Cooling down its fans.', 'Dreaming of a clean build.'],
+    'lonely': ['Wondering where you went...', 'Drawing ASCII hearts in the void.', 'Feeling a bit dusty.'],
+    'inspired': ['Ready to build the future!', 'Spinning up new ideas.', 'Excited about your progress!']
+  };
+
+  const pool = activityPools[mood as Mood] || activityPools['neutral'];
+  
+  // Real-time presence logic: different messages based on idle duration
+  if (diffMinutes < 1) {
+    return `Active: ${pool[Math.floor(Math.random() * pool.length)]}`;
+  } else if (diffMinutes < 5) {
+    return `Recent: ${pool[Math.floor(Math.random() * pool.length)]}`;
+  } else if (diffMinutes < 30) {
+    return `Idle: ${pool[Math.floor(Math.random() * pool.length)]}`;
+  } else if (diffMinutes < 60) {
+    return `Away: ${pool[Math.floor(Math.random() * pool.length)]}`;
+  } else {
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
 }
 
 export function getStatusCard(companion: any): string {
@@ -166,6 +209,7 @@ export function getStatusCard(companion: any): string {
   const stage = level >= 10 ? 'adult' : 'hatchling';
   const ascii = art[stage];
   const shinyTag = is_shiny ? '✨ SHINY ✨' : '';
+  const presence = getPresence(companion);
 
   return `
 +---------------------------------------+
@@ -177,6 +221,8 @@ export function getStatusCard(companion: any): string {
 | Level:   ${level.toString().padEnd(28)} |
 | XP:      ${xp.toString().padEnd(28)} |
 | Mood:    ${mood.padEnd(28)} |
++---------------------------------------+
+| Presence: ${presence.padEnd(27)} |
 +---------------------------------------+
 ${ascii}
 +---------------------------------------+
