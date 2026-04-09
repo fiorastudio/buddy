@@ -12,7 +12,7 @@ import { SPECIES, SPECIES_ART, generatePersonality, generateName, calculateMood,
 
 const server = new Server(
   {
-    name: "buddy",
+    name: "@fiorastudio/buddy",
     version: "1.0.0",
   },
   {
@@ -323,7 +323,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Buddy MCP Server running on stdio");
+  console.error("@fiorastudio/buddy MCP Server running on stdio");
 }
 
 main().catch((error) => {

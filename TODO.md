@@ -8,6 +8,7 @@
 - [x] P1-5: Evolution Logic
 - [x] P1-6: Context-Aware Reactions
 - [x] P1-7: Persistence & Distribution
+- [x] P1-8: Community & SEO Overhaul (README)
 
 ## Post-Alpha / Beta
 - [ ] Implement auto-config generation scripts for common IDEs.
