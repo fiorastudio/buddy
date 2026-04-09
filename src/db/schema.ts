@@ -16,6 +16,9 @@ export function initDb() {
       level INTEGER DEFAULT 1,
       xp INTEGER DEFAULT 0,
       mood TEXT DEFAULT 'happy',
+      rarity TEXT DEFAULT 'common',
+      is_shiny INTEGER DEFAULT 0,
+      accessories TEXT DEFAULT '{}', -- JSON blob for items
       personality TEXT, -- JSON blob of stats
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

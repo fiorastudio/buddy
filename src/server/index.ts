@@ -7,7 +7,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { initDb, db } from "../db/schema.js";
-import { SPECIES, SPECIES_ART, generatePersonality, generateName, calculateMood, getStatusCard } from "../lib/species.js";
+import { SPECIES, SPECIES_ART, generatePersonality, generateName, calculateMood, getStatusCard, determineBuddy, getReaction } from "../lib/species.js";
 
 const server = new Server(
   {
@@ -41,10 +41,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             species: { 
               type: "string", 
               enum: Object.values(SPECIES),
-              description: "The species of companion to hatch."
-            }
+              description: "The species of companion to hatch. If omitted, will be determined by user_id or RNG."
+            },
+            user_id: { type: "string", description: "Optional user ID for deterministic hatching." }
           },
-          required: ["species"]
         },
       },
       {
@@ -87,25 +87,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   if (name === "buddy_hatch") {
-    const { name: requestedName, species } = args as { name?: string, species: string };
+    const { name: requestedName, species: requestedSpecies, user_id } = args as { name?: string, species?: string, user_id?: string };
     
-    if (!Object.values(SPECIES).includes(species as any)) {
-      return {
-        content: [{ type: "text", text: `Unknown species: ${species}. Available: ${Object.values(SPECIES).join(", ")}` }],
-      };
+    let species = requestedSpecies;
+    let rarity = 'Common';
+    let isShiny = 0;
+
+    if (!species) {
+      const result = determineBuddy(user_id || null);
+      species = result.species;
+      rarity = result.rarity;
+      isShiny = result.isShiny ? 1 : 0;
+    } else {
+      if (!Object.values(SPECIES).includes(species as any)) {
+        return {
+          content: [{ type: "text", text: `Unknown species: ${species}. Available: ${Object.values(SPECIES).join(", ")}` }],
+        };
+      }
     }
 
-    const name = requestedName || generateName(species);
+    const finalName = requestedName || generateName(species);
     const id = Math.random().toString(36).substring(7);
     const personality = JSON.stringify(generatePersonality(species));
     
-    db.prepare("INSERT INTO companions (id, name, species, personality) VALUES (?, ?, ?, ?)").run(id, name, species, personality);
+    db.prepare("INSERT INTO companions (id, name, species, personality, rarity, is_shiny) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, finalName, species, personality, rarity, isShiny);
     
     const art = SPECIES_ART[species] || { egg: "", hatchling: "" };
+    const reaction = getReaction(species, 'hatch', 'happy');
+    const shinyPrefix = isShiny ? "✨ SHINY ✨ " : "";
     
     return {
       content: [
-        { type: "text", text: `Successfully hatched ${name} the ${species}!` },
+        { type: "text", text: `Successfully hatched ${shinyPrefix}${finalName} the ${rarity} ${species}!` },
+        { type: "text", text: reaction },
         { type: "text", text: art.hatchling }
       ],
     };
