@@ -82,11 +82,11 @@ export function generateBio(bones: CompanionBones): string {
   const rarityFlavor = RARITY_FLAVOR[bones.rarity] || '';
 
   // Pick deterministically based on stat values to keep it stable
-  const vibeIdx = bones.stats[peak] % vibes.length;
   const statIdx = bones.stats[peak] % statFlavor.length;
 
+  // vibes[0] = adjective, vibes[1] = adjective, vibes[2] = description phrase
   const parts = [
-    `A ${vibes[vibeIdx]} ${bones.species.toLowerCase()} — ${vibes[2] || vibes[0]}.`,
+    `A ${vibes[0]}, ${vibes[1]} ${bones.species.toLowerCase()} who ${vibes[2]}.`,
     statFlavor[statIdx],
     rarityFlavor,
   ].filter(Boolean);
