@@ -1,4 +1,4 @@
-# Familiar - The Agent-Agnostic Coding Companion
+# Buddy - The Agent-Agnostic Coding Companion
 
 An MCP server that brings a persistent, context-aware companion to your terminal.
 
