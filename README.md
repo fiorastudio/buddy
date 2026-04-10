@@ -347,6 +347,8 @@ Level progress shows on the status card:
 
 ### 🖥️ Statusline Integration
 
+Buddy has optional statusline integrations. The core MCP server does not depend on any HUD.
+
 For Claude Code users, Buddy renders in your statusline alongside the HUD:
 
 ![Nuzzlecap Statusline](demo/screenshots/statusline.png)
@@ -367,6 +369,22 @@ Add the statusline wrapper to your Claude Code settings:
   }
 }
 ```
+
+Experimental and disabled by default: for patched Codex builds that expose `tui.status_line_command`, Buddy can render a compact footer block without depending on `codex-hud` itself:
+
+```toml
+[tui]
+status_line_command = "node /path/to/buddy/dist/codex-statusline.js"
+```
+
+Or, if Buddy is installed as a package and the bin is on `PATH`:
+
+```toml
+[tui]
+status_line_command = "buddy-codex-statusline"
+```
+
+This Codex integration is optional, experimental, and only works in Codex builds that already support `status_line_command`. The main Buddy install does not patch or rebuild Codex.
 
 ### 💬 Speech Bubbles
 
@@ -417,7 +435,7 @@ git clone https://github.com/fiorastudio/buddy.git
 cd buddy
 npm install
 npm run build
-npm test           # 243 tests
+npm test           # 246 tests
 npm start          # runs the MCP server on stdio
 ```
 
@@ -433,7 +451,7 @@ npm start          # runs the MCP server on stdio
 | **Species** | 21 | 18 |
 | **Install** | One-liner (curl/PowerShell) | git clone + npm |
 | **Windows** | ✅ | ❌ |
-| **Tests** | 243 | 140 |
+| **Tests** | 246 | 140 |
 
 **save-buddy** is a faithful preservation of the original Claude Code buddy experience. It's great for purists who want the exact original.
 
