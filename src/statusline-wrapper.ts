@@ -107,11 +107,47 @@ try {
         }
       }
 
+      // Apply reaction state (eye override + indicator) if active and not expired
+      let reactionIndicator = '';
+      let reactionText = '';
+      if (buddy.reaction && buddy.reaction_expires && Date.now() < buddy.reaction_expires) {
+        reactionIndicator = buddy.reaction === 'impressed' ? '!'
+          : buddy.reaction === 'concerned' ? '?'
+          : buddy.reaction === 'amused' ? '~'
+          : buddy.reaction === 'excited' ? '!!'
+          : buddy.reaction === 'thinking' ? '...'
+          : '';
+
+        // Override eyes in art based on reaction state
+        const reactionEye = buddy.reaction === 'impressed' ? '✦'
+          : buddy.reaction === 'concerned' ? '×'
+          : buddy.reaction === 'amused' ? '°'
+          : buddy.reaction === 'excited' ? '◉'
+          : buddy.reaction === 'thinking' ? '·'
+          : '';
+
+        if (reactionEye) {
+          asciiLines = asciiLines.map((line: string) => {
+            // Replace the buddy's normal eye with reaction eye
+            if (buddy.eye && line.includes(buddy.eye)) {
+              return line.replaceAll(buddy.eye, reactionEye);
+            }
+            return line;
+          });
+        }
+
+        if (buddy.reaction_text) {
+          reactionText = buddy.reaction_text;
+        }
+      }
+
       const shinyTag = buddy.is_shiny ? " ✨" : "";
       const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
       const stars = buddy.rarity_stars || '';
-      const nameInfo = `${CYAN}${buddy.name}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
-      const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}`;
+      const nameIndicator = reactionIndicator ? `${YELLOW}${reactionIndicator}${RESET}` : '';
+      const nameInfo = `${CYAN}${buddy.name}${nameIndicator}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
+      const reactionSuffix = reactionText ? `  ${DIM}"${reactionText}"${RESET}` : '';
+      const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}${reactionSuffix}`;
 
       const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
       for (let i = 0; i < asciiLines.length; i++) {
