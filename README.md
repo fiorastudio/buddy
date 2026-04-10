@@ -262,21 +262,9 @@ The observer infers your buddy's reaction state (impressed, concerned, amused, e
 
 ## ❓ FAQ
 
-### What's the consumption like? Does Buddy use much in the way of input tokens?
-
-Buddy is designed to stay fairly light on context.
-
-`buddy_observe` works from a short task summary, not a raw diff or your whole codebase. So it's reacting to something like `refactored the auth flow` or `fixed a null bug`, not ingesting the entire patch.
-
-There are three modes:
-
-- `backseat` -- in-character flavor reactions only
-- `skillcoach` -- one specific code observation
-- `both` -- reaction + one concrete observation
-
-In all three modes, Buddy builds a short prompt for the host CLI's model, so there is some token overhead. Roughly speaking, the observer prompt is a few hundred characters, and the persistent buddy context injected from `buddy://intro` is also fairly small. In practice, the extra overhead is usually quite small compared to the main coding conversation.
-
-Buddy does add some context/tokens, but it does not read your whole codebase for each reaction, and it does not make its own separate API calls.
+| Question | Answer |
+|---|---|
+| What's the consumption like? Does Buddy use much in the way of input tokens? | Buddy is designed to stay fairly light on context. `buddy_observe` works from a short task summary, not a raw diff or your whole codebase, so it reacts to something like `refactored the auth flow` or `fixed a null bug` rather than ingesting the entire patch. Buddy supports three modes: `backseat` for in-character flavor, `skillcoach` for one specific code observation, and `both` for a reaction plus one concrete observation. In all three modes, Buddy builds a short prompt for the host CLI's model, so there is some token overhead. Roughly speaking, the observer prompt is a few hundred characters, and the persistent buddy context injected from `buddy://intro` is also fairly small. In practice, the extra overhead is usually quite small compared to the main coding conversation. Buddy does add some context/tokens, but it does not read your whole codebase for each reaction, and it does not make its own separate API calls. |
 
 ### 🎭 Rich Personality Bios
 
