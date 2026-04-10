@@ -14,7 +14,7 @@ const MAGENTA = "\x1b[35m";
 
 const toUnix = (p: string) => p.replace(/\\/g, "/");
 const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
-const FRAME_INTERVAL_MS = 2000;
+const FRAME_INTERVAL_MS = 800;
 
 // Strip ANSI codes for width calculation
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -71,7 +71,35 @@ try {
     if (buddy.eye && SPRITE_BODIES[buddy.species]) {
       const bones = { species: buddy.species, eye: buddy.eye, hat: buddy.hat || 'none', rarity: buddy.rarity || 'common', shiny: buddy.is_shiny || false, stats: buddy.stats || {} } as any;
       const frames = SPRITE_BODIES[buddy.species];
-      const frameIndex = Math.floor(Date.now() / FRAME_INTERVAL_MS) % frames.length;
+      const totalFrames = frames.length;
+      const tick = Math.floor(Date.now() / FRAME_INTERVAL_MS);
+
+      // Mood-aware frame selection:
+      // Active reaction → cycle through expressive frames (skip idle, favor expressions)
+      // Excited/impressed → fast cycle through all frames
+      // Grumpy/muted → mostly idle with rare blink
+      // Default → normal idle sequence with occasional blink/expression
+      let frameIndex: number;
+      const hasReaction = buddy.reaction_expires && Date.now() < buddy.reaction_expires;
+
+      if (hasReaction && (buddy.reaction === 'excited' || buddy.reaction === 'impressed')) {
+        // Energetic: cycle all frames fast
+        frameIndex = tick % totalFrames;
+      } else if (hasReaction && buddy.reaction === 'concerned') {
+        // Worried: alternate between idle and blink rapidly
+        frameIndex = (tick % 2 === 0) ? 0 : 1;
+      } else if (hasReaction) {
+        // Other reactions: cycle expressions (skip idle)
+        frameIndex = 1 + (tick % Math.max(1, totalFrames - 1));
+      } else if (buddy.mood === 'grumpy' || buddy.mood === 'muted') {
+        // Grumpy: mostly idle, rare blink (1 in 6)
+        frameIndex = (tick % 6 === 0) ? 1 : 0;
+      } else {
+        // Normal idle: gentle sequence — idle, idle, blink, idle, expression, idle...
+        const idleSequence = [0, 0, 1, 0, 0, 2, 0, 3, 0, 0, 1, 0, 0, 0, 4 % totalFrames];
+        frameIndex = idleSequence[tick % idleSequence.length] % totalFrames;
+      }
+
       const artLines = renderSprite(bones, frameIndex);
       ascii = artLines.join('\n');
     }
