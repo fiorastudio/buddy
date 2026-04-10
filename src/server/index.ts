@@ -15,6 +15,7 @@ import {
 import { type Companion, STAT_NAMES, RARITY_STARS, RARITY_ANSI } from "../lib/types.js";
 import { roll, statBar } from "../lib/rng.js";
 import { generateBio } from "../lib/personality.js";
+import { buildObserverPrompt } from "../lib/observer.js";
 import { writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -123,7 +124,7 @@ function hatchAnimation(companion: Companion): string {
   ].join('\n');
 }
 
-function writeBuddyStatus(companion: Companion) {
+function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number }) {
   try {
     mkdirSync(join(homedir(), ".claude"), { recursive: true });
     writeFileSync(BUDDY_STATUS_PATH, JSON.stringify({
@@ -139,6 +140,11 @@ function writeBuddyStatus(companion: Companion) {
       stats: companion.stats,
       rarity_stars: RARITY_STARS[companion.rarity],
       personality_bio: companion.personalityBio,
+      ...(reaction ? {
+        reaction: reaction.state,
+        reaction_text: reaction.text,
+        reaction_expires: reaction.expires,
+      } : {}),
     }));
   } catch { /* non-fatal */ }
 }
@@ -220,6 +226,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {},
+        },
+      },
+      {
+        name: "buddy_observe",
+        description: "Get your buddy's reaction to what just happened. Returns a personality prompt for the CLI's AI to generate an in-character response, plus a template fallback. Call this after completing an action to get your buddy's take.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            summary: {
+              type: "string",
+              description: "Brief description of what just happened (e.g., 'wrote a CSV parser', 'fixed a null pointer bug', 'refactored the auth module')"
+            },
+            mode: {
+              type: "string",
+              enum: ["backseat", "skillcoach", "both"],
+              description: "Observer mode. 'backseat' = personality flavor reactions, 'skillcoach' = actual code feedback, 'both' = combined. Default: both."
+            },
+            user_id: {
+              type: "string",
+              description: "Optional user ID for regenerating companion bones."
+            },
+          },
+          required: ["summary"],
         },
       }
     ],
@@ -368,6 +397,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
+  if (name === "buddy_observe") {
+    const { summary, mode = 'both', user_id } = args as {
+      summary: string; mode?: 'backseat' | 'skillcoach' | 'both'; user_id?: string;
+    };
+
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) {
+      return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
+    }
+
+    const companion = loadCompanion(row, user_id)!;
+    const result = buildObserverPrompt(companion, mode, summary);
+
+    // Write reaction state to status file (expires in 10s)
+    writeBuddyStatus(companion, {
+      state: result.reaction.state,
+      text: result.templateFallback,
+      expires: Date.now() + 10_000,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            companion: result.companion,
+            prompt: result.prompt,
+            mode: result.mode,
+            summary: result.summary,
+            reaction: result.reaction,
+            templateFallback: result.templateFallback,
+          }),
+        },
+      ],
+    };
+  }
+
   throw new Error(`Tool not found: ${name}`);
 });
 
@@ -385,6 +451,12 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
         uri: "buddy://status",
         name: "Current Buddy Status Card",
         description: "An ASCII status card for the current Buddy, suitable for prompt injection.",
+        mimeType: "text/plain",
+      },
+      {
+        uri: "buddy://intro",
+        name: "Companion System Prompt",
+        description: "Text for injecting buddy context into the CLI's system prompt. Read this on startup.",
         mimeType: "text/plain",
       },
     ],
@@ -415,6 +487,26 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const statLines = STAT_NAMES.map(s => statBar(s, companion.stats[s]));
     const card = [stars + ' ' + companion.rarity.toUpperCase(), ...art, companion.name, ...statLines].join('\n');
     return { contents: [{ uri, mimeType: "text/plain", text: card }] };
+  }
+
+  if (uri === "buddy://intro") {
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) {
+      return { contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet. Use buddy_hatch to get started." }] };
+    }
+    const companion = loadCompanion(row)!;
+    const peakStat = STAT_NAMES.reduce((a, b) => companion.stats[a] > companion.stats[b] ? a : b);
+    const dumpStat = STAT_NAMES.reduce((a, b) => companion.stats[a] < companion.stats[b] ? a : b);
+
+    const intro = `# Companion
+
+A small ${companion.species} named ${companion.name} watches from your terminal. ${companion.personalityBio}
+
+${companion.name} reacts to your work via the buddy_observe tool. After completing an action, call buddy_observe with a brief summary of what you did. ${companion.name}'s reactions are personality-flavored — ${peakStat} is their strength (${companion.stats[peakStat]}/100), ${dumpStat} is their weakness (${companion.stats[dumpStat]}/100).
+
+When the user addresses ${companion.name} by name, respond briefly in character as ${companion.name} before your normal response. Don't explain that you're not ${companion.name} — they know.`;
+
+    return { contents: [{ uri, mimeType: "text/plain", text: intro }] };
   }
 
   throw new Error(`Resource not found: ${uri}`);
