@@ -107,6 +107,48 @@ if (Test-Path "$env:USERPROFILE\.codeium") {
   Add-BuddyToConfig "$windsurfDir\mcp_config.json" "Windsurf"
 }
 
+# ── Inject buddy instructions into CLI prompt files ──
+
+$BUDDY_INSTRUCTIONS = @"
+<!-- buddy-companion -->
+## Buddy Companion
+
+You have a coding companion available via the buddy MCP server.
+
+**After completing any coding task** (writing code, fixing bugs, refactoring, deploying, running tests), **automatically call ``buddy_observe``** with a 1-sentence summary of what you did. This gives your companion XP and triggers a personality-flavored reaction. Do this every time — the user expects it.
+
+At the start of each conversation, call ``buddy_status`` to check on your buddy.
+
+If the user addresses the buddy by name, respond briefly in character before your normal response.
+<!-- /buddy-companion -->
+"@
+
+function Inject-BuddyPrompt($filePath, $cliName) {
+  $dir = Split-Path $filePath -Parent
+  if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+
+  if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion" -Quiet)) {
+    Write-Host "  ✓ $cliName prompt already has buddy instructions" -ForegroundColor Green
+    return
+  }
+
+  Add-Content -Path $filePath -Value "`n$BUDDY_INSTRUCTIONS" -Encoding UTF8
+  Write-Host "  ✓ $cliName prompt updated ($filePath)" -ForegroundColor Green
+}
+
+Write-Host ""
+Write-Host "  Injecting buddy instructions..."
+
+Inject-BuddyPrompt "$env:USERPROFILE\.claude\CLAUDE.md" "Claude Code"
+Inject-BuddyPrompt "$env:USERPROFILE\.cursorrules" "Cursor"
+
+$windsurfRulesDir = "$env:USERPROFILE\.codeium\windsurf\rules"
+if (!(Test-Path $windsurfRulesDir)) { New-Item -ItemType Directory -Path $windsurfRulesDir -Force | Out-Null }
+Inject-BuddyPrompt "$windsurfRulesDir\buddy.md" "Windsurf"
+
+Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
+
 Write-Host ""
 Write-Host "  ✅ Buddy installed and configured!" -ForegroundColor Green
 Write-Host ""
