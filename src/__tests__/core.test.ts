@@ -192,25 +192,25 @@ describe('Leveling', () => {
     expect(xpForLevel(1)).toBe(0);
   });
 
-  it('xpForLevel(2) → 45', () => {
-    // floor(10 * 2^2.2) = floor(10 * 4.5948...) = floor(45.948) = 45
-    expect(xpForLevel(2)).toBe(45);
+  it('xpForLevel(2) → 17 (fast early levels)', () => {
+    // floor(5 * 2^1.8) = floor(5 * 3.4822...) = 17
+    expect(xpForLevel(2)).toBe(17);
   });
 
   it('xpForLevel(50) → large number', () => {
-    expect(xpForLevel(50)).toBeGreaterThan(10000);
+    expect(xpForLevel(50)).toBeGreaterThan(5000);
   });
 
   it('levelFromXp(0) → 1', () => {
     expect(levelFromXp(0)).toBe(1);
   });
 
-  it('levelFromXp(45) → 2', () => {
-    expect(levelFromXp(45)).toBe(2);
+  it('levelFromXp(17) → 2', () => {
+    expect(levelFromXp(17)).toBe(2);
   });
 
-  it('levelFromXp(44) → 1 (not enough for level 2)', () => {
-    expect(levelFromXp(44)).toBe(1);
+  it('levelFromXp(16) → 1 (not enough for level 2)', () => {
+    expect(levelFromXp(16)).toBe(1);
   });
 
   it('levelFromXp(999999) → 50 (capped at MAX_LEVEL)', () => {
@@ -219,14 +219,14 @@ describe('Leveling', () => {
   });
 
   it('levelProgress returns correct currentXp and neededXp', () => {
-    // At exactly 45 XP we are level 2, currentXp = 0 within that level
-    const progress = levelProgress(45);
+    // At exactly 17 XP we are level 2, currentXp = 0 within that level
+    const progress = levelProgress(17);
     expect(progress.level).toBe(2);
     expect(progress.currentXp).toBe(0);
     expect(progress.neededXp).toBe(xpForLevel(3));
 
-    // At 45 + 10 XP within level 2
-    const progress2 = levelProgress(55);
+    // At 17 + 10 XP within level 2
+    const progress2 = levelProgress(27);
     expect(progress2.level).toBe(2);
     expect(progress2.currentXp).toBe(10);
   });

@@ -3,17 +3,17 @@
 export const MAX_LEVEL = 50;
 
 export const XP_REWARDS: Record<string, number> = {
-  observe: 2,
-  commit: 5,
-  bug_fix: 8,
-  deploy: 15,
-  session: 1,
+  observe: 5,
+  commit: 10,
+  bug_fix: 15,
+  deploy: 25,
+  session: 3,
 };
 
-// Exponential curve: easy early, hard late
+// Exponential curve: fast early, smooth mid, grindy late
 export function xpForLevel(level: number): number {
   if (level <= 1) return 0;
-  return Math.floor(10 * Math.pow(level, 2.2));
+  return Math.floor(5 * Math.pow(level, 1.8));
 }
 
 // Total XP needed to reach a level from level 1
