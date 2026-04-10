@@ -13,6 +13,7 @@ DATA_DIR="$HOME/.buddy"
 STATUS_FILE="$HOME/.claude/buddy-status.json"
 KEEP_DATA=0
 ASSUME_YES=0
+NODE_BIN="${BUDDY_NODE_BIN:-$(command -v node || true)}"
 
 BLUE='\033[0;34m'
 GREEN='\033[0;32m'
@@ -61,34 +62,29 @@ remove_json_buddy() {
     return 0
   fi
 
+  if [ -z "$NODE_BIN" ]; then
+    echo -e "  ${YELLOW}!${NC} Skipping $cli_name config cleanup because Node.js is not available"
+    return 0
+  fi
+
   set +e
-  python3 - "$config_file" <<'PY' >/dev/null 2>&1
-import json
-import sys
-
-path = sys.argv[1]
-
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-except Exception:
-    raise SystemExit(11)
-
-if not isinstance(config, dict):
-    raise SystemExit(11)
-
-mcp_servers = config.get("mcpServers")
-if not isinstance(mcp_servers, dict) or "buddy" not in mcp_servers:
-    raise SystemExit(10)
-
-del mcp_servers["buddy"]
-if not mcp_servers:
-    config.pop("mcpServers", None)
-
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(config, f, indent=2)
-    f.write("\n")
-PY
+  "$NODE_BIN" -e "
+    const fs = require('fs');
+    const path = process.argv[1];
+    try {
+      const raw = fs.readFileSync(path, 'utf8');
+      const config = JSON.parse(raw);
+      if (!config || typeof config !== 'object') process.exit(11);
+      if (!config.mcpServers || !config.mcpServers.buddy) process.exit(10);
+      delete config.mcpServers.buddy;
+      if (Object.keys(config.mcpServers).length === 0) {
+        delete config.mcpServers;
+      }
+      fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+    } catch {
+      process.exit(11);
+    }
+  " "$config_file" >/dev/null 2>&1
   local rc=$?
   set -e
 
@@ -112,28 +108,25 @@ remove_prompt_block() {
     return 0
   fi
 
+  if [ -z "$NODE_BIN" ]; then
+    echo -e "  ${YELLOW}!${NC} Skipping $cli_name prompt cleanup because Node.js is not available"
+    return 0
+  fi
+
   set +e
-  python3 - "$file" <<'PY' >/dev/null 2>&1
-import re
-import sys
-
-path = sys.argv[1]
-
-with open(path, "r", encoding="utf-8") as f:
-    raw = f.read()
-
-pattern = re.compile(r"\n?<!-- buddy-companion -->.*?<!-- /buddy-companion -->\n?", re.S)
-updated, count = pattern.subn("\n", raw, count=1)
-
-if count == 0:
-    raise SystemExit(10)
-
-updated = re.sub(r"\n{3,}", "\n\n", updated).strip()
-
-with open(path, "w", encoding="utf-8") as f:
-    if updated:
-        f.write(updated + "\n")
-PY
+  "$NODE_BIN" -e "
+    const fs = require('fs');
+    const path = process.argv[1];
+    try {
+      const raw = fs.readFileSync(path, 'utf8');
+      const pattern = /\n?<!-- buddy-companion -->[\s\S]*?<!-- \/buddy-companion -->\n?/;
+      if (!pattern.test(raw)) process.exit(10);
+      const updated = raw.replace(pattern, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      fs.writeFileSync(path, updated ? updated + '\n' : '');
+    } catch {
+      process.exit(11);
+    }
+  " "$file" >/dev/null 2>&1
   local rc=$?
   set -e
 
