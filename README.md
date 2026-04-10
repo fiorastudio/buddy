@@ -25,6 +25,10 @@ Buddy is the open-source, **agent-agnostic** rescue mission for the terminal com
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+<p align="center">
+  <img src="demo/buddy-demo.svg" alt="Buddy Demo — Hatch, React, Pet" width="680">
+</p>
+
 ## 💔 The Problem
 
 People love the Claude Code `/buddy` feature. Like, *really* love it. So much that [they refuse to close their terminals](https://github.com/anthropics/claude-code/issues/45596) because they don't want to lose their companion. That's not a feature request -- that's separation anxiety.
