@@ -417,7 +417,7 @@ git clone https://github.com/fiorastudio/buddy.git
 cd buddy
 npm install
 npm run build
-npm test           # 243 tests
+npm test           # 261 tests
 npm start          # runs the MCP server on stdio
 ```
 
@@ -433,7 +433,7 @@ npm start          # runs the MCP server on stdio
 | **Species** | 21 | 18 |
 | **Install** | One-liner (curl/PowerShell) | git clone + npm |
 | **Windows** | ✅ | ❌ |
-| **Tests** | 243 | 140 |
+| **Tests** | 261 | 140 |
 
 **save-buddy** is a faithful preservation of the original Claude Code buddy experience. It's great for purists who want the exact original.
 
