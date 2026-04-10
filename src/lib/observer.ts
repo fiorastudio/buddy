@@ -1,0 +1,194 @@
+// src/lib/observer.ts
+
+import { type Companion, type StatName, STAT_NAMES } from './types.js';
+
+// --- Reaction States ---
+
+export const REACTION_STATES = ['impressed', 'concerned', 'amused', 'excited', 'thinking', 'neutral'] as const;
+export type ReactionState = (typeof REACTION_STATES)[number];
+
+export type ReactionResult = {
+  state: ReactionState;
+  eyeOverride: string;
+  indicator: string;
+};
+
+const REACTION_MAP: Record<ReactionState, { eye: string; indicator: string }> = {
+  impressed: { eye: '✦', indicator: '!' },
+  concerned: { eye: '×', indicator: '?' },
+  amused:    { eye: '°', indicator: '~' },
+  excited:   { eye: '◉', indicator: '!!' },
+  thinking:  { eye: '·', indicator: '...' },
+  neutral:   { eye: '',  indicator: '' },
+};
+
+const REACTION_KEYWORDS: Record<ReactionState, string[]> = {
+  impressed: ['refactor', 'clean', 'elegant', 'optimize', 'solid', 'well-structured', 'nice'],
+  concerned: ['bug', 'error', 'fail', 'crash', 'null', 'undefined', 'broken', 'wrong', 'issue'],
+  amused:    ['hack', 'workaround', 'TODO', 'FIXME', 'magic number', 'copy-paste', 'yolo'],
+  excited:   ['ship', 'deploy', 'release', 'merge', 'complete', 'done', 'pass', 'success'],
+  thinking:  ['complex', 'architect', 'design', 'pattern', 'refactor', 'restructure', 'trade-off'],
+  neutral:   [],
+};
+
+// --- Reaction Inference ---
+
+export function inferReaction(summary: string): ReactionResult {
+  const lower = summary.toLowerCase();
+  for (const state of REACTION_STATES) {
+    if (state === 'neutral') continue;
+    const keywords = REACTION_KEYWORDS[state];
+    if (keywords.some(kw => lower.includes(kw))) {
+      const mapped = REACTION_MAP[state];
+      return { state, eyeOverride: mapped.eye, indicator: mapped.indicator };
+    }
+  }
+  return { state: 'neutral', eyeOverride: '', indicator: '' };
+}
+
+// --- Peak/Dump Stat Helpers ---
+
+function getPeakStat(stats: Record<StatName, number>): StatName {
+  let peak: StatName = STAT_NAMES[0];
+  let max = 0;
+  for (const name of STAT_NAMES) {
+    if (stats[name] > max) { max = stats[name]; peak = name; }
+  }
+  return peak;
+}
+
+function getDumpStat(stats: Record<StatName, number>): StatName {
+  let dump: StatName = STAT_NAMES[0];
+  let min = 101;
+  for (const name of STAT_NAMES) {
+    if (stats[name] < min) { min = stats[name]; dump = name; }
+  }
+  return dump;
+}
+
+// --- Prompt Builder ---
+
+export type ObserverResult = {
+  companion: {
+    name: string;
+    species: string;
+    personality: string;
+    peakStat: StatName;
+    dumpStat: StatName;
+    stats: Record<StatName, number>;
+    rarity: string;
+    eye: string;
+  };
+  prompt: string;
+  mode: string;
+  summary: string;
+  reaction: ReactionResult;
+  templateFallback: string;
+};
+
+export function buildObserverPrompt(
+  companion: Companion,
+  mode: 'backseat' | 'skillcoach' | 'both',
+  summary: string,
+): ObserverResult {
+  const peakStat = getPeakStat(companion.stats);
+  const dumpStat = getDumpStat(companion.stats);
+  const reaction = inferReaction(summary);
+
+  let prompt: string;
+
+  if (mode === 'backseat') {
+    prompt = `You are ${companion.name}, a ${companion.personalityBio || companion.species + ' companion'}
+
+React to what just happened in 1-2 sentences. Stay in character.
+Your peak trait is ${peakStat} (${companion.stats[peakStat]}/100) — lean into it.
+Your dump stat is ${dumpStat} (${companion.stats[dumpStat]}/100) — it shows.
+
+Keep it short, fun, and personality-driven. No code suggestions.
+Use asterisks for actions like *tilts head* or *purrs*.
+
+What happened: ${summary}`;
+  } else if (mode === 'skillcoach') {
+    prompt = `You are ${companion.name}, a ${companion.personalityBio || companion.species + ' companion'}
+
+Give ONE specific, actionable code observation about what just happened.
+Your peak trait is ${peakStat} (${companion.stats[peakStat]}/100) — your feedback reflects this expertise.
+Your dump stat is ${dumpStat} (${companion.stats[dumpStat]}/100) — it colors how you deliver feedback.
+
+Rules:
+- One sentence of feedback, max two.
+- Be specific, not generic. Reference what actually happened.
+- Stay in character — a high-SNARK buddy is sassy, a high-WISDOM buddy is philosophical.
+- If nothing needs feedback, a brief encouraging reaction is fine.
+
+What happened: ${summary}`;
+  } else {
+    prompt = `You are ${companion.name}, a ${companion.personalityBio || companion.species + ' companion'}
+
+React to what just happened with:
+1. A brief in-character reaction (personality flavor, 1 sentence)
+2. If you spot something worth mentioning about the code, add ONE specific observation
+
+Your peak trait is ${peakStat} (${companion.stats[peakStat]}/100). Your dump stat is ${dumpStat} (${companion.stats[dumpStat]}/100).
+Stay in character. Keep total response under 3 sentences.
+
+What happened: ${summary}`;
+  }
+
+  const templateFallback = templateReaction(companion, mode, summary, reaction.state);
+
+  return {
+    companion: {
+      name: companion.name,
+      species: companion.species,
+      personality: companion.personalityBio,
+      peakStat,
+      dumpStat,
+      stats: companion.stats,
+      rarity: companion.rarity,
+      eye: companion.eye,
+    },
+    prompt,
+    mode,
+    summary,
+    reaction,
+    templateFallback,
+  };
+}
+
+// --- Template Fallback ---
+
+const BACKSEAT_TEMPLATES: Record<ReactionState, string[]> = {
+  impressed: ['{name} nods approvingly.', '*{name} wags tail*', 'Not bad at all.'],
+  concerned: ['{name} squints at that.', "*{name} tilts head* Hmm.", "That looks... intentional?"],
+  amused:    ['*{name} snickers*', '{name}: "Creative solution."', "That's one way to do it."],
+  excited:   ['{name} bounces!', 'Ship it!', '*{name} does a little dance*'],
+  thinking:  ['{name} strokes chin.', '*{name} stares into the void*', 'Interesting...'],
+  neutral:   ['*{name} watches quietly*', '{name} is here.', '*idle*'],
+};
+
+const SKILLCOACH_TEMPLATES: Record<ReactionState, string[]> = {
+  impressed: ['Solid pattern choice.', 'Clean separation of concerns.', 'Good structure.'],
+  concerned: ['Missing error handling there.', 'That function is doing too much.', 'No input validation?'],
+  amused:    ['That TODO is never getting done.', 'Magic number alert.', 'Copy-paste detected.'],
+  excited:   ['Ready for review.', 'Tests passing — nice.', 'Good commit granularity.'],
+  thinking:  ['Consider extracting that.', 'Might want a type guard here.', 'Watch the coupling.'],
+  neutral:   ['Looks reasonable.', 'Carry on.', 'Nothing to flag.'],
+};
+
+function templateReaction(
+  companion: Companion,
+  mode: string,
+  summary: string,
+  state: ReactionState,
+): string {
+  const pool = mode === 'skillcoach'
+    ? SKILLCOACH_TEMPLATES[state]
+    : mode === 'backseat'
+      ? BACKSEAT_TEMPLATES[state]
+      : [...BACKSEAT_TEMPLATES[state], ...SKILLCOACH_TEMPLATES[state]];
+
+  // Deterministic pick based on summary length
+  const idx = summary.length % pool.length;
+  return pool[idx].replaceAll('{name}', companion.name);
+}
