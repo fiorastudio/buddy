@@ -55,6 +55,7 @@ echo "  Building..."
 npm run build --quiet 2>/dev/null
 
 SERVER_PATH="$INSTALL_DIR/dist/server/index.js"
+CODEX_CONFIGURED=0
 
 # ── Auto-configure MCP for detected CLIs ──
 
@@ -156,11 +157,33 @@ EOJSON
   fi
 }
 
+configure_codex() {
+  if ! command -v codex &> /dev/null; then
+    return 0
+  fi
+
+  if codex mcp get buddy >/dev/null 2>&1; then
+    CODEX_CONFIGURED=1
+    echo -e "  ${GREEN}✓${NC} Codex CLI already configured"
+    return 0
+  fi
+
+  if codex mcp add buddy -- node "$SERVER_PATH" >/dev/null 2>&1; then
+    CODEX_CONFIGURED=1
+    echo -e "  ${GREEN}✓${NC} Codex CLI configured"
+    return 0
+  fi
+
+  echo -e "  ${YELLOW}!${NC} Codex CLI detected, but MCP registration failed"
+  return 1
+}
+
 echo ""
 echo "  Configuring MCP clients..."
 configure_claude_code
 configure_cursor
 configure_windsurf
+configure_codex
 
 # ── Inject buddy instructions into CLI prompt files ──
 
@@ -205,13 +228,21 @@ mkdir -p "$HOME/.codeium/windsurf/rules" 2>/dev/null
 inject_prompt "$HOME/.codeium/windsurf/rules/buddy.md" "Windsurf"
 
 # Codex CLI
-inject_prompt "$HOME/.codex/instructions.md" "Codex CLI"
+if [ "$CODEX_CONFIGURED" -eq 1 ]; then
+  inject_prompt "$HOME/.codex/instructions.md" "Codex CLI"
+else
+  echo -e "  ${YELLOW}!${NC} Skipping Codex CLI prompt injection because Buddy MCP is not configured"
+fi
 
 # Gemini CLI
 inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
 
 echo ""
-echo -e "${GREEN}  ✅ Buddy installed and configured!${NC}"
+if [ "$CODEX_CONFIGURED" -eq 1 ] || ! command -v codex &> /dev/null; then
+  echo -e "${GREEN}  ✅ Buddy installed and configured!${NC}"
+else
+  echo -e "${YELLOW}  ⚠ Buddy installed, but Codex CLI still needs MCP configuration.${NC}"
+fi
 echo ""
 echo -e "  Now open your AI terminal and say: ${GREEN}\"hatch a buddy\"${NC} 🥚"
 echo ""
