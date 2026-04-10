@@ -286,6 +286,10 @@ Your buddy reacts to what you're coding. After completing a task, call `buddy_ob
 
 The observer infers your buddy's reaction state (impressed, concerned, amused, excited, thinking) from keywords in your summary, then generates a prompt for your CLI's AI to respond in character. Uses your existing AI subscription -- zero extra cost.
 
+**Here's Nuzzlecap doing an actual code review:**
+
+![Nuzzlecap Code Review](demo/screenshots/code-review.png)
+
 ### 🎭 Rich Personality Bios
 
 Each buddy gets a unique personality paragraph based on their species, peak stat, and rarity:
@@ -345,12 +349,7 @@ Level progress shows on the status card:
 
 For Claude Code users, Buddy renders in your statusline alongside the HUD:
 
-```
- .-o-OO-o-.  Nuzzlecap (Mushroom) Lv.3
-(__________)  happy XP:157 ★★
-   |.  .|     · spreading spores
-   |____|  ~
-```
+![Nuzzlecap Statusline](demo/screenshots/statusline.png)
 
 Features:
 - **Random animations** -- blinks, wiggles, expressions change on every render
