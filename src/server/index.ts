@@ -12,7 +12,7 @@ import {
   generateName, calculateMood, getReaction,
   renderSprite,
 } from "../lib/species.js";
-import { type Companion, STAT_NAMES, RARITY_STARS, RARITY_ANSI, getPeakStat, getDumpStat } from "../lib/types.js";
+import { type Companion, STAT_NAMES, RARITY_STARS, RARITY_ANSI, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
 import { roll, statBar } from "../lib/rng.js";
 import { generateBio } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
@@ -482,12 +482,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     companion.level = xpResult.newLevel;
 
     // Write reaction state to status file (expires in 10s)
+    // Level-up overrides: sparkle eyes + special indicator
     writeBuddyStatus(companion, {
-      state: result.reaction.state,
-      text: result.templateFallback,
-      expires: Date.now() + 10_000,
-      eyeOverride: result.reaction.eyeOverride,
-      indicator: result.reaction.indicator,
+      state: xpResult.leveledUp ? 'excited' : result.reaction.state,
+      text: xpResult.leveledUp ? `✨ Level ${xpResult.newLevel}! ✨` : result.templateFallback,
+      expires: Date.now() + (xpResult.leveledUp ? 15_000 : 10_000),
+      eyeOverride: xpResult.leveledUp ? SPARKLE_EYE : result.reaction.eyeOverride,
+      indicator: xpResult.leveledUp ? '✨' : result.reaction.indicator,
     });
 
     return {
