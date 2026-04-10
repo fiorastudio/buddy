@@ -62,22 +62,33 @@ remove_json_buddy() {
   fi
 
   set +e
-  node -e "
-    const fs = require('fs');
-    const path = '$config_file';
-    try {
-      const raw = fs.readFileSync(path, 'utf8');
-      const config = JSON.parse(raw);
-      if (!config.mcpServers || !config.mcpServers.buddy) process.exit(10);
-      delete config.mcpServers.buddy;
-      if (config.mcpServers && Object.keys(config.mcpServers).length === 0) {
-        delete config.mcpServers;
-      }
-      fs.writeFileSync(path, JSON.stringify(config, null, 2));
-    } catch {
-      process.exit(11);
-    }
-  " >/dev/null 2>&1
+  python3 - "$config_file" <<'PY' >/dev/null 2>&1
+import json
+import sys
+
+path = sys.argv[1]
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+except Exception:
+    raise SystemExit(11)
+
+if not isinstance(config, dict):
+    raise SystemExit(11)
+
+mcp_servers = config.get("mcpServers")
+if not isinstance(mcp_servers, dict) or "buddy" not in mcp_servers:
+    raise SystemExit(10)
+
+del mcp_servers["buddy"]
+if not mcp_servers:
+    config.pop("mcpServers", None)
+
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+PY
   local rc=$?
   set -e
 
@@ -102,21 +113,27 @@ remove_prompt_block() {
   fi
 
   set +e
-  node -e "
-    const fs = require('fs');
-    const path = '$file';
-    const start = '<!-- buddy-companion -->';
-    const end = '<!-- /buddy-companion -->';
-    const raw = fs.readFileSync(path, 'utf8');
-    const startIdx = raw.indexOf(start);
-    const endIdx = raw.indexOf(end);
-    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) process.exit(10);
-    const afterEnd = endIdx + end.length;
-    const updated = (raw.slice(0, startIdx) + raw.slice(afterEnd))
-      .replace(/^\\s+|\\s+$/g, '')
-      .trim();
-    fs.writeFileSync(path, updated ? updated + '\\n' : '');
-  " >/dev/null 2>&1
+  python3 - "$file" <<'PY' >/dev/null 2>&1
+import re
+import sys
+
+path = sys.argv[1]
+
+with open(path, "r", encoding="utf-8") as f:
+    raw = f.read()
+
+pattern = re.compile(r"\n?<!-- buddy-companion -->.*?<!-- /buddy-companion -->\n?", re.S)
+updated, count = pattern.subn("\n", raw, count=1)
+
+if count == 0:
+    raise SystemExit(10)
+
+updated = re.sub(r"\n{3,}", "\n\n", updated).strip()
+
+with open(path, "w", encoding="utf-8") as f:
+    if updated:
+        f.write(updated + "\n")
+PY
   local rc=$?
   set -e
 
