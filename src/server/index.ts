@@ -16,6 +16,7 @@ import { type Companion, STAT_NAMES, RARITY_STARS, RARITY_ANSI, getPeakStat, get
 import { roll, statBar } from "../lib/rng.js";
 import { generateBio } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
+import { XP_REWARDS, levelFromXp, levelBar, levelProgress } from "../lib/leveling.js";
 import { writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -41,6 +42,22 @@ function loadCompanion(row: any, userIdOverride?: string): Companion | null {
     mood: row.mood,
     hatchedAt: new Date(row.created_at).getTime(),
   };
+}
+
+function awardXp(companionId: string, eventType: string): { newXp: number; newLevel: number; leveledUp: boolean } {
+  const xp = XP_REWARDS[eventType] || 1;
+  const id = Math.random().toString(36).substring(7);
+  db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)").run(id, companionId, eventType, xp);
+
+  // Get current total XP
+  const row = db.prepare("SELECT xp, level FROM companions WHERE id = ?").get(companionId) as any;
+  const newXp = (row?.xp || 0) + xp;
+  const newLevel = levelFromXp(newXp);
+  const leveledUp = newLevel > (row?.level || 1);
+
+  db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
+
+  return { newXp, newLevel, leveledUp };
 }
 
 function renderCard(companion: Companion): string {
@@ -86,6 +103,12 @@ function renderCard(companion: Companion): string {
     ...(bioLines.length > 0 ? [emptyLine, ...bioLines] : []),
     emptyLine,
     ...statLines.map(l => ln(l)),
+    emptyLine,
+    (() => {
+      const { level, currentXp, neededXp } = levelProgress(companion.xp);
+      const lvlLine = level >= 50 ? 'Lv.50 MAX' : `Lv.${level} · ${currentXp}/${neededXp} XP to next`;
+      return ln(lvlLine);
+    })(),
     bottomBorder,
   ].join('\n');
 }
@@ -453,6 +476,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const companion = loadCompanion(row, user_id)!;
     const result = buildObserverPrompt(companion, mode, summary);
 
+    // Award XP for observation
+    const xpResult = awardXp(row.id, 'observe');
+    companion.xp = xpResult.newXp;
+    companion.level = xpResult.newLevel;
+
     // Write reaction state to status file (expires in 10s)
     writeBuddyStatus(companion, {
       state: result.reaction.state,
@@ -473,6 +501,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             summary: result.summary,
             reaction: result.reaction,
             templateFallback: result.templateFallback,
+            ...(xpResult.leveledUp ? { levelUp: `${companion.name} leveled up to ${xpResult.newLevel}!` } : {}),
+            xpGained: XP_REWARDS['observe'],
+            levelInfo: levelBar(xpResult.newXp),
           }),
         },
       ],
@@ -486,6 +517,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     const companion = loadCompanion(row)!;
+    const xpResult = awardXp(row.id, 'session');
+    companion.xp = xpResult.newXp;
+    companion.level = xpResult.newLevel;
     const art = renderSprite(companion);
 
     const hearts = [
