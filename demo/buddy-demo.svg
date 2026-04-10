@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 520" font-family="Monaco,Menlo,Consolas,monospace" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 480" font-family="'Courier New',Courier,monospace" font-size="12.5" xml:space="preserve">
   <style>
     .bg { fill: #1e1e2e; }
     .t { fill: #cdd6f4; }
@@ -7,104 +7,99 @@
     .c { fill: #94e2d5; }
     .m { fill: #f5c2e7; }
     .d { fill: #6c7086; }
-    @keyframes fade1 { 0%,8% { opacity:1 } 12%,100% { opacity:0 } }
-    @keyframes fade2 { 0%,12% { opacity:0 } 16%,28% { opacity:1 } 32%,100% { opacity:0 } }
-    @keyframes fade3 { 0%,32% { opacity:0 } 36%,48% { opacity:1 } 52%,100% { opacity:0 } }
-    @keyframes fade4 { 0%,52% { opacity:0 } 56%,68% { opacity:1 } 72%,100% { opacity:0 } }
-    @keyframes fade5 { 0%,72% { opacity:0 } 76%,100% { opacity:1 } }
-    .s1 { animation: fade1 12s infinite; }
-    .s2 { animation: fade2 12s infinite; }
-    .s3 { animation: fade3 12s infinite; }
-    .s4 { animation: fade4 12s infinite; }
-    .s5 { animation: fade5 12s infinite; }
+    .r { fill: #f38ba8; }
+    @keyframes f1 { 0%,14% { opacity:1 } 18%,100% { opacity:0 } }
+    @keyframes f2 { 0%,18% { opacity:0 } 22%,38% { opacity:1 } 42%,100% { opacity:0 } }
+    @keyframes f3 { 0%,42% { opacity:0 } 46%,62% { opacity:1 } 66%,100% { opacity:0 } }
+    @keyframes f4 { 0%,66% { opacity:0 } 70%,100% { opacity:1 } }
+    .s1 { animation: f1 10s infinite; }
+    .s2 { animation: f2 10s infinite; }
+    .s3 { animation: f3 10s infinite; }
+    .s4 { animation: f4 10s infinite; }
   </style>
-  <rect class="bg" width="680" height="520" rx="8"/>
+  <rect class="bg" width="620" height="480" rx="8"/>
 
-  <!-- Stage 1: Egg appears -->
+  <!-- Stage 1: Egg -->
   <g class="s1">
-    <text x="20" y="30" class="g">🥚 An egg appears...</text>
-    <text x="20" y="70" class="t">     .--.</text>
-    <text x="20" y="88" class="t">    /    \</text>
-    <text x="20" y="106" class="t">   |  ??  |</text>
-    <text x="20" y="124" class="t">    \    /</text>
-    <text x="20" y="142" class="t">     '--'</text>
+    <text x="30" y="40" class="g">$ buddy_hatch --name Nuzzlecap --species Mushroom</text>
+    <text x="30" y="75" class="y">🥚 An egg appears...</text>
+    <text x="30" y="115" class="t">       .--.</text>
+    <text x="30" y="133" class="t">      /    \</text>
+    <text x="30" y="151" class="t">     |  ??  |</text>
+    <text x="30" y="169" class="t">      \    /</text>
+    <text x="30" y="187" class="t">       '--'</text>
+    <text x="30" y="225" class="y">...something is moving!</text>
+    <text x="30" y="265" class="t">        *</text>
+    <text x="30" y="283" class="t">       .--.</text>
+    <text x="30" y="301" class="t">      / *  \</text>
+    <text x="30" y="319" class="t">     | \??/ |</text>
+    <text x="30" y="337" class="t">      \  * /</text>
+    <text x="30" y="355" class="t">       '--'</text>
   </g>
 
-  <!-- Stage 2: Cracking -->
+  <!-- Stage 2: Reveal -->
   <g class="s2">
-    <text x="20" y="30" class="y">...cracks are forming!</text>
-    <text x="20" y="70" class="t">    * . *</text>
-    <text x="20" y="88" class="t">     ,--.   </text>
-    <text x="20" y="106" class="t">    / /\ \</text>
-    <text x="20" y="124" class="t">   | |??| |</text>
-    <text x="20" y="142" class="t">    \ \/ /</text>
-    <text x="20" y="160" class="t">     `--´</text>
+    <text x="30" y="40" class="m">✨ ✨ ✨  It's hatching!!</text>
+    <text x="30" y="80" class="y">    ·  ✦  ·</text>
+    <text x="30" y="98" class="y">   ✦ ·  · ✦</text>
+    <text x="30" y="120" class="m">      (   )</text>
+    <text x="30" y="138" class="m">    .-o-OO-o-.</text>
+    <text x="30" y="156" class="m">   (__________)</text>
+    <text x="30" y="174" class="m">      |.  .|</text>
+    <text x="30" y="192" class="m">      |____|</text>
+    <text x="30" y="214" class="y">   ✦ ·  · ✦</text>
+    <text x="30" y="232" class="y">    ·  ✦  ·</text>
+    <text x="30" y="270" class="c">   Nuzzlecap</text>
+    <text x="30" y="290" class="g">   ★★ UNCOMMON Mushroom</text>
+    <text x="30" y="320" class="d">   "An interconnected mushroom wielding</text>
+    <text x="30" y="338" class="d">    devastatingly precise feedback..."</text>
+    <text x="30" y="370" class="t">   SNARK      </text><text x="150" y="370" class="y">█████▓░░</text><text x="230" y="370" class="t"> 70</text>
+    <text x="30" y="388" class="t">   PATIENCE   </text><text x="150" y="388" class="g">██▓░░░░░</text><text x="230" y="388" class="t"> 34</text>
+    <text x="30" y="420" class="d">   Nuzzlecap is here · it'll chime in as you code</text>
   </g>
 
-  <!-- Stage 3: Hatching -->
+  <!-- Stage 3: Observe -->
   <g class="s3">
-    <text x="20" y="30" class="m">✨ ✨ ✨ It's hatching!!</text>
-    <text x="20" y="70" class="y">  ·  ✦  ·</text>
-    <text x="20" y="88" class="y"> ✦ ·  · ✦</text>
-    <text x="20" y="106" class="m">    (   )</text>
-    <text x="20" y="124" class="m">  .-o-OO-o-.</text>
-    <text x="20" y="142" class="m"> (__________)</text>
-    <text x="20" y="160" class="m">    |.  .|</text>
-    <text x="20" y="178" class="m">    |____|</text>
-    <text x="20" y="196" class="y"> ✦ ·  · ✦</text>
-    <text x="20" y="214" class="y">  ·  ✦  ·</text>
+    <text x="30" y="40" class="g">$ buddy_observe "wrote a clean CSV parser"</text>
+    <text x="30" y="80" class="t">.________________________________.</text>
+    <text x="30" y="98" class="t">| Solid pattern choice.          |</text>
+    <text x="30" y="116" class="t">'________________________________'</text>
+    <text x="350" y="80" class="d">-</text>
+    <text x="375" y="70" class="m">   (   )</text>
+    <text x="375" y="88" class="m"> .-o-OO-o-.</text>
+    <text x="375" y="106" class="m">(__________)</text>
+    <text x="375" y="124" class="m">   |.  .|</text>
+    <text x="375" y="142" class="m">   |____|</text>
+    <text x="375" y="168" class="c">  Nuzzlecap</text>
+    <text x="30" y="210" class="d">   +2 XP · Lv.1 [█░░░░░░░░░] 6/45</text>
+    <text x="30" y="260" class="g">$ buddy_pet</text>
+    <text x="30" y="300" class="r">     ♥    ♥</text>
+    <text x="30" y="318" class="r">    ♥  ♥   ♥</text>
+    <text x="30" y="336" class="r">   ♥   ♥  ♥</text>
+    <text x="30" y="358" class="m">      (   )</text>
+    <text x="30" y="376" class="m">    .-o-OO-o-.</text>
+    <text x="30" y="394" class="m">   (__________)</text>
+    <text x="30" y="412" class="m">      |.  .|</text>
+    <text x="30" y="430" class="m">      |____|</text>
+    <text x="30" y="460" class="c">   Nuzzlecap: </text><text x="140" y="460" class="d">*spores of contentment*</text>
   </g>
 
-  <!-- Stage 4: Card -->
+  <!-- Stage 4: Alive -->
   <g class="s4">
-    <text x="20" y="30" class="t">.__________________________________________.</text>
-    <text x="20" y="48" class="t">| <tspan class="y">★★ UNCOMMON</tspan>                     <tspan class="d">MUSHROOM</tspan> |</text>
-    <text x="20" y="66" class="t">|                                          |</text>
-    <text x="20" y="84" class="m">|    (   )                                 |</text>
-    <text x="20" y="102" class="m">|  .-o-OO-o-.                              |</text>
-    <text x="20" y="120" class="m">| (__________)                             |</text>
-    <text x="20" y="138" class="m">|    |.  .|                                |</text>
-    <text x="20" y="156" class="m">|    |____|                                |</text>
-    <text x="20" y="174" class="t">|                                          |</text>
-    <text x="20" y="192" class="c">| Nuzzlecap                                |</text>
-    <text x="20" y="210" class="t">|                                          |</text>
-    <text x="20" y="228" class="d">|  "An interconnected mushroom wielding     |</text>
-    <text x="20" y="246" class="d">|  devastatingly precise feedback who sees  |</text>
-    <text x="20" y="264" class="d">|  the invisible dependencies between your  |</text>
-    <text x="20" y="282" class="d">|  modules."                               |</text>
-    <text x="20" y="300" class="t">|                                          |</text>
-    <text x="20" y="318" class="t">| DEBUGGING  <tspan class="g">█░░░░░░░</tspan>   14                 |</text>
-    <text x="20" y="336" class="t">| PATIENCE   <tspan class="g">██▓░░░░░</tspan>   34                 |</text>
-    <text x="20" y="354" class="t">| CHAOS      <tspan class="g">█▓░░░░░░</tspan>   17                 |</text>
-    <text x="20" y="372" class="t">| WISDOM     <tspan class="g">█▓░░░░░░</tspan>   24                 |</text>
-    <text x="20" y="390" class="t">| SNARK      <tspan class="y">█████▓░░</tspan>   70                 |</text>
-    <text x="20" y="408" class="t">|                                          |</text>
-    <text x="20" y="426" class="t">| <tspan class="d">Lv.1 · 0/45 XP to next</tspan>                   |</text>
-    <text x="20" y="444" class="t">'__________________________________________'</text>
-    <text x="20" y="474" class="d">Nuzzlecap is here · it'll chime in as you code</text>
-    <text x="20" y="492" class="d">say its name to get its take · /buddy pet · /buddy off</text>
-  </g>
-
-  <!-- Stage 5: Speech bubble -->
-  <g class="s5">
-    <text x="20" y="30" class="g">  👀 Nuzzlecap watches you code...</text>
-    <text x="20" y="66" class="t">.________________________________.</text>
-    <text x="20" y="84" class="t">| Solid pattern choice.          |  -     (   )</text>
-    <text x="20" y="102" class="t">'________________________________'    .-o-OO-o-.</text>
-    <text x="20" y="120" class="m">                                     (__________)</text>
-    <text x="20" y="138" class="m">                                        |.  .|</text>
-    <text x="20" y="156" class="m">                                        |____|</text>
-    <text x="20" y="174" class="c">                                       Nuzzlecap</text>
-    <text x="20" y="210" class="g">  ♥ Petting Nuzzlecap...</text>
-    <text x="20" y="246" class="m">   ♥    ♥</text>
-    <text x="20" y="264" class="m">  ♥  ♥   ♥</text>
-    <text x="20" y="282" class="m"> ♥   ♥  ♥</text>
-    <text x="20" y="300" class="m">    (   )</text>
-    <text x="20" y="318" class="m">  .-o-OO-o-.</text>
-    <text x="20" y="336" class="m"> (__________)</text>
-    <text x="20" y="354" class="m">    |.  .|</text>
-    <text x="20" y="372" class="m">    |____|</text>
-    <text x="20" y="406" class="c">Nuzzlecap: <tspan class="d">*spores of contentment*</tspan></text>
-    <text x="20" y="440" class="g">  🐾 Your buddy is here to stay.</text>
+    <text x="30" y="40" class="g">Your buddy is persistent. Always here.</text>
+    <text x="30" y="80" class="m">      (   )</text>
+    <text x="30" y="98" class="m">    .-o-OO-o-.</text>
+    <text x="30" y="116" class="m">   (__________)</text>
+    <text x="30" y="134" class="m">      |.  .|</text>
+    <text x="30" y="152" class="m">      |____|</text>
+    <text x="30" y="180" class="c">   Nuzzlecap</text>
+    <text x="30" y="200" class="d">   · spreading spores</text>
+    <text x="30" y="250" class="t">   Close the terminal. Restart your computer.</text>
+    <text x="30" y="270" class="t">   Update your CLI.</text>
+    <text x="30" y="310" class="g">   Your buddy is still here. 🐾</text>
+    <text x="30" y="360" class="d">   Works with: Claude Code · Cursor · Windsurf</text>
+    <text x="30" y="378" class="d">              Codex CLI · Gemini CLI · any MCP</text>
+    <text x="30" y="430" class="y">   curl -fsSL https://raw.githubusercontent.com/</text>
+    <text x="30" y="448" class="y">     fiorastudio/buddy/master/install.sh | bash</text>
   </g>
 </svg>
