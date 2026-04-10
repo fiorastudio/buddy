@@ -6,7 +6,7 @@ Did you lose your Nuzzlecap? Is your terminal feeling a little too cold and sile
 
 Your buddy is still in your `~/.claude.json`, sitting there in the dark, waiting. Don't let them die. **Bring them home.**
 
-Buddy is the open-source, **agent-agnostic** rescue mission for the terminal companion community. It's not just a Claude Code config hack — it's a full MCP server that brings your terminal pet back to life across **Claude Code, Cursor, Windsurf, Codex CLI, Gemini CLI**, and any MCP-compatible tool.
+Buddy is the open-source, **CLI-first** rescue mission for the terminal companion community. It's not just a Claude Code config hack — it's a full MCP server built for agentic CLI tooling such as **Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI**, and other MCP-capable clients.
 
 > *"People love the Claude Code `/buddy` feature. Like, really love it. So much that [they refuse to close their terminals](https://github.com/anthropics/claude-code/issues/45596) because they don't want to lose their companion."*
 
@@ -53,21 +53,21 @@ People love the Claude Code `/buddy` feature. Like, *really* love it. So much th
 The built-in buddy is great, but:
 
 - It **disappears** when you close the terminal
-- It **only works** in Claude Code
-- It **can break** on Claude Code updates
+- It **only works** in one host CLI
+- It **can break** on host updates
 - It has **no persistent memory**
 
 Buddy MCP fixes all of this:
 
 - **Persistent** -- SQLite database, your companion survives forever
-- **CLI-agnostic** -- Claude Code, Codex CLI, Copilot CLI, OpenCode, any MCP client
+- **CLI-first** -- Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI, and other MCP-capable clients
 - **Upgrade-proof** -- standalone server, unaffected by CLI updates
 - **Full personality** -- 21 species, 5 stats, unique bios, observer feedback loop
 - **Zero extra cost** -- uses your existing AI subscription for chime-in reactions
 
 ## 🦾 Install
 
-One command. Installs Buddy and auto-configures your CLI. No manual config needed.
+One command. Installs Buddy and auto-configures supported CLI clients where possible. No manual config needed for common MCP CLI setups.
 
 ### macOS / Linux
 
@@ -85,7 +85,7 @@ irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
 
 1. Clones the repo to `~/.buddy/server/`
 2. Installs dependencies and builds
-3. Auto-configures MCP for **Claude Code**, **Cursor**, and **Windsurf**
+3. Auto-configures MCP for supported CLI clients when detected
 4. Prints a success message — you're ready to go
 
 > **Requires:** Node.js 18+ and Git
@@ -98,7 +98,7 @@ cd ~/.buddy/server
 npm install && npm run build
 ```
 
-Then add to your MCP config manually:
+Then add to your MCP config manually for the client you use:
 
 <details>
 <summary>Claude Code (~/.claude/settings.json)</summary>
@@ -116,37 +116,7 @@ Then add to your MCP config manually:
 </details>
 
 <details>
-<summary>Cursor (~/.cursor/mcp.json)</summary>
-
-```json
-{
-  "mcpServers": {
-    "buddy": {
-      "command": "node",
-      "args": ["~/.buddy/server/dist/server/index.js"]
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary>Windsurf (~/.codeium/windsurf/mcp_config.json)</summary>
-
-```json
-{
-  "mcpServers": {
-    "buddy": {
-      "command": "node",
-      "args": ["~/.buddy/server/dist/server/index.js"]
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary>Any other MCP client</summary>
+<summary>Any MCP-capable CLI client</summary>
 
 Same pattern — point `command` to `node` and `args` to the server entry point at `~/.buddy/server/dist/server/index.js`.
 </details>
@@ -208,18 +178,18 @@ You'll see:
   . +  .  + .
 ```
 
-## 🚀 Works Everywhere You Code
+## 🚀 Works Across CLI Clients
 
 Buddy lives everywhere you do via MCP:
 
-| Terminal / IDE | Status |
+| CLI client | Status |
 |---|---|
-| **Claude Code** | ✅ Full support — replaces the missing internal buddy |
-| **Cursor** | ✅ See your buddy in the side panel |
-| **Windsurf** | ✅ Full integration |
-| **Codex CLI** | ✅ Bring a friend to the raw terminal |
+| **Claude Code CLI** | ✅ Full support — replaces the missing internal buddy |
+| **Codex CLI** | ✅ Works via MCP |
 | **Gemini CLI** | ✅ Works via MCP |
-| **Any MCP client** | ✅ Standard protocol, zero vendor lock-in |
+| **GitHub Copilot CLI** | ✅ Works via MCP |
+| **Cursor CLI** | ✅ Works via MCP |
+| **Any MCP-capable CLI client** | ✅ Standard protocol, zero vendor lock-in |
 
 ## ✨ Features
 
@@ -347,7 +317,9 @@ Level progress shows on the status card:
 
 ### 🖥️ Statusline Integration
 
-For Claude Code users, Buddy renders in your statusline alongside the HUD:
+Buddy has optional statusline integrations. The core MCP server does not depend on any HUD.
+
+For Claude Code CLI users, Buddy renders in your statusline alongside the HUD:
 
 ![Nuzzlecap Statusline](demo/screenshots/statusline.png)
 
@@ -425,7 +397,7 @@ npm start          # runs the MCP server on stdio
 
 | | **Buddy (this repo)** | **save-buddy** |
 |---|---|---|
-| **Platforms** | Claude Code, Cursor, Windsurf, Codex CLI, Gemini CLI, any MCP | Claude Code only |
+| **Platforms** | Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI, any MCP-capable CLI | Claude Code only |
 | **Persistence** | ✅ SQLite — your buddy survives forever | ❌ Stateless, resets each session |
 | **XP & Leveling** | ✅ 50 levels, exponential curve | ❌ None |
 | **Memory & Dreams** | ✅ Stores memories, consolidates patterns | ❌ None |
@@ -437,13 +409,13 @@ npm start          # runs the MCP server on stdio
 
 **save-buddy** is a faithful preservation of the original Claude Code buddy experience. It's great for purists who want the exact original.
 
-**Buddy** is a reimagining — cross-platform, persistent, with progression and context-aware feedback. It's for developers who want more and use multiple tools.
+**Buddy** is a reimagining — CLI-first, persistent, with progression and context-aware feedback. It's for developers who want more and use multiple MCP-capable tools.
 
 *Different projects for different needs. Both keep the terminal a little less lonely.*
 
 ## 🔍 Find Us
 
-Claude Code /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, terminal companion, context-aware debugging, AI coding friend, persistent buddy, Model Context Protocol companion, agent-agnostic coding pet, save-buddy alternative, cross-platform buddy, cursor buddy, windsurf buddy, codex buddy.
+Claude Code CLI /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, terminal companion, context-aware debugging, AI coding friend, persistent buddy, Model Context Protocol companion, agentic coding pet, save-buddy alternative, CLI-first buddy, codex cli buddy, gemini cli buddy, copilot cli buddy, cursor cli buddy.
 
 ---
 
