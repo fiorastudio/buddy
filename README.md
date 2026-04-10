@@ -405,9 +405,29 @@ npm test           # 243 tests
 npm start          # runs the MCP server on stdio
 ```
 
+## 🆚 Why Buddy (vs save-buddy)?
+
+| | **Buddy (this repo)** | **save-buddy** |
+|---|---|---|
+| **Platforms** | Claude Code, Cursor, Windsurf, Codex CLI, Gemini CLI, any MCP | Claude Code only |
+| **Persistence** | ✅ SQLite — your buddy survives forever | ❌ Stateless, resets each session |
+| **XP & Leveling** | ✅ 50 levels, exponential curve | ❌ None |
+| **Memory & Dreams** | ✅ Stores memories, consolidates patterns | ❌ None |
+| **Observer Modes** | ✅ Backseat + Skillcoach + Both | ❌ None |
+| **Species** | 21 | 18 |
+| **Install** | One-liner (curl/PowerShell) | git clone + npm |
+| **Windows** | ✅ | ❌ |
+| **Tests** | 243 | 140 |
+
+**save-buddy** is a faithful preservation of the original Claude Code buddy experience. It's great for purists who want the exact original.
+
+**Buddy** is a reimagining — cross-platform, persistent, with progression and context-aware feedback. It's for developers who want more and use multiple tools.
+
+*Different projects for different needs. Both keep the terminal a little less lonely.*
+
 ## 🔍 Find Us
 
-Claude Code /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, terminal companion, context-aware debugging, AI coding friend, persistent buddy, Model Context Protocol companion, agent-agnostic coding pet.
+Claude Code /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, terminal companion, context-aware debugging, AI coding friend, persistent buddy, Model Context Protocol companion, agent-agnostic coding pet, save-buddy alternative, cross-platform buddy, cursor buddy, windsurf buddy, codex buddy.
 
 ---
 
