@@ -157,6 +157,34 @@ try {
         }
       }
 
+      // --- Micro-expression: append tiny ASCII particle to last art line ---
+      const now = Date.now();
+      const microTick = Math.floor(now / 2000); // changes every 2s
+      const microParticles = ['', '', '~', '', '*', '', '.', '', '♪', '', 'z', '', '·', '', ''];
+      const hasReactionActive = buddy.reaction_expires && now < buddy.reaction_expires;
+      if (!hasReactionActive) {
+        const particle = microParticles[microTick % microParticles.length];
+        if (particle && asciiLines.length > 0) {
+          asciiLines[asciiLines.length - 1] = asciiLines[asciiLines.length - 1].trimEnd() + ' ' + particle;
+        }
+      }
+
+      // --- Ambient activity text: rotates every 30s, species-aware ---
+      const speciesAmbient: Record<string, string[]> = {
+        'Void Cat': ['· judging your code', '· grooming silently', '· staring into void', '· plotting'],
+        'Rust Hound': ['· sniffing for bugs', '· guarding the repo', '· chasing a pointer', '· tail wagging'],
+        'Duck': ['· quacking softly', '· rubber ducking', '· waddling in place', '· preening feathers'],
+        'Goose': ['· eyeing your code', '· honk pending', '· standing guard', '· scheming'],
+        'Mushroom': ['· growing quietly', '· spreading spores', '· decomposing problems', '· cap shifting'],
+        'Robot': ['· scanning code', '· processing...', '· optimizing paths', '· beep boop'],
+        'Ghost': ['· haunting your logs', '· flickering softly', '· phasing through code', '· spectral hum'],
+        'Rabbit': ['· twitching nose', '· ready to critique', '· ear perked', '· thumping softly'],
+      };
+      const defaultAmbient = ['· watching your cursor', '· counting semicolons', '· sniffing the git log', '· dreaming of v2.0', '· vibing'];
+      const ambientPool = speciesAmbient[buddy.species] || defaultAmbient;
+      const ambientIdx = Math.floor(now / 30000) % ambientPool.length;
+      const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[ambientIdx]}${RESET}`;
+
       const shinyTag = buddy.is_shiny ? " ✨" : "";
       const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
       const stars = buddy.rarity_stars || '';
@@ -172,6 +200,8 @@ try {
           buddyRight.push(`${artPart} ${nameInfo}`);
         } else if (i === 1) {
           buddyRight.push(`${artPart} ${moodInfo}`);
+        } else if (i === 2 && ambientText) {
+          buddyRight.push(`${artPart} ${ambientText}`);
         } else {
           buddyRight.push(artPart);
         }
