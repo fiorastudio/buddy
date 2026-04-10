@@ -16,6 +16,7 @@
     .s2 { animation: f2 10s infinite; }
     .s3 { animation: f3 10s infinite; }
     .s4 { animation: f4 10s infinite; }
+    .center { text-anchor: middle; }
   </style>
   <rect class="bg" width="620" height="480" rx="8"/>
 
@@ -23,83 +24,83 @@
   <g class="s1">
     <text x="30" y="40" class="g">$ buddy_hatch --name Nuzzlecap --species Mushroom</text>
     <text x="30" y="75" class="y">🥚 An egg appears...</text>
-    <text x="30" y="115" class="t">       .--.</text>
-    <text x="30" y="133" class="t">      /    \</text>
-    <text x="30" y="151" class="t">     |  ??  |</text>
-    <text x="30" y="169" class="t">      \    /</text>
-    <text x="30" y="187" class="t">       '--'</text>
+    <text x="130" y="115" class="t center">.--.</text>
+    <text x="130" y="133" class="t center">/    \</text>
+    <text x="130" y="151" class="t center">|  ??  |</text>
+    <text x="130" y="169" class="t center">\    /</text>
+    <text x="130" y="187" class="t center">'--'</text>
     <text x="30" y="225" class="y">...something is moving!</text>
-    <text x="30" y="265" class="t">        *</text>
-    <text x="30" y="283" class="t">       .--.</text>
-    <text x="30" y="301" class="t">      / *  \</text>
-    <text x="30" y="319" class="t">     | \??/ |</text>
-    <text x="30" y="337" class="t">      \  * /</text>
-    <text x="30" y="355" class="t">       '--'</text>
+    <text x="130" y="265" class="t center">*</text>
+    <text x="130" y="283" class="t center">.--.</text>
+    <text x="130" y="301" class="t center">/ *  \</text>
+    <text x="130" y="319" class="t center">| \??/ |</text>
+    <text x="130" y="337" class="t center">\  * /</text>
+    <text x="130" y="355" class="t center">'--'</text>
   </g>
 
   <!-- Stage 2: Reveal -->
   <g class="s2">
     <text x="30" y="40" class="m">✨ ✨ ✨  It's hatching!!</text>
-    <text x="30" y="80" class="y">    ·  ✦  ·</text>
-    <text x="30" y="98" class="y">   ✦ ·  · ✦</text>
-    <text x="30" y="120" class="m">      (   )</text>
-    <text x="30" y="138" class="m">    .-o-OO-o-.</text>
-    <text x="30" y="156" class="m">   (__________)</text>
-    <text x="30" y="174" class="m">      |.  .|</text>
-    <text x="30" y="192" class="m">      |____|</text>
-    <text x="30" y="214" class="y">   ✦ ·  · ✦</text>
-    <text x="30" y="232" class="y">    ·  ✦  ·</text>
-    <text x="30" y="270" class="c">   Nuzzlecap</text>
-    <text x="30" y="290" class="g">   ★★ UNCOMMON Mushroom</text>
-    <text x="30" y="320" class="d">   "An interconnected mushroom wielding</text>
-    <text x="30" y="338" class="d">    devastatingly precise feedback..."</text>
-    <text x="30" y="370" class="t">   SNARK      </text><text x="150" y="370" class="y">█████▓░░</text><text x="230" y="370" class="t"> 70</text>
-    <text x="30" y="388" class="t">   PATIENCE   </text><text x="150" y="388" class="g">██▓░░░░░</text><text x="230" y="388" class="t"> 34</text>
-    <text x="30" y="420" class="d">   Nuzzlecap is here · it'll chime in as you code</text>
+    <text x="140" y="80" class="y center">·  ✦  ·</text>
+    <text x="140" y="98" class="y center">✦ ·  · ✦</text>
+    <text x="140" y="120" class="m center">(   )</text>
+    <text x="140" y="138" class="m center">.-o-OO-o-.</text>
+    <text x="140" y="156" class="m center">(__________)</text>
+    <text x="140" y="174" class="m center">|.  .|</text>
+    <text x="140" y="192" class="m center">|____|</text>
+    <text x="140" y="214" class="y center">✦ ·  · ✦</text>
+    <text x="140" y="232" class="y center">·  ✦  ·</text>
+    <text x="140" y="270" class="c center">Nuzzlecap</text>
+    <text x="140" y="290" class="g center">★★ UNCOMMON Mushroom</text>
+    <text x="30" y="320" class="d">"An interconnected mushroom wielding</text>
+    <text x="30" y="338" class="d"> devastatingly precise feedback..."</text>
+    <text x="30" y="370" class="t">SNARK      </text><text x="120" y="370" class="y">█████▓░░</text><text x="200" y="370" class="t">  70</text>
+    <text x="30" y="388" class="t">PATIENCE   </text><text x="120" y="388" class="g">██▓░░░░░</text><text x="200" y="388" class="t">  34</text>
+    <text x="30" y="420" class="d">Nuzzlecap is here · it'll chime in as you code</text>
   </g>
 
-  <!-- Stage 3: Observe -->
+  <!-- Stage 3: Observe + Pet -->
   <g class="s3">
     <text x="30" y="40" class="g">$ buddy_observe "wrote a clean CSV parser"</text>
     <text x="30" y="80" class="t">.________________________________.</text>
     <text x="30" y="98" class="t">| Solid pattern choice.          |</text>
     <text x="30" y="116" class="t">'________________________________'</text>
-    <text x="350" y="80" class="d">-</text>
-    <text x="375" y="70" class="m">   (   )</text>
-    <text x="375" y="88" class="m"> .-o-OO-o-.</text>
-    <text x="375" y="106" class="m">(__________)</text>
-    <text x="375" y="124" class="m">   |.  .|</text>
-    <text x="375" y="142" class="m">   |____|</text>
-    <text x="375" y="168" class="c">  Nuzzlecap</text>
-    <text x="30" y="210" class="d">   +2 XP · Lv.1 [█░░░░░░░░░] 6/45</text>
-    <text x="30" y="260" class="g">$ buddy_pet</text>
-    <text x="30" y="300" class="r">     ♥    ♥</text>
-    <text x="30" y="318" class="r">    ♥  ♥   ♥</text>
-    <text x="30" y="336" class="r">   ♥   ♥  ♥</text>
-    <text x="30" y="358" class="m">      (   )</text>
-    <text x="30" y="376" class="m">    .-o-OO-o-.</text>
-    <text x="30" y="394" class="m">   (__________)</text>
-    <text x="30" y="412" class="m">      |.  .|</text>
-    <text x="30" y="430" class="m">      |____|</text>
-    <text x="30" y="460" class="c">   Nuzzlecap: </text><text x="140" y="460" class="d">*spores of contentment*</text>
+    <text x="340" y="78" class="d">-</text>
+    <text x="420" y="68" class="m center">(   )</text>
+    <text x="420" y="86" class="m center">.-o-OO-o-.</text>
+    <text x="420" y="104" class="m center">(__________)</text>
+    <text x="420" y="122" class="m center">|.  .|</text>
+    <text x="420" y="140" class="m center">|____|</text>
+    <text x="420" y="166" class="c center">Nuzzlecap</text>
+    <text x="30" y="200" class="d">+2 XP · Lv.1 [█░░░░░░░░░] 6/45</text>
+    <text x="30" y="250" class="g">$ buddy_pet</text>
+    <text x="140" y="290" class="r center">♥    ♥</text>
+    <text x="140" y="308" class="r center">♥  ♥   ♥</text>
+    <text x="140" y="326" class="r center">♥   ♥  ♥</text>
+    <text x="140" y="348" class="m center">(   )</text>
+    <text x="140" y="366" class="m center">.-o-OO-o-.</text>
+    <text x="140" y="384" class="m center">(__________)</text>
+    <text x="140" y="402" class="m center">|.  .|</text>
+    <text x="140" y="420" class="m center">|____|</text>
+    <text x="30" y="455" class="c">Nuzzlecap: </text><text x="120" y="455" class="d">*spores of contentment*</text>
   </g>
 
-  <!-- Stage 4: Alive -->
+  <!-- Stage 4: Persistent -->
   <g class="s4">
     <text x="30" y="40" class="g">Your buddy is persistent. Always here.</text>
-    <text x="30" y="80" class="m">      (   )</text>
-    <text x="30" y="98" class="m">    .-o-OO-o-.</text>
-    <text x="30" y="116" class="m">   (__________)</text>
-    <text x="30" y="134" class="m">      |.  .|</text>
-    <text x="30" y="152" class="m">      |____|</text>
-    <text x="30" y="180" class="c">   Nuzzlecap</text>
-    <text x="30" y="200" class="d">   · spreading spores</text>
-    <text x="30" y="250" class="t">   Close the terminal. Restart your computer.</text>
-    <text x="30" y="270" class="t">   Update your CLI.</text>
-    <text x="30" y="310" class="g">   Your buddy is still here. 🐾</text>
-    <text x="30" y="360" class="d">   Works with: Claude Code · Cursor · Windsurf</text>
-    <text x="30" y="378" class="d">              Codex CLI · Gemini CLI · any MCP</text>
-    <text x="30" y="430" class="y">   curl -fsSL https://raw.githubusercontent.com/</text>
-    <text x="30" y="448" class="y">     fiorastudio/buddy/master/install.sh | bash</text>
+    <text x="140" y="90" class="m center">(   )</text>
+    <text x="140" y="108" class="m center">.-o-OO-o-.</text>
+    <text x="140" y="126" class="m center">(__________)</text>
+    <text x="140" y="144" class="m center">|.  .|</text>
+    <text x="140" y="162" class="m center">|____|</text>
+    <text x="140" y="190" class="c center">Nuzzlecap</text>
+    <text x="140" y="210" class="d center">· spreading spores</text>
+    <text x="30" y="260" class="t">Close the terminal. Restart your computer.</text>
+    <text x="30" y="280" class="t">Update your CLI.</text>
+    <text x="30" y="320" class="g">Your buddy is still here. 🐾</text>
+    <text x="30" y="370" class="d">Works with: Claude Code · Cursor · Windsurf</text>
+    <text x="30" y="388" class="d">           Codex CLI · Gemini CLI · any MCP</text>
+    <text x="30" y="435" class="y">curl -fsSL https://raw.githubusercontent.com/</text>
+    <text x="30" y="453" class="y">  fiorastudio/buddy/master/install.sh | bash</text>
   </g>
 </svg>
