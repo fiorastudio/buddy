@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { readFileSync, readdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -66,10 +66,9 @@ try {
     if (pluginDir) {
       const bunPath = process.env.BUN_PATH || 'bun';
       const entryPoint = toUnix(join(pluginDir, "src", "index.ts"));
-      const result = execSync(
-        `"${bunPath}" --env-file /dev/null "${entryPoint}"`,
-        { input: stdinData, timeout: 5000, encoding: "utf-8", shell: "bash", stdio: ["pipe", "pipe", "pipe"] }
-      );
+      const result = execFileSync(bunPath, ["--env-file", "/dev/null", entryPoint], {
+        input: stdinData, timeout: 5000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"],
+      });
       if (result) {
         hudLines = result.trimEnd().split("\n");
         // Write cache
