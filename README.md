@@ -346,6 +346,14 @@ Claude Code /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, t
 *Buddy is an open-source project dedicated to keeping the terminal a little less lonely.*
 *Your buddy shouldn't disappear when you close the terminal.*
 
+## 👤 Author
+
+**Steven Jieli Wu**
+
+- [LinkedIn](https://www.linkedin.com/in/jieliwu/)
+- [Portfolio](https://jwu-studio-portfolio.vercel.app/)
+- GitHub: [@fiorastudio](https://github.com/fiorastudio)
+
 ## License
 
-ISC
+MIT — see [LICENSE](LICENSE) for details.
