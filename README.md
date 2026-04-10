@@ -270,7 +270,7 @@ The observer infers your buddy's reaction state (impressed, concerned, amused, e
 | What data does Buddy store? | Buddy stores companion state locally in a SQLite database at `~/.buddy/buddy.db`. That includes things like your companion's name, species, level, XP, mood, and saved memories. |
 | Is this tied to one client? | No. Buddy is CLI-first and works through MCP, so it is meant for agentic CLI clients rather than one specific editor UI. Some integrations are better than others, and optional statusline/HUD features depend on what a host CLI exposes. |
 | Do I need Claude HUD or a patched Codex build to use Buddy? | No. Buddy core works without any HUD integration. Claude HUD-style statuslines and the experimental Codex footer are optional presentation layers, not core dependencies. |
-| Can I remove or reset Buddy later? | Yes. You can reset your companion with `buddy_respawn`, or remove Buddy entirely by deleting its MCP config entry and the local Buddy data directory if you no longer want the saved state. |
+| Can I remove or reset Buddy later? | Yes. You can reset your companion with `buddy_respawn`, or run the uninstall script to remove Buddy's MCP config, injected prompt instructions, and local files. On macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/uninstall.sh | bash`. On Windows PowerShell: `irm https://raw.githubusercontent.com/fiorastudio/buddy/master/uninstall.ps1 | iex`. |
 
 ### 🎭 Rich Personality Bios
 
