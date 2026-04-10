@@ -352,7 +352,7 @@ Claude Code /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, t
 
 - [LinkedIn](https://www.linkedin.com/in/jieliwu/)
 - [Portfolio](https://jwu-studio-portfolio.vercel.app/)
-- GitHub: [@fiorastudio](https://github.com/fiorastudio)
+- GitHub: [@terpjwu1](https://github.com/terpjwu1) · [@fiorastudio](https://github.com/fiorastudio)
 
 ## License
 
