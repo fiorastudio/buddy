@@ -407,29 +407,9 @@ npm test           # 243 tests
 npm start          # runs the MCP server on stdio
 ```
 
-## 🆚 Why Buddy (vs save-buddy)?
-
-| | **Buddy (this repo)** | **save-buddy** |
-|---|---|---|
-| **Platforms** | Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI, any MCP-capable CLI | Claude Code only |
-| **Persistence** | ✅ SQLite — your buddy survives forever | ❌ Stateless, resets each session |
-| **XP & Leveling** | ✅ 50 levels, exponential curve | ❌ None |
-| **Memory & Dreams** | ✅ Stores memories, consolidates patterns | ❌ None |
-| **Observer Modes** | ✅ Backseat + Skillcoach + Both | ❌ None |
-| **Species** | 21 | 18 |
-| **Install** | One-liner (curl/PowerShell) | git clone + npm |
-| **Windows** | ✅ | ❌ |
-| **Tests** | 243 | 140 |
-
-**save-buddy** is a faithful preservation of the original Claude Code buddy experience. It's great for purists who want the exact original.
-
-**Buddy** is a reimagining — CLI-first, persistent, with progression and context-aware feedback. It's for developers who want more and use multiple MCP-capable tools.
-
-*Different projects for different needs. Both keep the terminal a little less lonely.*
-
 ## 🔍 Find Us
 
-Claude Code CLI /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, terminal companion, context-aware debugging, AI coding friend, persistent buddy, Model Context Protocol companion, agentic coding pet, save-buddy alternative, CLI-first buddy, codex cli buddy, gemini cli buddy, copilot cli buddy, cursor cli buddy.
+Claude Code CLI /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, terminal companion, context-aware debugging, AI coding friend, persistent buddy, Model Context Protocol companion, agentic coding pet, CLI-first buddy, codex cli buddy, gemini cli buddy, copilot cli buddy, cursor cli buddy.
 
 ---
 
