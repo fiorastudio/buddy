@@ -34,13 +34,14 @@ function loadCompanion(row: any, userIdOverride?: string): Companion | null {
   if (!row) return null;
   const userId = userIdOverride || row.user_id || 'anon';
   const { bones } = roll(userId, SPECIES_LIST);
+  const xp = row.xp || 0;
   return {
     ...bones,
     species: row.species,
     name: row.name,
     personalityBio: row.personality_bio || '',
-    level: row.level,
-    xp: row.xp,
+    level: levelFromXp(xp),
+    xp,
     mood: row.mood,
     hatchedAt: new Date(row.created_at).getTime(),
   };
