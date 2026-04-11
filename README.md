@@ -1,4 +1,6 @@
-# Buddy: The '/buddy' Rescue Mission for your AI Terminal 🤖🐱
+# Buddy: The /buddy Rescue Mission for your AI Terminal
+
+> **The open source AI terminal companion built to rescue /buddy.** Persistent memory, XP evolution, and context-aware feedback.
 
 **Anthropic killed `/buddy`. We brought them home.**
 
