@@ -101,24 +101,26 @@ npm install && npm run build
 Then add to your MCP config manually for the client you use:
 
 <details>
-<summary>Claude Code (~/.claude/settings.json)</summary>
+<summary>Claude Code (~/.claude.json or $CLAUDE_CONFIG_DIR/.claude.json)</summary>
 
 ```json
 {
   "mcpServers": {
     "buddy": {
       "command": "node",
-      "args": ["~/.buddy/server/dist/server/index.js"]
+      "args": ["/absolute/path/to/.buddy/server/dist/server/index.js"]
     }
   }
 }
 ```
+
+Claude Code MCP servers belong in `~/.claude.json` by default. If you use `CLAUDE_CONFIG_DIR`, put the MCP config in `$CLAUDE_CONFIG_DIR/.claude.json`.
 </details>
 
 <details>
 <summary>Any MCP-capable CLI client</summary>
 
-Same pattern — point `command` to `node` and `args` to the server entry point at `~/.buddy/server/dist/server/index.js`.
+Same pattern — point `command` to `node` and `args` to the server entry point using an absolute path like `/absolute/path/to/.buddy/server/dist/server/index.js`. Do not use `~` inside JSON config values because many clients do not expand it.
 </details>
 
 ---

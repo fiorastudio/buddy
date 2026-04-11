@@ -23,7 +23,8 @@ import { writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
-const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
+const CLAUDE_STATE_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+const BUDDY_STATUS_PATH = join(CLAUDE_STATE_DIR, "buddy-status.json");
 let statusDirEnsured = false;
 const RESET = '\x1b[0m';
 
@@ -190,7 +191,7 @@ function hatchAnimation(companion: Companion): string {
 function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string }) {
   try {
     if (!statusDirEnsured) {
-      mkdirSync(join(homedir(), ".claude"), { recursive: true });
+      mkdirSync(CLAUDE_STATE_DIR, { recursive: true });
       statusDirEnsured = true;
     }
     writeFileSync(BUDDY_STATUS_PATH, JSON.stringify({

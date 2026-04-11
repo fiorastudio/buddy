@@ -9,6 +9,13 @@ set -e
 
 REPO="https://github.com/fiorastudio/buddy.git"
 INSTALL_DIR="$HOME/.buddy/server"
+if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+  CLAUDE_STATE_DIR="$CLAUDE_CONFIG_DIR"
+  CLAUDE_MCP_CONFIG="$CLAUDE_CONFIG_DIR/.claude.json"
+else
+  CLAUDE_STATE_DIR="$HOME/.claude"
+  CLAUDE_MCP_CONFIG="$HOME/.claude.json"
+fi
 BLUE='\033[0;34m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -60,8 +67,9 @@ CODEX_CONFIGURED=0
 # ── Auto-configure MCP for detected CLIs ──
 
 configure_claude_code() {
-  local config_file="$HOME/.claude/settings.json"
-  local config_dir="$HOME/.claude"
+  local config_file="$CLAUDE_MCP_CONFIG"
+  local config_dir
+  config_dir="$(dirname "$config_file")"
 
   mkdir -p "$config_dir"
 
@@ -220,7 +228,7 @@ inject_prompt() {
 
 echo ""
 echo "  Injecting buddy instructions..."
-inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
+inject_prompt "$CLAUDE_STATE_DIR/CLAUDE.md" "Claude Code"
 inject_prompt "$HOME/.cursorrules" "Cursor"
 
 # Windsurf uses a rules directory

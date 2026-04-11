@@ -13,7 +13,8 @@ const GREEN = "\x1b[32m";
 const MAGENTA = "\x1b[35m";
 
 const toUnix = (p: string) => p.replace(/\\/g, "/");
-const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
+const CLAUDE_STATE_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+const BUDDY_STATUS_PATH = join(CLAUDE_STATE_DIR, "buddy-status.json");
 const FRAME_INTERVAL_MS = 800;
 
 // True randomness for animation — each render picks a fresh random value.
@@ -29,7 +30,7 @@ try {
 } catch { /* no stdin */ }
 
 // Run claude-hud with caching (HUD data changes slowly, no need to re-run every render)
-const HUD_CACHE_PATH = join(homedir(), ".claude", "hud-cache.json");
+const HUD_CACHE_PATH = join(CLAUDE_STATE_DIR, "hud-cache.json");
 const HUD_CACHE_TTL = 10_000; // 10 seconds
 
 let hudLines: string[] = [];
@@ -45,8 +46,7 @@ try {
   } catch { /* no cache or stale */ }
 
   if (!cacheHit) {
-    const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    const cacheDir = join(configDir, "plugins", "cache", "claude-hud", "claude-hud");
+    const cacheDir = join(CLAUDE_STATE_DIR, "plugins", "cache", "claude-hud", "claude-hud");
 
     let pluginDir = "";
     try {

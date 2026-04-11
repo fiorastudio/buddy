@@ -7,6 +7,13 @@
 $ErrorActionPreference = "Stop"
 $REPO = "https://github.com/fiorastudio/buddy.git"
 $INSTALL_DIR = "$env:USERPROFILE\.buddy\server"
+if ($env:CLAUDE_CONFIG_DIR) {
+  $CLAUDE_STATE_DIR = $env:CLAUDE_CONFIG_DIR
+  $CLAUDE_MCP_CONFIG = Join-Path $env:CLAUDE_CONFIG_DIR ".claude.json"
+} else {
+  $CLAUDE_STATE_DIR = "$env:USERPROFILE\.claude"
+  $CLAUDE_MCP_CONFIG = "$env:USERPROFILE\.claude.json"
+}
 
 Write-Host ""
 Write-Host "  Buddy MCP Server Installer" -ForegroundColor Cyan
@@ -91,9 +98,9 @@ Write-Host ""
 Write-Host "  Configuring MCP clients..."
 
 # Claude Code
-$claudeDir = "$env:USERPROFILE\.claude"
-if (!(Test-Path $claudeDir)) { New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null }
-Add-BuddyToConfig "$claudeDir\settings.json" "Claude Code"
+$claudeMcpDir = Split-Path $CLAUDE_MCP_CONFIG -Parent
+if (!(Test-Path $claudeMcpDir)) { New-Item -ItemType Directory -Path $claudeMcpDir -Force | Out-Null }
+Add-BuddyToConfig $CLAUDE_MCP_CONFIG "Claude Code"
 
 # Cursor
 if (Test-Path "$env:USERPROFILE\.cursor") {
@@ -139,7 +146,7 @@ function Inject-BuddyPrompt($filePath, $cliName) {
 Write-Host ""
 Write-Host "  Injecting buddy instructions..."
 
-Inject-BuddyPrompt "$env:USERPROFILE\.claude\CLAUDE.md" "Claude Code"
+Inject-BuddyPrompt (Join-Path $CLAUDE_STATE_DIR "CLAUDE.md") "Claude Code"
 Inject-BuddyPrompt "$env:USERPROFILE\.cursorrules" "Cursor"
 
 $windsurfRulesDir = "$env:USERPROFILE\.codeium\windsurf\rules"
