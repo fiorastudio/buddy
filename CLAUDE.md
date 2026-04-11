@@ -93,6 +93,20 @@ Three modes: `backseat` (flavor), `skillcoach` (code feedback), `both` (default)
 
 Tests use real code, no mocks. Species tests dynamically iterate `SPECIES_LIST` so new species are auto-covered.
 
+## Git Workflow
+
+**Never push directly to master.** Always create a feature branch and submit a PR:
+
+```bash
+git checkout -b feat/my-change
+# make changes
+git add -A && git commit -m "feat: description"
+git push -u origin feat/my-change
+gh pr create --base master --title "feat: description"
+```
+
+Master has branch protection — PRs require review before merging.
+
 ## Scope
 
 CLI tools only (for now): Claude Code, Codex CLI, Gemini CLI, Cursor CLI, GitHub Copilot CLI, OpenCode CLI. IDE support (Cursor IDE, Windsurf IDE) is future work.
