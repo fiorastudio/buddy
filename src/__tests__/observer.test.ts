@@ -210,6 +210,12 @@ describe('buildObserverPrompt – templateFallback', () => {
     const result = buildObserverPrompt(mockCompanion, 'backseat', 'refactored the module'); // impressed
     expect(result.templateFallback).toContain('TestBuddy');
   });
+
+  it('both mode templateFallback combines flavor and observation', () => {
+    const result = buildObserverPrompt(mockCompanion, 'both', 'refactored the module'); // impressed
+    expect(result.templateFallback).toContain('TestBuddy');
+    expect(result.templateFallback).toContain('Solid pattern choice.');
+  });
 });
 
 // ---------------------------------------------------------------------------
