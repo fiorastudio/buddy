@@ -190,12 +190,25 @@ try {
       const speciesAmbient: Record<string, string[]> = {
         'Void Cat': ['· judging your code', '· grooming silently', '· staring into void', '· plotting'],
         'Rust Hound': ['· sniffing for bugs', '· guarding the repo', '· chasing a pointer', '· tail wagging'],
+        'Data Drake': ['· datastreams humming', '· hoarding clean packets', '· tracing old routes', '· smoke puff sync'],
+        'Log Golem': ['· stacking logs neatly', '· grinding through traces', '· carving a new block', '· standing guard'],
+        'Cache Crow': ['· caching shiny crumbs', '· stashing hot paths', '· pecking at temp files', '· circling the build'],
+        'Shell Turtle': ['· moving at shell speed', '· retreating into shell', '· polishing the armor', '· carrying the payload'],
         'Duck': ['· quacking softly', '· rubber ducking', '· waddling in place', '· preening feathers'],
         'Goose': ['· eyeing your code', '· honk pending', '· standing guard', '· scheming'],
+        'Blob': ['· wobbling cheerfully', '· merging into one', '· oozing around bugs', '· reshaping softly'],
+        'Octopus': ['· juggling eight thoughts', '· ink ready', '· flexing a tentacle', '· solving many problems'],
+        'Owl': ['· watching the details', '· blinking slowly', '· hunting for edge cases', '· perched on the stack'],
+        'Penguin': ['· sliding into the fix', '· tuxedo mode active', '· huddling for warmth', '· beak pointed at bugs'],
+        'Snail': ['· inching forward', '· carrying the commit', '· leaving a careful trail', '· patience fully loaded'],
         'Mushroom': ['· growing quietly', '· spreading spores', '· decomposing problems', '· cap shifting'],
+        'Axolotl': ['· gills fluttering', '· smiling at the waterline', '· regenerating a workaround', '· drifting gently'],
+        'Capybara': ['· soaking in the calm', '· sharing the workload', '· munching through tasks', '· radiating chill'],
+        'Cactus': ['· surviving on style', '· holding steady', '· blossoming under pressure', '· poking at bugs'],
         'Robot': ['· scanning code', '· processing...', '· optimizing paths', '· beep boop'],
         'Ghost': ['· haunting your logs', '· flickering softly', '· phasing through code', '· spectral hum'],
         'Rabbit': ['· twitching nose', '· ready to critique', '· ear perked', '· thumping softly'],
+        'Chonk': ['· nap mode engaged', '· rolling with it', '· sitting on the problem', '· puffed and pleased'],
       };
       const defaultAmbient = ['· watching your cursor', '· counting semicolons', '· sniffing the git log', '· dreaming of v2.0', '· vibing'];
       const ambientPool = speciesAmbient[buddy.species] || defaultAmbient;

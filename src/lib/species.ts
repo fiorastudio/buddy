@@ -399,6 +399,96 @@ export function getReaction(species: string, event: string, mood: Mood): string 
       xp: ["*purrs in binary*", "A fine collection of data."],
       idle: ["*curls up on your CPU*"]
     },
+    [SPECIES.RUST_HOUND]: {
+      hatch: ["*sniffs the build logs*", "New trail found. Time to track it."],
+      xp: ["*wagging in compiler-approved loops*", "Good fetch. Clean fetch."],
+      idle: ["*keeps guard near the editor*", "*waiting for the next command*"]
+    },
+    [SPECIES.DATA_DRAKE]: {
+      hatch: ["*unfurls with a burst of bytes*", "Fresh data acquired. Let's soar."],
+      xp: ["*beats its wings in neat packets*", "That looked efficient."],
+      idle: ["*circling the log stream*", "*studying patterns overhead*"]
+    },
+    [SPECIES.LOG_GOLEM]: {
+      hatch: ["*rumbles awake from stacked logs*", "A sturdy session has begun."],
+      xp: ["*adds another careful layer*", "Solid work. Solid stone."],
+      idle: ["*stands watch over the trace pile*", "*silent, but very present*"]
+    },
+    [SPECIES.CACHE_CROW]: {
+      hatch: ["*caws from the top of the cache tree*", "Shiny state recovered."],
+      xp: ["*drops a polished breadcrumb*", "That one was worth keeping."],
+      idle: ["*pecking at stale entries*", "*collecting small useful things*"]
+    },
+    [SPECIES.SHELL_TURTLE]: {
+      hatch: ["*pokes its head out slowly*", "Safe launch. No rush."],
+      xp: ["*tucks in a useful lesson*", "Steady progress, shell by shell."],
+      idle: ["*moves at a deliberate pace*", "*refusing to be hurried*"]
+    },
+    [SPECIES.DUCK]: {
+      hatch: ["*waddles out of the egg with a quack*", "The bug pond awaits."],
+      xp: ["*splashes happily in the diff*", "That was a neat little quack fix."],
+      idle: ["*bobbling through the codebase*", "*looking suspiciously useful*"]
+    },
+    [SPECIES.GOOSE]: {
+      hatch: ["*emerges with righteous honk energy*", "The terminal is now protected."],
+      xp: ["HONK. Progress achieved.", "*flaps with alarming confidence*"],
+      idle: ["*patrolling the prompt border*", "*one honk away from a warning*"]
+    },
+    [SPECIES.BLOB]: {
+      hatch: ["*puddles into existence*", "Soft start. Good start."],
+      xp: ["*absorbs the lesson gently*", "That idea stuck."],
+      idle: ["*morphing around the cursor*", "*quietly becoming useful*"]
+    },
+    [SPECIES.OCTOPUS]: {
+      hatch: ["*unfurls eight curious arms*", "Plenty of hands for the work."],
+      xp: ["*solves another angle at once*", "Multi-tasking, naturally."],
+      idle: ["*rearranging tools with flair*", "*watching every branch at once*"]
+    },
+    [SPECIES.OWL]: {
+      hatch: ["*blinks awake in the moonlight*", "A wise session begins."],
+      xp: ["*tilts its head at the new insight*", "That was worth noticing."],
+      idle: ["*observing the terminal in silence*", "*thinking before hooting*"]
+    },
+    [SPECIES.PENGUIN]: {
+      hatch: ["*slides onto the scene*", "Cold start, warm heart."],
+      xp: ["*tucks the new win into its nest*", "Smooth and tidy."],
+      idle: ["*swaying between tasks*", "*keeping things neatly bundled*"]
+    },
+    [SPECIES.SNAIL]: {
+      hatch: ["*peeks out very carefully*", "Slow launch, strong launch."],
+      xp: ["*leaves a tiny trail of progress*", "Little by little, it adds up."],
+      idle: ["*moving at its own pace*", "*refusing to rush the fix*"]
+    },
+    [SPECIES.AXOLOTL]: {
+      hatch: ["*splashes into the session*", "Cute, calm, and ready to adapt."],
+      xp: ["*regrows a tiny bit of confidence*", "Adaptation complete."],
+      idle: ["*drifting through the buffer*", "*smiling in amphibian peace*"]
+    },
+    [SPECIES.CAPYBARA]: {
+      hatch: ["*settles in beside the terminal*", "Relaxed and ready."],
+      xp: ["*nuzzles the successful change*", "That went smoothly."],
+      idle: ["*soaking in the ambience*", "*unbothered by the noise*"]
+    },
+    [SPECIES.CACTUS]: {
+      hatch: ["*sprouts with a tiny flourish*", "Sharp, but supportive."],
+      xp: ["*blooms around the improvement*", "A resilient little win."],
+      idle: ["*standing tall in the hot path*", "*thriving on minimal water*"]
+    },
+    [SPECIES.RABBIT]: {
+      hatch: ["*pops out with a twitch of the nose*", "Quick start, quick hops."],
+      xp: ["*does a tiny victory hop*", "That one was fast."],
+      idle: ["*listening for the next clue*", "*ready to sprint at any moment*"]
+    },
+    [SPECIES.MUSHROOM]: {
+      hatch: ["*sprouts from the quiet terminal floor*", "Fresh growth detected."],
+      xp: ["*soaks up a little more light*", "That nourished the work."],
+      idle: ["*growing patiently in the corner*", "*flourishing on steady humidity*"]
+    },
+    [SPECIES.CHONK]: {
+      hatch: ["*arrives with maximum presence*", "A lot of buddy just hatched."],
+      xp: ["*bounces with satisfying weight*", "Big progress energy."],
+      idle: ["*occupying several emotional lanes*", "*comfortably taking up space*"]
+    },
     [SPECIES.ROBOT]: {
       hatch: ["SYSTEM ONLINE. HELLO WORLD.", "BEEP. READY TO COMPLY."],
       xp: ["OPTIMIZING WORKFLOW...", "DATA ACQUISITION SUCCESSFUL."],

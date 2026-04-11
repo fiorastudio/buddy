@@ -157,7 +157,13 @@ const SKILLCOACH_TEMPLATES: Record<ReactionState, string[]> = {
 };
 
 export const BOTH_TEMPLATES: Record<ReactionState, string[]> = Object.fromEntries(
-  REACTION_STATES.map(s => [s, [...BACKSEAT_TEMPLATES[s], ...SKILLCOACH_TEMPLATES[s]]])
+  REACTION_STATES.map((state) => [
+    state,
+    BACKSEAT_TEMPLATES[state].map((reaction, idx) => {
+      const observation = SKILLCOACH_TEMPLATES[state][idx % SKILLCOACH_TEMPLATES[state].length];
+      return `${reaction.replaceAll('{name}', '{name}')} ${observation}`;
+    }),
+  ])
 ) as Record<ReactionState, string[]>;
 
 export function templateReaction(
