@@ -30,17 +30,25 @@ const RESET = '\x1b[0m';
 // Note: when species was overridden at hatch time, bones (rarity, stats, eye, hat)
 // still come from the deterministic roll. Only species name comes from DB.
 // This is intentional — bones are tied to the userId hash, not the species.
-function loadCompanion(row: any, userIdOverride?: string): Companion | null {
+export function loadCompanion(row: any, userIdOverride?: string): Companion | null {
   if (!row) return null;
   const userId = userIdOverride || row.user_id || 'anon';
   const { bones } = roll(userId, SPECIES_LIST);
+  const xp = row.xp || 0;
+  const derivedLevel = levelFromXp(xp);
+
+  // Self-healing: if DB level drifted from XP-derived level, fix it
+  if (row.id && row.level !== derivedLevel) {
+    db.prepare("UPDATE companions SET level = ? WHERE id = ?").run(derivedLevel, row.id);
+  }
+
   return {
     ...bones,
     species: row.species,
     name: row.name,
     personalityBio: row.personality_bio || '',
-    level: row.level,
-    xp: row.xp,
+    level: derivedLevel,
+    xp,
     mood: row.mood,
     hatchedAt: new Date(row.created_at).getTime(),
   };
@@ -703,7 +711,11 @@ async function main() {
   console.error("Buddy MCP Server running on stdio");
 }
 
-main().catch((error) => {
-  console.error("Fatal error in main():", error);
-  process.exit(1);
-});
+// Only auto-start when run directly (not when imported for testing)
+const isDirectRun = process.argv[1]?.endsWith('index.js') || process.argv[1]?.endsWith('index.ts');
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error("Fatal error in main():", error);
+    process.exit(1);
+  });
+}
