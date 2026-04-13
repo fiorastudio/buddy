@@ -9,7 +9,7 @@ import {
 import { initDb, db } from "../db/schema.js";
 import {
   SPECIES, SPECIES_LIST,
-  generateName, calculateMood, getReaction,
+  generateName, calculateMood, getReaction, type Mood,
   renderSprite,
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, RARITY_ANSI, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
@@ -54,7 +54,7 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
   };
 }
 
-function recalcMood(companionId: string, leveledUp: boolean): string {
+function recalcMood(companionId: string, leveledUp: boolean): Mood {
   if (leveledUp) return 'happy';
   const recentXp = db.prepare(
     "SELECT * FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')"
@@ -494,7 +494,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const newMood = recalcMood(row.id, xpResult.leveledUp);
     db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
 
-    const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp }, user_id)!;
+    const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, user_id)!;
     const result = buildObserverPrompt(companion, mode, summary);
 
     // Write reaction state to status file (expires in 10s)
@@ -547,7 +547,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const newMood = recalcMood(row.id, xpResult.leveledUp);
     db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
 
-    const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp })!;
+    const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel })!;
     const art = renderSprite(companion);
 
     const hearts = [
