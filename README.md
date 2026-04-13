@@ -415,6 +415,8 @@ Claude Code CLI /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescu
 *Buddy is an open-source project dedicated to keeping the terminal a little less lonely.*
 *Your buddy shouldn't disappear when you close the terminal.*
 
+*If Buddy made your terminal less lonely, consider starring.*
+
 ## 👤 Author
 
 **Steven Jieli Wu**

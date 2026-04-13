@@ -150,7 +150,8 @@ Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
 Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
 
 Write-Host ""
-Write-Host "  ✅ Buddy installed and configured!" -ForegroundColor Green
+Write-Host "  ✅ Buddy installed! Say `"hatch a buddy`" to start." -ForegroundColor Green
 Write-Host ""
-Write-Host "  Now open your AI terminal and say: `"hatch a buddy`"" -ForegroundColor Green
+Write-Host "  💛 If you like it, star the repo:"
+Write-Host "  github.com/fiorastudio/buddy"
 Write-Host ""

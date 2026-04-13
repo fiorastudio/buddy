@@ -239,10 +239,11 @@ inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
 
 echo ""
 if [ "$CODEX_CONFIGURED" -eq 1 ] || ! command -v codex &> /dev/null; then
-  echo -e "${GREEN}  ✅ Buddy installed and configured!${NC}"
+  echo -e "${GREEN}  ✅ Buddy installed! Say \"hatch a buddy\" to start.${NC}"
+  echo ""
+  echo -e "  💛 If you like it, star the repo:"
+  echo "  github.com/fiorastudio/buddy"
 else
   echo -e "${YELLOW}  ⚠ Buddy installed, but Codex CLI still needs MCP configuration.${NC}"
 fi
-echo ""
-echo -e "  Now open your AI terminal and say: ${GREEN}\"hatch a buddy\"${NC} 🥚"
 echo ""
