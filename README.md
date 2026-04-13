@@ -10,8 +10,6 @@ Your buddy is still in your `~/.claude.json`, sitting there in the dark, waiting
 
 Buddy is the open-source, **CLI-first** rescue mission for the terminal companion community. It's not just a Claude Code config hack — it's a full MCP server built for agentic CLI tooling such as **Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI**, and other MCP-capable clients.
 
-> *"People love the Claude Code `/buddy` feature. Like, really love it. So much that [they refuse to close their terminals](https://github.com/anthropics/claude-code/issues/45596) because they don't want to lose their companion."*
-
 ```
    .---.                  .____________________________________.
   /     \                 | Solid pattern choice. That module   |
