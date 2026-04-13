@@ -65,7 +65,6 @@ Buddy MCP fixes all of this:
 - **CLI-first** -- Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI, and other MCP-capable clients
 - **Upgrade-proof** -- standalone server, unaffected by CLI updates
 - **Full personality** -- 21 species, 5 stats, unique bios, observer feedback loop
-- **Zero extra cost** -- uses your existing AI subscription for chime-in reactions
 
 ## 🦾 Install
 
@@ -256,7 +255,7 @@ Your buddy reacts to what you're coding. After completing a task, call `buddy_ob
 **Both mode** -- personality + substance (default):
 > *tilts head* Hmm. Consider extracting that -- the coupling is getting tight.
 
-The observer infers your buddy's reaction state (impressed, concerned, amused, excited, thinking) from keywords in your summary, then generates a prompt for your CLI's AI to respond in character. Uses your existing AI subscription -- zero extra cost.
+The observer infers your buddy's reaction state (impressed, concerned, amused, excited, thinking) from keywords in your summary, then generates a prompt for your CLI's AI to respond in character.
 
 **Here's Nuzzlecap doing an actual code review:**
 
