@@ -54,7 +54,7 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
   };
 }
 
-function recalcMood(companionId: string, leveledUp: boolean): Mood {
+export function recalcMood(companionId: string, leveledUp: boolean): Mood {
   if (leveledUp) return 'happy';
   const recentXp = db.prepare(
     "SELECT * FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')"
