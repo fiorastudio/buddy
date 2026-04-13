@@ -535,10 +535,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: "No companion to pet! Use buddy_hatch first." }] };
     }
 
-    const companion = loadCompanion(row)!;
     const xpResult = awardXp(row.id, 'session');
-    companion.xp = xpResult.newXp;
-    companion.level = xpResult.newLevel;
+
+    // Recalculate mood — petting adds an interaction, so mood trends upward
+    const recentXp = db.prepare(
+      "SELECT * FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')"
+    ).all(row.id);
+    const recentMemories = db.prepare(
+      "SELECT count(*) as count FROM memories WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')"
+    ).get(row.id) as any;
+    const newMood = calculateMood(recentXp, recentMemories.count);
+    db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
+
+    const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp })!;
     const art = renderSprite(companion);
 
     const hearts = [
