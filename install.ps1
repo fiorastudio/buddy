@@ -154,7 +154,12 @@ if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USER
 } else {
   Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
 }
-Inject-BuddyPrompt "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
+# GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
+if (Test-Path "$env:USERPROFILE\.copilot\AGENTS.md") {
+  Inject-BuddyPrompt "$env:USERPROFILE\.copilot\AGENTS.md" "GitHub Copilot CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
+}
 
 Write-Host ""
 Write-Host "  ✅ Buddy installed! Say `"hatch a buddy`" to start." -ForegroundColor Green

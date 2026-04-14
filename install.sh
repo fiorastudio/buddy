@@ -246,8 +246,12 @@ else
   inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
 fi
 
-# GitHub Copilot CLI
-inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+# GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
+if [ -f "$HOME/.copilot/AGENTS.md" ]; then
+  inject_prompt "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
+else
+  inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+fi
 
 echo ""
 if [ "$CODEX_CONFIGURED" -eq 1 ] || ! command -v codex &> /dev/null; then
