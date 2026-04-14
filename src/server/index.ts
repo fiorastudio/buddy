@@ -7,6 +7,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { initDb, db } from "../db/schema.js";
+import { fileURLToPath } from "url";
 import {
   SPECIES, SPECIES_LIST,
   generateName, calculateMood, getReaction, type Mood,
@@ -19,9 +20,15 @@ import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble } from "../lib/bubble.js";
 import { XP_REWARDS, levelFromXp, levelBar, levelProgress } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
-import { writeFileSync, mkdirSync, unlinkSync } from "fs";
-import { join } from "path";
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { join, dirname } from "path";
 import { homedir } from "os";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const VERSION: string = JSON.parse(
+  readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8')
+).version;
 
 const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
 let statusDirEnsured = false;
@@ -239,7 +246,7 @@ function writeBuddyStatus(companion: Companion, reaction?: { state: string; text
 const server = new Server(
   {
     name: "buddy",
-    version: "1.0.0",
+    version: VERSION,
   },
   {
     capabilities: {
