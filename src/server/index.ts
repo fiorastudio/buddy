@@ -734,7 +734,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // species, stats, eye, hat, rarity as the old buddy.
       // If userID is missing, derive a stable seed from the imported name+bio
       // so the rescue is still deterministic (not random).
-      const userId = imported.userId || user_id || `imported-${imported.name}-${(imported.bio || '').slice(0, 50)}`;
+      const userId = user_id || imported.userId || `imported-${imported.name}-${(imported.bio || '').slice(0, 50)}`;
       const { bones } = roll(userId, SPECIES_LIST);
 
       // Species comes from deterministic roll (same as original CC behavior)
