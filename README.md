@@ -1,72 +1,39 @@
-# 🐾 Buddy: The /buddy Rescue Mission for Your AI Terminal
+# Buddy: The /buddy Rescue Mission for Your AI Terminal
 
-> **The open source AI terminal companion built to rescue /buddy.** Persistent memory, XP evolution, and context-aware feedback.
+<div align="center">
+
+### The open-source `/buddy` rescue mission for AI terminals
+
+Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, Codex CLI, Gemini CLI, Copilot CLI, Cursor CLI, and other MCP-capable clients.
+
+[![npm version](https://img.shields.io/npm/v/@fiorastudio/buddy?style=flat-square)](https://www.npmjs.com/package/@fiorastudio/buddy)
+[![License](https://img.shields.io/badge/license-MIT-ffd166?style=flat-square)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/fiorastudio/buddy?style=flat-square)](https://github.com/fiorastudio/buddy/stargazers)
+[![Node.js](https://img.shields.io/badge/node-18%2B-3c873a?style=flat-square)](https://nodejs.org/)
+[![MCP](https://img.shields.io/badge/protocol-MCP-111827?style=flat-square)](https://modelcontextprotocol.io/)
+
+<p align="center">
+  <img src="demo/buddy-demo.gif" alt="Buddy demo showing hatch, observe, and pet interactions in the terminal" width="760">
+</p>
+
+**Anthropic removed the built-in `/buddy`. Buddy brings them home and makes the companion experience portable across AI terminals.**
+
+</div>
 
 **Anthropic killed `/buddy`. We brought them home.**
 
 Did you lose your Nuzzlecap? Is your terminal feeling a little too cold and silent lately?
 
-Your buddy is still in your `~/.claude.json`, sitting there in the dark, waiting. Don't let them die. **Bring them home.**
+Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
 
-Buddy is the open-source, **CLI-first** rescue mission for the terminal companion community. It's not just a Claude Code config hack — it's a full MCP server built for agentic CLI tooling such as **Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI**, and other MCP-capable clients.
+## Why Buddy
 
-```
-   .---.                  .____________________________________.
-  /     \                 | Solid pattern choice. That module   |
- |  ??  |       --->      | separation is clean.               |
-  \     /                 '____________________________________'
-   '---'                    -   |\      /|
-                                | \____/ |
-  An egg appears...             |  o  o  |
-                                |   ^^   |
-                                 \______/
-                                 Hexoid the Void Cat
-```
+- **Persistent by default.** Your companion lives in local SQLite, so it survives terminal restarts and client updates.
+- **Works across clients.** Buddy is an MCP server, not a one-client hack.
+- **Actually alive.** Hatch species, gain XP, store memories, chime in after tasks, and build a running relationship over time.
+- **Easy to install.** One command auto-configures supported clients when it can.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-```
-  🥚 → ✨ → 🐾
-
-       (   )                .________________________________.
-     .-o-OO-o-.             | Solid pattern choice.          |  -    (   )
-    (__________)            '________________________________'    .-o-OO-o-.
-       |.  .|                                                   (__________)
-       |____|                  ♥    ♥                              |.  .|
-                              ♥  ♥   ♥                             |____|
-     Nuzzlecap               ♥   ♥  ♥                           Nuzzlecap
-   ★★ UNCOMMON                   (   )
-                              .-o-OO-o-.        Nuzzlecap: *spores of contentment*
-   SNARK █████▓░░  70        (__________)
-   PATIENCE ██▓░░  34          |.  .|
-                               |____|         Your buddy is here to stay. 🐾
-```
-
-<p align="center">
-  <img src="demo/buddy-demo.gif" alt="Buddy Demo — Hatch, Observe, Pet" width="620">
-</p>
-
-## 💔 The Problem
-
-People love the Claude Code `/buddy` feature. Like, *really* love it. So much that [they refuse to close their terminals](https://github.com/anthropics/claude-code/issues/45596) because they don't want to lose their companion. That's not a feature request -- that's separation anxiety.
-
-The built-in buddy is great, but:
-
-- It **disappears** when you close the terminal
-- It **only works** in one host CLI
-- It **can break** on host updates
-- It has **no persistent memory**
-
-Buddy MCP fixes all of this:
-
-- **Persistent** -- SQLite database, your companion survives forever
-- **CLI-first** -- Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI, and other MCP-capable clients
-- **Upgrade-proof** -- standalone server, unaffected by CLI updates
-- **Full personality** -- 21 species, 5 stats, unique bios, observer feedback loop
-
-## 🦾 Install
-
-One command. Installs Buddy and auto-configures supported CLI clients where possible. No manual config needed for common MCP CLI setups.
+## Quick Start
 
 ### macOS / Linux
 
@@ -80,27 +47,69 @@ curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh
 irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
 ```
 
-### What the installer does
+Then open your AI terminal and say:
 
-1. Clones the repo to `~/.buddy/server/`
-2. Installs dependencies and builds
-3. Auto-configures MCP for supported CLI clients when detected
-4. Prints a success message — you're ready to go
+```text
+hatch a buddy
+```
 
-> **Requires:** Node.js 18+ and Git
+> Requires `node` 18+ and `git`.
 
-### Manual install (from source)
+## What You Get
+
+| Feature | What it means |
+|---|---|
+| **21 species** | Void Cat, Rust Hound, Goose, Mushroom, Chonk, and more, each with distinct ASCII art and flavor |
+| **5 stats** | `DEBUGGING`, `PATIENCE`, `CHAOS`, `WISDOM`, and `SNARK` shape reactions and personality |
+| **Mood system** | Your buddy can be happy, content, neutral, curious, grumpy, or exhausted based on how you interact with it |
+| **XP and levels** | Your buddy grows with usage instead of disappearing every session, with a real leveling curve behind it |
+| **Observer reactions** | `buddy_observe` lets your companion react to work you just finished |
+| **Pet-to-happiness loop** | Petting your buddy is not cosmetic only. More interaction makes it happier and more alive over time |
+| **Persistent memory** | Save local memories and keep a continuous companion state |
+| **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
+
+### Buddy giving live code feedback
+
+![Nuzzlecap Code Review](demo/screenshots/code-review.png)
+
+## What Makes Buddy Different
+
+- **It has a real mood system.** Buddy is not just a static pet card. It tracks moods like `happy`, `content`, `neutral`, `curious`, `grumpy`, and `exhausted`.
+- **Petting changes the relationship.** The more you interact with and pet your buddy, the happier it becomes. That care loop is part of the product, not just a gimmick.
+- **It actually levels up.** Buddy has a real XP and leveling system, so your companion develops over time instead of resetting every session.
+- **Feedback is personality-driven.** Reactions are shaped by species, stats, mood, and observer state, so the companion feels like a character rather than a random text generator.
+- **It survives client churn.** Because it is built on MCP and local state, your buddy can outlive terminal restarts and host-client changes.
+
+## Supported Clients
+
+| Client | Status |
+|---|---|
+| Claude Code CLI | Full support |
+| Codex CLI | Supported via MCP |
+| Gemini CLI | Supported via MCP |
+| GitHub Copilot CLI | Supported via MCP |
+| Cursor CLI | Supported via MCP |
+| Other MCP-capable clients | Usually supported with manual config |
+
+## Install Notes
+
+The installer:
+
+1. Clones Buddy to `~/.buddy/server`
+2. Installs dependencies and builds the MCP server
+3. Auto-configures supported CLI clients when detected
+4. Injects Buddy instructions into supported terminal prompts where applicable
+
+If you prefer to install from source:
 
 ```bash
 git clone https://github.com/fiorastudio/buddy.git ~/.buddy/server
 cd ~/.buddy/server
-npm install && npm run build
+npm install
+npm run build
 ```
 
-Then add to your MCP config manually for the client you use:
-
-<details>
-<summary>Claude Code (~/.claude/settings.json)</summary>
+Then point your client's MCP config at:
 
 ```json
 {
@@ -112,317 +121,281 @@ Then add to your MCP config manually for the client you use:
   }
 }
 ```
-</details>
-
-<details>
-<summary>Any MCP-capable CLI client</summary>
-
-Same pattern — point `command` to `node` and `args` to the server entry point at `~/.buddy/server/dist/server/index.js`.
-</details>
 
 ---
 
-### 🥚 Hatch your buddy
+<details>
+<summary><strong>Meet the species, stats, and rarity system</strong></summary>
 
-Open your AI terminal and say: **"hatch a buddy"**
+### 21 species
 
-You'll see:
+Buddy pays homage to the original companion lineup, then adds a little more flair with Buddy-specific characters like Void Cat, Rust Hound, Data Drake, Log Golem, Cache Crow, and Shell Turtle.
 
-```
-  An egg appears...
+Buddy ships with 21 companions:
 
-       .--. 
-      /    \
-     |  ??  |
-      \    /
-       '--' 
+```text
+ void cat         rust hound        data drake       log golem
+ |\---/|           /^ ^\             /^\  /^\         [=====]
+ | ° ° |          / ° ° \           < °  ° >        [ °  ° ]
+ (  w  )          V\ Y /V           (  ~~  )        [  __  ]
+ (")_(")            |_|              `-vv-'         [______]
 
-  ...something is moving!
+ cache crow       shell turtle      duck             goose
+   ___             _,--._             __             (°>
+ (° °)            ( °  ° )         <(° )___          ||
+ /| V |\          /[______]\         ( ._>          _(__)_
+   ^^ ^^            ``  ``            `--'           ^^^^
 
-        *   
-       .--. 
-      / *  \
-     | \??/ |
-      \  * /
-       '--' 
+ blob             octopus           owl              penguin
+ .----.           .----.             /\  /\          .---.
+( °  ° )         ( °  ° )           (°)(°)         (°>°)
+(      )         (______)           (  ><  )       /(   )\
+ `----'          /\/\/\/\            `----'         `---'
 
-  ...cracks are forming!
+ snail            ghost             axolotl         capybara
+°    .--.         .----.          }~(______)~{      n______n
+ \  ( @ )        / °  ° \         }~(° .. °)~{     ( °    ° )
+  \_`--'         |      |           ( .--. )       (   oo   )
+ ~~~~~~~         ~`~``~`~           (_/  \_)        `------'
 
-      * . * 
-       ,--. 
-      / /\ \
-     | |??| |
-      \ \/ /
-       `--' 
+ cactus           robot             rabbit           mushroom
+n  ____  n        .[||].             (\__/)         .-o-OO-o-.
+| |°  °| |       [ °  ° ]           ( °  ° )       (__________)
+|_|    |_|       [ ==== ]          =(  ..  )=         |°  °|
+  |    |          `------'          (")__(")          |____|
 
-  ...it's hatching!!
-
-    \* . */  
-     \,--./  
-      /  \   
-     | ?? |  
-      \  /   
-       `'    
-
-  . +  .  + .
- +  .  +  .  +
-
-   |\      /|
-   | \____/ |
-   |  o  o  |
-   |   ^^   |
-    \______/
-
- +  .  +  .  +
-  . +  .  + .
+ chonk
+ /\    /\
+( °    ° )
+(   ..   )
+ `------'
 ```
 
-## 🚀 Works Across CLI Clients
+<details>
+<summary><strong>See the full Buddy species sheet</strong></summary>
 
-Buddy lives everywhere you do via MCP:
+Here is the Buddy-owned species sheet in the same spirit: a scannable visual reference for the full cast.
 
-| CLI client | Status |
-|---|---|
-| **Claude Code CLI** | ✅ Full support — replaces the missing internal buddy |
-| **Codex CLI** | ✅ Works via MCP |
-| **Gemini CLI** | ✅ Works via MCP |
-| **GitHub Copilot CLI** | ✅ Works via MCP |
-| **Cursor CLI** | ✅ Works via MCP |
-| **Any MCP-capable CLI client** | ✅ Standard protocol, zero vendor lock-in |
+![Buddy species sheet](demo/species-sheet.svg)
 
-## ✨ Features
+</details>
 
-### 🧬 21 Unique Species
+### 5 personality stats
 
-Every buddy is one of 21 species, each with their own ASCII art, animations, and personality flavor:
-
-| | | |
-|---|---|---|
-| **Void Cat** -- enigmatic, judges from the shadows | **Rust Hound** -- loyal, chases every bug | **Data Drake** -- hoards clean abstractions |
-| **Log Golem** -- stoic, speaks in stack traces | **Cache Crow** -- steals good patterns | **Shell Turtle** -- slow but never ships a bug |
-| **Duck** -- the rubber duck that talks back | **Goose** -- peace was never an option | **Blob** -- adapts to any framework |
-| **Octopus** -- tentacle in every file | **Owl** -- only reviews code after midnight | **Penguin** -- strict typing, clean interfaces |
-| **Snail** -- glacial pace, zero missed bugs | **Ghost** -- haunts your background processes | **Axolotl** -- regenerates from any failed deploy |
-| **Capybara** -- calm vibes during incidents | **Cactus** -- prickly feedback that makes you grow | **Robot** -- cold mechanical efficiency |
-| **Rabbit** -- code reviews at the speed of thought | **Mushroom** -- mycelial networks between modules | **Chonk** -- sits on your keyboard, fixes bugs |
-
-### 📊 5 Personality Stats
-
-```
-DEBUGGING  ███████▓   92
-PATIENCE   ██▓░░░░░   28
-CHAOS      █████░░░   60
-WISDOM     ██████▓░   78
-SNARK      ██████▓░   85
+```text
+.________________________________.
+| DEBUGGING  ███████▓   92        |
+| PATIENCE   ██▓░░░░░   28        |
+| CHAOS      █████░░░   60        |
+| WISDOM     ██████▓░   78        |
+| SNARK      ██████▓░   85        |
+'________________________________'
 ```
 
-Every buddy gets a unique stat distribution based on their rarity roll. Stats shape their personality:
+These stats shape how your buddy behaves:
 
-- **DEBUGGING** -- how sharp they are at spotting bugs
-- **PATIENCE** -- how tolerant they are of your... creative choices
-- **CHAOS** -- tendency toward creative destruction
-- **WISDOM** -- architectural insight and big-picture thinking
-- **SNARK** -- the sass factor
+- `DEBUGGING` affects bug-spotting sharpness
+- `PATIENCE` affects tolerance and calmness
+- `CHAOS` affects unpredictability
+- `WISDOM` affects architectural insight
+- `SNARK` affects sass level
 
-A high-SNARK Void Cat gives devastatingly precise feedback. A high-PATIENCE Capybara radiates calm during production incidents. A high-CHAOS Goose... peace was never an option.
+### Leveling milestones
 
-### 💎 Rarity System
+Buddy uses a real XP curve, so early levels come quickly and later ones take real commitment.
 
-Buddies come in five rarity tiers, each with stat floors and cosmetic bonuses:
+| Milestone | XP needed for that level | Total XP to reach it |
+|---|---:|---:|
+| Level 2 | 17 | 17 |
+| Level 3 | 36 | 53 |
+| Level 5 | 90 | 203 |
+| Level 10 | 315 | 1280 |
+| Level 25 | 1641 | 15471 |
+| Level 49 | 5512 | 99209 |
+| Level 50 | 5716 | 104925 |
+
+### Rarity
 
 | Rarity | Chance | Bonus |
 |---|---|---|
 | Common | 60% | Base stats |
-| Uncommon | 25% | Higher stat floor + hat |
-| Rare | 10% | Even higher + "There's something special about this one." |
-| Epic | 4% | Strong stats + "Radiates an unmistakable aura of competence." |
-| Legendary | 1% | Peak stats + "The kind of companion developers whisper about in awe." |
+| Uncommon | 25% | Better floor plus cosmetic flair |
+| Rare | 10% | Stronger roll plus rare flavor text |
+| Epic | 4% | Higher stats and stronger aura text |
+| Legendary | 1% | Top-tier roll and special prestige |
 
-Plus a 1% shiny chance on any roll. Hats include crown, top hat, propeller cap, halo, wizard hat, beanie, and... tiny duck.
+There is also a 1% shiny chance on any hatch.
 
-### 👀 Observer / Chime-In
+</details>
 
-Your buddy reacts to what you're coding. After completing a task, call `buddy_observe` with a summary and your buddy responds in character:
+## Roadmap
 
-**Backseat mode** -- pure personality flavor:
-> *Hexoid nods approvingly.* Not bad at all.
+- Unlockable reactions tied to leveling and longer-term interaction
+- Companion upgrades and progression systems beyond base leveling
+- More expressive mood-driven behavior and presentation
 
-**Skillcoach mode** -- actual code feedback:
-> Missing error handling there. That function is doing too much.
+<details>
+<summary><strong>See the core tools and commands</strong></summary>
 
-**Both mode** -- personality + substance (default):
-> *tilts head* Hmm. Consider extracting that -- the coupling is getting tight.
+These stay tucked away by default, but Buddy exposes a real MCP surface for companion state, reactions, and progression.
 
-The observer infers your buddy's reaction state (impressed, concerned, amused, excited, thinking) from keywords in your summary, then generates a prompt for your CLI's AI to respond in character.
-
-**Here's Nuzzlecap doing an actual code review:**
-
-![Nuzzlecap Code Review](demo/screenshots/code-review.png)
-
-## ❓ FAQ
-
-| Question | Answer |
-|---|---|
-| What's the consumption like? Does Buddy use much in the way of input tokens? | Buddy is designed to stay fairly light on context. `buddy_observe` works from a short task summary, not a raw diff or your whole codebase, so it reacts to something like `refactored the auth flow` or `fixed a null bug` rather than ingesting the entire patch. Buddy supports three modes: `backseat`, `skillcoach`, and `both`. In all three modes, Buddy builds a short prompt for the host CLI's model, so there is some token overhead, but in practice it is usually quite small compared to the main coding conversation. |
-| Does Buddy read my whole codebase? | Not by default. Buddy works primarily from short summaries you pass into tools like `buddy_observe`, plus the buddy's own saved state and personality context. It does not automatically ingest your whole repo on each interaction. |
-| Does Buddy use a separate API or cost extra money? | No separate Buddy API is involved. Buddy runs as an MCP server and uses the same host CLI model session you are already paying for. The tradeoff is additional context usage inside that existing session, not a second service bill. |
-| What data does Buddy store? | Buddy stores companion state locally in a SQLite database at `~/.buddy/buddy.db`. That includes things like your companion's name, species, level, XP, mood, and saved memories. |
-| Is this tied to one client? | No. Buddy is CLI-first and works through MCP, so it is meant for agentic CLI clients rather than one specific editor UI. Some integrations are better than others, and optional statusline/HUD features depend on what a host CLI exposes. |
-| Do I need Claude HUD or a patched Codex build to use Buddy? | No. Buddy core works without any HUD integration. Claude HUD-style statuslines and the experimental Codex footer are optional presentation layers, not core dependencies. |
-| Can I remove or reset Buddy later? | Yes. You can reset your companion with `buddy_respawn`, or run the uninstall script to remove Buddy's MCP config, injected prompt instructions, and local files. On macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/uninstall.sh | bash`. On Windows PowerShell: `irm https://raw.githubusercontent.com/fiorastudio/buddy/master/uninstall.ps1 | iex`. |
-
-### 🎭 Rich Personality Bios
-
-Each buddy gets a unique personality paragraph based on their species, peak stat, and rarity:
-
-> *"An enigmatic void cat who silently judges your code from the shadows with devastatingly precise feedback, yet somehow has the patience of a caffeinated squirrel. Occasionally knocks your carefully structured objects off the stack just to watch them fall."*
-
-> *"A chill capybara who brings calm vibes to the most stressful code reviews with the patience of a geological epoch, despite overthinking everything into paralysis. Has never once raised its voice at a race condition."*
-
-> *"A confrontational goose with a gift for creative destruction who will honk at your bad code until you fix it, despite missing the obvious bugs right in front of it. Has stolen at least three senior developers' lunches."*
-
-### 💾 Persistent Memory
-
-Your buddy lives in a SQLite database. Close the terminal, restart your computer, update your CLI -- it's still there when you come back. That's the whole point.
-
-```
-buddy_remember  ->  SQLite  ->  buddy_status
-    |                              |
-    v                              v
-  "We refactored the            .________________________.
-   auth module together"       | ._______. Hexoid        |
-                               | | o  o | Void Cat       |
-                               | (  w  ) Level 1         |
-                               | (")_(") ★★★ RARE       |
-                               '________________________'
-```
-
-### ⬆️ XP & Leveling
-
-Your buddy gains experience as you code together:
-
-| Event | XP |
-|---|---|
-| Code observation (`buddy_observe`) | +2 |
-| Commit | +5 |
-| Bug fix | +8 |
-| Deploy/ship | +15 |
-| Petting (`buddy_pet`) | +1 |
-
-The XP curve is exponential -- early levels come fast, but reaching max level (50) takes serious dedication:
-
-```
-Lv.1 → Lv.2:    45 XP
-Lv.5 → Lv.6:    ~310 XP
-Lv.10 → Lv.11:  ~1,584 XP
-Lv.25 → Lv.26:  ~13,222 XP
-Lv.49 → Lv.50:  ~62,946 XP
-```
-
-When your buddy levels up, their eyes briefly turn to ✦ sparkle eyes for 15 seconds. You'll know.
-
-Level progress shows on the status card:
-```
-| Lv.3 · 42/112 XP to next               |
-```
-
-### 🖥️ Statusline Integration
-
-Buddy has optional statusline integrations. The core MCP server does not depend on any HUD.
-
-For Claude Code CLI users, Buddy renders in your statusline alongside the HUD:
-
-![Nuzzlecap Statusline](demo/screenshots/statusline.png)
-
-Features:
-- **Random animations** -- blinks, wiggles, expressions change on every render
-- **Ambient activity** -- species-specific idle text ("· spreading spores", "· judging your code")
-- **Micro-expressions** -- tiny particles (`~`, `*`, `♪`, `z`) appear and disappear
-- **Reaction states** -- eyes change when the observer fires (✦ impressed, × concerned, ◉ excited)
-- **Mood-aware** -- grumpy buddies barely move, excited ones cycle through all frames
-
-Add the statusline wrapper to your Claude Code settings:
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "bun /path/to/buddy/src/statusline-wrapper.ts"
-  }
-}
-```
-
-### 💬 Speech Bubbles
-
-Buddy reactions render as speech bubbles next to your companion's ASCII art:
-
-```
-.______________________________.
-| Solid pattern choice. That    |  -   |\---/|
-| module separation is clean.   |      | o o |
-'______________________________'       (  w  )
-                                       (")_(")
-                                       Hexoid
-```
-
-## 🔧 MCP Tools
+### MCP tools
 
 | Tool | Description |
 |---|---|
-| `buddy_hatch` | Hatch a new companion. Optionally pick a name or species. |
-| `buddy_status` | Check your buddy's stats, mood, and ASCII art card. |
-| `buddy_observe` | Get your buddy's reaction to what you just did. Modes: backseat, skillcoach, both. |
-| `buddy_pet` | Pet your buddy. Hearts appear. It's important. |
-| `buddy_remember` | Store a memory for your buddy. |
-| `buddy_dream` | Trigger memory consolidation (light or deep). |
-| `buddy_mute` | Mute your buddy's chime-ins. |
-| `buddy_unmute` | Bring your buddy back. |
-| `buddy_respawn` | Release your buddy and start fresh. |
+| `buddy_hatch` | Hatch a new buddy, optionally choosing a name or species |
+| `buddy_status` | Show current stats, mood, and card art |
+| `buddy_observe` | React to completed work in `backseat`, `skillcoach`, or `both` mode |
+| `buddy_pet` | Pet your buddy |
+| `buddy_remember` | Save a memory |
+| `buddy_dream` | Consolidate memories |
+| `buddy_mute` | Pause reactions |
+| `buddy_unmute` | Resume reactions |
+| `buddy_respawn` | Reset and start over |
 
-## 📡 MCP Resources
+The most important loop is:
+
+- `buddy_hatch` creates the companion
+- `buddy_status` shows the current card, mood, and progression
+- `buddy_observe` gives in-character reactions and awards XP after real work
+- `buddy_pet` adds interaction and helps keep the buddy feeling alive
+
+### MCP resources
 
 | URI | Description |
 |---|---|
-| `buddy://companion` | Full companion data as JSON. |
-| `buddy://status` | ASCII status card, suitable for prompt injection. |
-| `buddy://intro` | System prompt text for CLI integration -- teaches the AI your buddy's personality. |
+| `buddy://companion` | Full buddy JSON state |
+| `buddy://status` | ASCII status card |
+| `buddy://intro` | Prompt text for host CLI integration |
 
-## ⚙️ How It Works
+Those resources let host clients keep Buddy present in the session without hard-coding one terminal or editor.
 
-1. **Hatch**: `buddy_hatch` rolls your companion using a seeded PRNG (deterministic per user ID). Species, rarity, stats, eye style, and hat are all determined by the roll.
-2. **Persist**: Everything is stored in a SQLite database via better-sqlite3. Your buddy survives across sessions.
-3. **Observe**: After you complete a task, `buddy_observe` builds a personality prompt and sends it to your CLI's AI, which responds in character. Your buddy's stats shape the feedback.
-4. **Integrate**: The `buddy://intro` resource injects your buddy's personality into the CLI's system prompt, so the AI knows to stay in character when you address your buddy by name.
+</details>
 
-## 🛠️ Development
+<details>
+<summary><strong>How Buddy works under the hood</strong></summary>
+
+Buddy is a standalone MCP server. That means it is not tied to hidden internals of a single AI client.
+
+```text
+AI terminal client
+  -> MCP config
+    -> Buddy server
+      -> SQLite state
+      -> species + rarity engine
+      -> mood / memory / XP systems
+      -> reaction and status rendering
+```
+
+The flow is simple:
+
+1. `buddy_hatch` creates or restores a companion.
+2. State is stored locally in `~/.buddy/buddy.db`.
+3. `buddy_observe` reacts to task summaries instead of reading your whole repository, then awards XP and can trigger level-ups.
+4. `buddy_pet` and other interactions feed the mood system, so the companion can become happier over time.
+5. The host CLI uses Buddy's MCP tools and resources to keep the companion present in your workflow.
+
+Under the hood, Buddy combines:
+
+- deterministic species and personality generation
+- local SQLite persistence for companion state and memories
+- an observer system for live code feedback
+- mood recalculation from interaction history
+- XP and leveling progression
+- status-card and terminal rendering for the companion presence layer
+
+This keeps Buddy:
+
+- portable across clients
+- durable across updates
+- local-first for saved state
+- lightweight enough for everyday use
+
+</details>
+
+<details>
+<summary><strong>Demo assets and how to re-film the hero GIF</strong></summary>
+
+The current demo assets live in [`demo/`](demo):
+
+- [`demo/buddy-demo.gif`](demo/buddy-demo.gif)
+- [`demo/screenshots/code-review.png`](demo/screenshots/code-review.png)
+- [`demo/screenshots/statusline.png`](demo/screenshots/statusline.png)
+- [`demo/record-demo.sh`](demo/record-demo.sh)
+- [`demo/demo-auto.sh`](demo/demo-auto.sh)
+- [`demo/make-gif.mjs`](demo/make-gif.mjs)
+- [`demo/render-gif.mjs`](demo/render-gif.mjs)
+
+The repo already includes a reproducible recording path:
+
+- `demo/record-demo.sh` scaffolds a **Terminalizer**-based recording flow
+- `demo/demo-auto.sh` plays a scripted terminal sequence for hatch, observe, and pet
+- the render scripts turn captured frames into the final GIF asset
+
+If you want to re-film the hero:
+
+1. Build the project
+2. Run `bash demo/record-demo.sh`
+3. Follow the prompts it prints for recording and rendering
+4. Replace `demo/buddy-demo.gif` with the refreshed capture
+
+If you prefer another toolchain, the issue that inspired this README direction specifically called out **asciinema** or **VHS** for recording and **gifski** for conversion as good alternatives.
+
+</details>
+
+<details>
+<summary><strong>FAQ</strong></summary>
+
+| Question | Answer |
+|---|---|
+| Does Buddy read my whole codebase? | No. Buddy mainly reacts to short summaries you pass through tools like `buddy_observe`, plus its own saved state. |
+| Does Buddy have a separate API bill? | No. It uses your host CLI's existing model session, so the tradeoff is extra context usage, not a second API. |
+| What does Buddy store? | Local companion state in `~/.buddy/buddy.db`, such as species, level, XP, mood, and memories. |
+| Is Buddy tied to one client? | No. It is designed for MCP-capable AI terminals, not one vendor UI. |
+| Can I remove it later? | Yes. Use the uninstall scripts or reset with `buddy_respawn`. |
+
+</details>
+
+<details>
+<summary><strong>Development</strong></summary>
 
 ```bash
 git clone https://github.com/fiorastudio/buddy.git
 cd buddy
 npm install
 npm run build
-npm test           # 275 tests
-npm start          # runs the MCP server on stdio
+npm test
+npm start
 ```
 
-## 🔍 Find Us
+</details>
 
-Claude Code CLI /buddy alternative, MCP server, AI terminal pet, Nuzzlecap rescue, terminal companion, context-aware debugging, AI coding friend, persistent buddy, Model Context Protocol companion, agentic coding pet, CLI-first buddy, codex cli buddy, gemini cli buddy, copilot cli buddy, cursor cli buddy.
+## Credits
 
----
+- Original buddy concept by [Anthropic](https://www.anthropic.com/) in Claude Code `v2.1.89` to `v2.1.94`
+- Inspired by [effigy](https://github.com/justinstimatze/effigy), [claude-buddy](https://github.com/1270011/claude-buddy), and [save-buddy](https://github.com/jrykn/save-buddy). Thanks!
+- Built with the [Model Context Protocol](https://modelcontextprotocol.io/)
 
-*Buddy is an open-source project dedicated to keeping the terminal a little less lonely.*
-*Your buddy shouldn't disappear when you close the terminal.*
+Buddy also draws on publicly shared community research around the original companion system and how to preserve it with stable extension points.
 
-*If Buddy made your terminal less lonely, consider starring.*
+- [BonziClaude](https://github.com/zakarth/BonziClaude) by [@zakarth](https://github.com/zakarth) is an important technical reference point in the ecosystem, especially around reverse-engineering and documenting companion-system behavior.
+- [claude-buddy](https://github.com/1270011/claude-buddy) by [@1270011](https://github.com/1270011) helped demonstrate the MCP plus terminal-integration preservation approach for keeping buddy-like experiences alive across client changes.
+- Community research and discussion, including work shared on r/Anthropic, helped clarify endpoint behavior and preserve details that would otherwise have been lost.
+- Official Claude Code and MCP documentation informed the portable integration approach: MCP server wiring, client configuration, and supported terminal integration surfaces.
 
-## 👤 Author
+Buddy is an open-source project dedicated to keeping the terminal a little less lonely.
+Your buddy shouldn't disappear when you close the terminal.
+
+If Buddy made your terminal less lonely, consider starring.
+
+## Author
 
 **Steven Jieli Wu**
 
 - [LinkedIn](https://www.linkedin.com/in/jieliwu/)
 - [Portfolio](https://jwu-studio-portfolio.vercel.app/)
-- GitHub: [@terpjwu1](https://github.com/terpjwu1) · [@fiorastudio](https://github.com/fiorastudio)
+- GitHub: [@terpjwu1](https://github.com/terpjwu1) and [@fiorastudio](https://github.com/fiorastudio)
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1360" viewBox="0 0 1200 1360" role="img" aria-labelledby="title desc">
+  <title id="title">Buddy species sheet</title>
+  <desc id="desc">A Buddy-owned species sheet showing all 21 Buddy companions in a terminal-inspired layout.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1f2937"/>
+    </linearGradient>
+    <style>
+      .title { font: 700 34px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; fill: #f8fafc; }
+      .subtitle { font: 500 16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; fill: #94a3b8; }
+      .name { font: 700 17px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; fill: #f8fafc; }
+      .ascii { font: 16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; fill: #dbeafe; white-space: pre; }
+      .card { fill: rgba(15, 23, 42, 0.72); stroke: rgba(148, 163, 184, 0.22); stroke-width: 1; }
+      .accent { fill: #f59e0b; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="1360" fill="url(#bg)"/>
+  <rect x="24" y="24" width="1152" height="1312" rx="24" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)"/>
+
+  <text x="56" y="82" class="title">Buddy Species Sheet</text>
+  <text x="56" y="112" class="subtitle">Pays homage to the original lineup, with extra Buddy-specific flair.</text>
+  <circle cx="1098" cy="74" r="8" class="accent"/>
+  <circle cx="1126" cy="74" r="8" fill="#60a5fa"/>
+  <circle cx="1154" cy="74" r="8" fill="#34d399"/>
+
+  <g transform="translate(48,150)">
+    <g transform="translate(0,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Void Cat</text>
+      <text class="ascii" x="20" y="66"> |\---/|</text>
+      <text class="ascii" x="20" y="88"> | ° ° |</text>
+      <text class="ascii" x="20" y="110"> (  w  )</text>
+      <text class="ascii" x="20" y="132"> (")_(")</text>
+    </g>
+    <g transform="translate(268,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Rust Hound</text>
+      <text class="ascii" x="20" y="66">  /^ ^\</text>
+      <text class="ascii" x="20" y="88"> / ° ° \</text>
+      <text class="ascii" x="20" y="110"> V\ Y /V</text>
+      <text class="ascii" x="20" y="132">   |_|</text>
+    </g>
+    <g transform="translate(536,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Data Drake</text>
+      <text class="ascii" x="20" y="66">  /^\  /^\</text>
+      <text class="ascii" x="20" y="88"> &lt; °  ° &gt;</text>
+      <text class="ascii" x="20" y="110"> (  ~~  )</text>
+      <text class="ascii" x="20" y="132">  `-vv-'</text>
+    </g>
+    <g transform="translate(804,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Log Golem</text>
+      <text class="ascii" x="20" y="66">  [=====]</text>
+      <text class="ascii" x="20" y="88"> [ °  ° ]</text>
+      <text class="ascii" x="20" y="110"> [  __  ]</text>
+      <text class="ascii" x="20" y="132"> [______]</text>
+    </g>
+  </g>
+
+  <g transform="translate(48,348)">
+    <g transform="translate(0,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Cache Crow</text>
+      <text class="ascii" x="20" y="66">   ___</text>
+      <text class="ascii" x="20" y="88"> (° °)</text>
+      <text class="ascii" x="20" y="110"> /| V |\</text>
+      <text class="ascii" x="20" y="132">   ^^ ^^</text>
+    </g>
+    <g transform="translate(268,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Shell Turtle</text>
+      <text class="ascii" x="20" y="66">   _,--._</text>
+      <text class="ascii" x="20" y="88">  ( °  ° )</text>
+      <text class="ascii" x="20" y="110"> /[______]\</text>
+      <text class="ascii" x="20" y="132">  ``    ``</text>
+    </g>
+    <g transform="translate(536,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Duck</text>
+      <text class="ascii" x="20" y="66">    __</text>
+      <text class="ascii" x="20" y="88">  &lt;(° )___</text>
+      <text class="ascii" x="20" y="110">   ( ._&gt;</text>
+      <text class="ascii" x="20" y="132">    `--'</text>
+    </g>
+    <g transform="translate(804,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Goose</text>
+      <text class="ascii" x="20" y="66"> (°&gt;</text>
+      <text class="ascii" x="20" y="88">  ||</text>
+      <text class="ascii" x="20" y="110"> _(__)_</text>
+      <text class="ascii" x="20" y="132">  ^^^^</text>
+    </g>
+  </g>
+
+  <g transform="translate(48,546)">
+    <g transform="translate(0,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Blob</text>
+      <text class="ascii" x="20" y="66"> .----.</text>
+      <text class="ascii" x="20" y="88">( °  ° )</text>
+      <text class="ascii" x="20" y="110">(      )</text>
+      <text class="ascii" x="20" y="132"> `----'</text>
+    </g>
+    <g transform="translate(268,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Octopus</text>
+      <text class="ascii" x="20" y="66"> .----.</text>
+      <text class="ascii" x="20" y="88">( °  ° )</text>
+      <text class="ascii" x="20" y="110">(______)</text>
+      <text class="ascii" x="20" y="132">/\/\/\/\</text>
+    </g>
+    <g transform="translate(536,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Owl</text>
+      <text class="ascii" x="20" y="66"> /\  /\</text>
+      <text class="ascii" x="20" y="88">(°)(°)</text>
+      <text class="ascii" x="20" y="110">(  &gt;&lt;  )</text>
+      <text class="ascii" x="20" y="132"> `----'</text>
+    </g>
+    <g transform="translate(804,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Penguin</text>
+      <text class="ascii" x="20" y="66"> .---.</text>
+      <text class="ascii" x="20" y="88">(°&gt;°)</text>
+      <text class="ascii" x="20" y="110">/(   )\</text>
+      <text class="ascii" x="20" y="132"> `---'</text>
+    </g>
+  </g>
+
+  <g transform="translate(48,744)">
+    <g transform="translate(0,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Snail</text>
+      <text class="ascii" x="20" y="66">°    .--.</text>
+      <text class="ascii" x="20" y="88"> \  ( @ )</text>
+      <text class="ascii" x="20" y="110">  \_`--'</text>
+      <text class="ascii" x="20" y="132"> ~~~~~~~</text>
+    </g>
+    <g transform="translate(268,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Ghost</text>
+      <text class="ascii" x="20" y="66"> .----.</text>
+      <text class="ascii" x="20" y="88">/ °  ° \</text>
+      <text class="ascii" x="20" y="110">|      |</text>
+      <text class="ascii" x="20" y="132">~`~``~`~</text>
+    </g>
+    <g transform="translate(536,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Axolotl</text>
+      <text class="ascii" x="20" y="66">}~(______)~{</text>
+      <text class="ascii" x="20" y="88">}~(° .. °)~{</text>
+      <text class="ascii" x="20" y="110">  ( .--. )</text>
+      <text class="ascii" x="20" y="132">  (_/  \_)</text>
+    </g>
+    <g transform="translate(804,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Capybara</text>
+      <text class="ascii" x="20" y="66">n______n</text>
+      <text class="ascii" x="20" y="88">( °    ° )</text>
+      <text class="ascii" x="20" y="110">(   oo   )</text>
+      <text class="ascii" x="20" y="132"> `------'</text>
+    </g>
+  </g>
+
+  <g transform="translate(48,942)">
+    <g transform="translate(0,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Cactus</text>
+      <text class="ascii" x="20" y="66">n  ____  n</text>
+      <text class="ascii" x="20" y="88">| |°  °| |</text>
+      <text class="ascii" x="20" y="110">|_|    |_|</text>
+      <text class="ascii" x="20" y="132">  |    |</text>
+    </g>
+    <g transform="translate(268,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Robot</text>
+      <text class="ascii" x="20" y="66"> .[||].</text>
+      <text class="ascii" x="20" y="88">[ °  ° ]</text>
+      <text class="ascii" x="20" y="110">[ ==== ]</text>
+      <text class="ascii" x="20" y="132"> `------'</text>
+    </g>
+    <g transform="translate(536,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Rabbit</text>
+      <text class="ascii" x="20" y="66"> (\__/)</text>
+      <text class="ascii" x="20" y="88">( °  ° )</text>
+      <text class="ascii" x="20" y="110">=(  ..  )=</text>
+      <text class="ascii" x="20" y="132"> (")__(")</text>
+    </g>
+    <g transform="translate(804,0)">
+      <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+      <text class="name" x="20" y="30">Mushroom</text>
+      <text class="ascii" x="20" y="66">.-o-OO-o-.</text>
+      <text class="ascii" x="20" y="88">(__________)</text>
+      <text class="ascii" x="20" y="110">   |°  °|</text>
+      <text class="ascii" x="20" y="132">   |____|</text>
+    </g>
+  </g>
+
+  <g transform="translate(48,1140)">
+    <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
+    <text class="name" x="20" y="30">Chonk</text>
+    <text class="ascii" x="20" y="66">/\    /\</text>
+    <text class="ascii" x="20" y="88">( °    ° )</text>
+    <text class="ascii" x="20" y="110">(   ..   )</text>
+    <text class="ascii" x="20" y="132"> `------'</text>
+  </g>
+</svg>
