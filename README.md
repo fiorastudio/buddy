@@ -374,6 +374,11 @@ Buddy also draws on publicly shared community research around the original compa
 - Community research and discussion, including work shared on r/Anthropic, helped clarify endpoint behavior and preserve details that would otherwise have been lost.
 - Official Claude Code and MCP documentation informed the portable integration approach: MCP server wiring, client configuration, and supported terminal integration surfaces.
 
+Buddy is an open-source project dedicated to keeping the terminal a little less lonely.
+Your buddy shouldn't disappear when you close the terminal.
+
+If Buddy made your terminal less lonely, consider starring.
+
 ## Author
 
 **Steven Jieli Wu**
