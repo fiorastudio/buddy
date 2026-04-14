@@ -171,6 +171,15 @@ n  ____  n        .[||].             (\__/)         .-o-OO-o-.
  `------'
 ```
 
+<details>
+<summary><strong>See the original community species sheet style</strong></summary>
+
+For reference, here is the species SVG from [any-buddy](https://github.com/cpaczek/any-buddy/blob/main/assets/species.svg), which helped popularize this kind of at-a-glance species presentation:
+
+![any-buddy species sheet](https://raw.githubusercontent.com/cpaczek/any-buddy/main/assets/species.svg)
+
+</details>
+
 ### 5 personality stats
 
 ```text
