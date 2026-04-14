@@ -128,13 +128,14 @@ EOJSON
   fi
 }
 
-configure_windsurf() {
-  local config_file="$HOME/.codeium/windsurf/mcp_config.json"
+configure_copilot() {
+  local config_file="$HOME/.copilot/mcp-config.json"
+  local config_dir="$HOME/.copilot"
 
-  if [ -d "$HOME/.codeium" ]; then
-    mkdir -p "$(dirname "$config_file")"
-    if [ ! -f "$config_file" ]; then
-      cat > "$config_file" << EOJSON
+  mkdir -p "$config_dir"
+
+  if [ ! -f "$config_file" ]; then
+    cat > "$config_file" << EOJSON
 {
   "mcpServers": {
     "buddy": {
@@ -144,16 +145,24 @@ configure_windsurf() {
   }
 }
 EOJSON
-    elif ! grep -q '"buddy"' "$config_file" 2>/dev/null; then
-      node -e "
-        const fs = require('fs');
-        const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-        if (!config.mcpServers) config.mcpServers = {};
-        config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
-        fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
-      " 2>/dev/null
-    fi
-    echo -e "  ${GREEN}✓${NC} Windsurf configured ${DIM}($config_file)${NC}"
+    echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI configured ${DIM}($config_file)${NC}"
+    return 0
+  fi
+
+  if grep -q '"buddy"' "$config_file" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI already configured"
+    return 0
+  fi
+
+  if command -v node &> /dev/null; then
+    node -e "
+      const fs = require('fs');
+      const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
+      if (!config.mcpServers) config.mcpServers = {};
+      config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
+      fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
+    " 2>/dev/null
+    echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI configured ${DIM}($config_file)${NC}"
   fi
 }
 
@@ -182,7 +191,7 @@ echo ""
 echo "  Configuring MCP clients..."
 configure_claude_code
 configure_cursor
-configure_windsurf
+configure_copilot
 configure_codex
 
 # ── Inject buddy instructions into CLI prompt files ──
@@ -221,11 +230,8 @@ inject_prompt() {
 echo ""
 echo "  Injecting buddy instructions..."
 inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
-inject_prompt "$HOME/.cursorrules" "Cursor"
-
-# Windsurf uses a rules directory
-mkdir -p "$HOME/.codeium/windsurf/rules" 2>/dev/null
-inject_prompt "$HOME/.codeium/windsurf/rules/buddy.md" "Windsurf"
+mkdir -p "$HOME/.cursor/rules" 2>/dev/null
+inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor CLI"
 
 # Codex CLI
 if [ "$CODEX_CONFIGURED" -eq 1 ]; then
@@ -236,6 +242,9 @@ fi
 
 # Gemini CLI
 inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+
+# GitHub Copilot CLI
+inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
 
 echo ""
 if [ "$CODEX_CONFIGURED" -eq 1 ] || ! command -v codex &> /dev/null; then

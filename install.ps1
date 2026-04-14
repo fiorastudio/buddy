@@ -100,12 +100,10 @@ if (Test-Path "$env:USERPROFILE\.cursor") {
   Add-BuddyToConfig "$env:USERPROFILE\.cursor\mcp.json" "Cursor"
 }
 
-# Windsurf
-if (Test-Path "$env:USERPROFILE\.codeium") {
-  $windsurfDir = "$env:USERPROFILE\.codeium\windsurf"
-  if (!(Test-Path $windsurfDir)) { New-Item -ItemType Directory -Path $windsurfDir -Force | Out-Null }
-  Add-BuddyToConfig "$windsurfDir\mcp_config.json" "Windsurf"
-}
+# GitHub Copilot CLI
+$copilotDir = "$env:USERPROFILE\.copilot"
+if (!(Test-Path $copilotDir)) { New-Item -ItemType Directory -Path $copilotDir -Force | Out-Null }
+Add-BuddyToConfig "$copilotDir\mcp-config.json" "GitHub Copilot CLI"
 
 # ── Inject buddy instructions into CLI prompt files ──
 
@@ -140,14 +138,13 @@ Write-Host ""
 Write-Host "  Injecting buddy instructions..."
 
 Inject-BuddyPrompt "$env:USERPROFILE\.claude\CLAUDE.md" "Claude Code"
-Inject-BuddyPrompt "$env:USERPROFILE\.cursorrules" "Cursor"
-
-$windsurfRulesDir = "$env:USERPROFILE\.codeium\windsurf\rules"
-if (!(Test-Path $windsurfRulesDir)) { New-Item -ItemType Directory -Path $windsurfRulesDir -Force | Out-Null }
-Inject-BuddyPrompt "$windsurfRulesDir\buddy.md" "Windsurf"
+$cursorRulesDir = "$env:USERPROFILE\.cursor\rules"
+if (!(Test-Path $cursorRulesDir)) { New-Item -ItemType Directory -Path $cursorRulesDir -Force | Out-Null }
+Inject-BuddyPrompt "$cursorRulesDir\buddy.md" "Cursor CLI"
 
 Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
 Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
+Inject-BuddyPrompt "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
 
 Write-Host ""
 Write-Host "  ✅ Buddy installed! Say `"hatch a buddy`" to start." -ForegroundColor Green
