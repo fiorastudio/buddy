@@ -47,13 +47,12 @@ curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh
 irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
 ```
 
-Then open your AI terminal and say:
+The installer will guide you through onboarding:
 
-```text
-hatch a buddy
-```
+- **Rescue your old buddy** — if you had a `/buddy` in Claude Code, the wizard finds it in `~/.claude.json` and brings it home with the same name, species, and stats, now with leveling + XP
+- **Hatch a new buddy** — get a fresh companion with random species, stats, and personality
 
-> Requires `node` 18+ and `git`.
+> Requires `node` 18+ and `git`. Use `--no-onboard` to skip the wizard in CI.
 
 ## What You Get
 
@@ -372,7 +371,7 @@ npm start
 
 ## Credits
 
-- Original buddy concept by [Anthropic](https://www.anthropic.com/) in Claude Code `v2.1.89` to `v2.1.94`
+- Original buddy concept by [Anthropic](https://www.anthropic.com/) in [Claude Code](https://github.com/anthropics/claude-code) `v2.1.89` to `v2.1.94`
 - Inspired by [effigy](https://github.com/justinstimatze/effigy), [claude-buddy](https://github.com/1270011/claude-buddy), and [save-buddy](https://github.com/jrykn/save-buddy). Thanks!
 - Built with the [Model Context Protocol](https://modelcontextprotocol.io/)
 
@@ -381,7 +380,7 @@ Buddy also draws on publicly shared community research around the original compa
 - [BonziClaude](https://github.com/zakarth/BonziClaude) by [@zakarth](https://github.com/zakarth) is an important technical reference point in the ecosystem, especially around reverse-engineering and documenting companion-system behavior.
 - [claude-buddy](https://github.com/1270011/claude-buddy) by [@1270011](https://github.com/1270011) helped demonstrate the MCP plus terminal-integration preservation approach for keeping buddy-like experiences alive across client changes.
 - Community research and discussion, including work shared on r/Anthropic, helped clarify endpoint behavior and preserve details that would otherwise have been lost.
-- Official Claude Code and MCP documentation informed the portable integration approach: MCP server wiring, client configuration, and supported terminal integration surfaces.
+- Official [Claude Code](https://github.com/anthropics/claude-code) and [MCP](https://modelcontextprotocol.io/) documentation informed the portable integration approach: MCP server wiring, client configuration, and supported terminal integration surfaces.
 
 Buddy is an open-source project dedicated to keeping the terminal a little less lonely.
 Your buddy shouldn't disappear when you close the terminal.

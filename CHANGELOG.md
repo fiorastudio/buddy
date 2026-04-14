@@ -18,8 +18,10 @@ All notable changes to this project will follow [Semantic Versioning](https://se
 - Rich personality bios (21 species x 3 templates)
 - Species voice kernels and NEVER constraints for AI roleplay (per-species voice + 2 behavioral guardrails)
 - Pokemon-style hatch animation + rescue animation for imported companions
-- Interactive terminal onboarding wizard during install (arrow-key menu, old buddy rescue or fresh hatch)
-- Old buddy import from ~/.claude.json — uses original CC userID for deterministic restoration (same name, species, stats)
+- Two-path onboarding wizard during install:
+  - **Rescue mode**: imports your old Claude Code buddy from `~/.claude.json` — uses original CC userID for deterministic restoration (same name, species, stats, eye, rarity)
+  - **Hatch mode**: fresh companion with random species, stats, and personality
+  - Interactive arrow-key menu with `--non-interactive` and `--no-onboard` flags for CI
 - Choreographed animation sequences (15-frame idle cycle, 500ms ticks, mood-aware: idle/grumpy/happy patterns)
 - Statusline integration (side-by-side with claude-hud, full speech bubble rendering)
 - Mood recalibration on every interaction (observe, pet, status) + happy on level-up
