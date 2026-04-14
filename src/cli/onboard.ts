@@ -195,15 +195,10 @@ async function main() {
   const isTTY = process.stdin.isTTY && process.stdout.isTTY;
 
   if (nonInteractive || !isTTY) {
-    // Non-interactive: rescue only if old buddy found, otherwise skip.
-    // Never auto-hatch without explicit user consent (CI safety).
-    if (oldBuddy) {
-      action = 'rescue';
-      console.log(`\n  ${c(DIM, 'Auto-selecting: rescue (old buddy found)')}`);
-    } else {
-      action = 'skip';
-      console.log(`\n  ${c(DIM, 'Non-interactive: no old buddy found, skipping. Run buddy-onboard manually to hatch.')}`);
-    }
+    // Non-interactive (curl | bash, piped installs): auto-rescue or auto-hatch.
+    // Users expect a buddy after install — don't leave them empty-handed.
+    action = oldBuddy ? 'rescue' : 'hatch';
+    console.log(`\n  ${c(DIM, `Auto-selecting: ${action}`)}`);
   } else {
     action = await arrowMenu('What would you like to do?', choices);
   }

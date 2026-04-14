@@ -191,21 +191,17 @@ $cursorRulesDir = "$env:USERPROFILE\.cursor\rules"
 if (!(Test-Path $cursorRulesDir)) { New-Item -ItemType Directory -Path $cursorRulesDir -Force | Out-Null }
 Inject-BuddyPrompt "$cursorRulesDir\buddy.md" "Cursor CLI"
 
-# Codex CLI (only if ~/.codex exists — don't create for users without Codex)
-if (Test-Path "$env:USERPROFILE\.codex") {
-  if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
-    Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
-  } else {
-    Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
-  }
+# Codex CLI (prompt injection is harmless — always inject so it's ready when CLI is installed)
+if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
+  Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
 }
-# Gemini CLI (only if ~/.gemini exists — don't create for users without Gemini)
-if (Test-Path "$env:USERPROFILE\.gemini") {
-  if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USERPROFILE\.gemini\GEMINI.md")) {
-    Inject-BuddyPrompt "$env:USERPROFILE\.gemini\AGENTS.md" "Gemini CLI"
-  } else {
-    Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
-  }
+# Gemini CLI
+if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USERPROFILE\.gemini\GEMINI.md")) {
+  Inject-BuddyPrompt "$env:USERPROFILE\.gemini\AGENTS.md" "Gemini CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
 }
 # GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
 if (Test-Path "$env:USERPROFILE\.copilot\AGENTS.md") {
