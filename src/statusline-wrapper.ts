@@ -4,16 +4,10 @@ import { join } from "path";
 import { homedir } from "os";
 import { SPECIES_ANIMATIONS, SPRITE_BODIES, renderSprite } from "./lib/species.js";
 import { HAT_LINES, RARITY_ANSI, type Hat } from "./lib/types.js";
-
-const RESET = "\x1b[0m";
-const DIM = "\x1b[2m";
-const CYAN = "\x1b[36m";
-const YELLOW = "\x1b[33m";
-const GREEN = "\x1b[32m";
-const MAGENTA = "\x1b[35m";
+import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA } from "./lib/ansi.js";
+import { BUDDY_STATUS_PATH } from "./lib/constants.js";
 
 const toUnix = (p: string) => p.replace(/\\/g, "/");
-const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
 const FRAME_INTERVAL_MS = 500;
 
 // Choreographed animation sequences (save-buddy/claude-buddy pattern).
@@ -185,27 +179,23 @@ try {
         }
       }
 
+      // --- Shared info lines (used by both bubble and normal modes) ---
+      const shinyTag = buddy.is_shiny ? " ✨" : "";
+      const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
+      const stars = buddy.rarity_stars || '';
+      const nameIndicator = reactionIndicator ? `${YELLOW}${reactionIndicator}${RESET}` : '';
+      const nameInfo = `${CYAN}${buddy.name}${nameIndicator}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
+      const reactionSuffix = reactionText ? `  ${DIM}"${reactionText}"${RESET}` : '';
+      const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}${reactionSuffix}`;
+
       // --- Speech bubble mode: show full bubble when active ---
       if (buddy.bubble_lines && Array.isArray(buddy.bubble_lines) && hasReactionActive) {
-        // Bubble lines go LEFT, buddy art goes RIGHT
-        // Name/mood info shifts to below the art
         const bubbleLines: string[] = buddy.bubble_lines;
         const bubbleWidth = Math.max(...bubbleLines.map((l: string) => stripAnsi(l).length), 0);
 
-        const shinyTag = buddy.is_shiny ? " ✨" : "";
-        const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
-        const stars = buddy.rarity_stars || '';
-        const nameIndicator = reactionIndicator ? `${YELLOW}${reactionIndicator}${RESET}` : '';
-        const nameInfo = `${CYAN}${buddy.name}${nameIndicator}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
-        const reactionSuffix = reactionText ? `  ${DIM}"${reactionText}"${RESET}` : '';
-        const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}${reactionSuffix}`;
-
-        // Output the pre-rendered bubble lines directly — they already contain
-        // bubble (left) + art (right) layout from renderSpeechBubble()
         for (const line of bubbleLines) {
           buddyRight.push(line);
         }
-        // Append name and mood info below the bubble
         const indent = ' '.repeat(Math.min(bubbleWidth + 4, 38));
         buddyRight.push(`${indent}${nameInfo}`);
         buddyRight.push(`${indent}${moodInfo}`);
@@ -250,14 +240,6 @@ try {
         const ambientPool = speciesAmbient[buddy.species] || defaultAmbient;
         const ambientR = Math.random();
         const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[Math.floor(ambientR * ambientPool.length)]}${RESET}`;
-
-        const shinyTag = buddy.is_shiny ? " ✨" : "";
-        const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
-        const stars = buddy.rarity_stars || '';
-        const nameIndicator = reactionIndicator ? `${YELLOW}${reactionIndicator}${RESET}` : '';
-        const nameInfo = `${CYAN}${buddy.name}${nameIndicator}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
-        const reactionSuffix = reactionText ? `  ${DIM}"${reactionText}"${RESET}` : '';
-        const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}${reactionSuffix}`;
 
         const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
         for (let i = 0; i < asciiLines.length; i++) {

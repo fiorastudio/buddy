@@ -15,15 +15,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
-// ── ANSI colors ──
-
-const RESET = '\x1b[0m';
-const DIM = '\x1b[2m';
-const CYAN = '\x1b[36m';
-const YELLOW = '\x1b[33m';
-const GREEN = '\x1b[32m';
-const MAGENTA = '\x1b[35m';
-const BOLD = '\x1b[1m';
+import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA, BOLD } from '../lib/ansi.js';
 
 // ── Args ──
 
