@@ -1,4 +1,4 @@
-# Buddy
+# Buddy: The /buddy Rescue Mission for Your AI Terminal
 
 <div align="center">
 
@@ -16,9 +16,15 @@ Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, 
   <img src="demo/buddy-demo.gif" alt="Buddy demo showing hatch, observe, and pet interactions in the terminal" width="760">
 </p>
 
-**Anthropic removed the built-in `/buddy`. Buddy brings the companion experience back and makes it portable across AI terminals.**
+**Anthropic removed the built-in `/buddy`. Buddy brings them home and makes the companion experience portable across AI terminals.**
 
 </div>
+
+**Anthropic killed `/buddy`. We brought them home.**
+
+Did you lose your Nuzzlecap? Is your terminal feeling a little too cold and silent lately?
+
+Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
 
 ## Why Buddy
 
