@@ -25,6 +25,7 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
+import { BUDDY_STATUS_PATH } from "../lib/constants.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,17 +33,16 @@ const VERSION: string = JSON.parse(
   readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8')
 ).version;
 
-const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
-
 export function recalcMood(companionId: string, leveledUp: boolean): Mood {
   if (leveledUp) return 'happy';
-  const recentXp = db.prepare(
-    "SELECT * FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')"
-  ).all(companionId);
-  const recentMemories = db.prepare(
+  const xpCount = (db.prepare(
+    "SELECT count(*) as count FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')"
+  ).get(companionId) as any)?.count || 0;
+  const memCount = (db.prepare(
     "SELECT count(*) as count FROM memories WHERE companion_id = ? AND created_at > datetime('now', '-1 hour')"
-  ).get(companionId) as any;
-  return calculateMood(recentXp, recentMemories.count);
+  ).get(companionId) as any)?.count || 0;
+  // calculateMood expects (xpEvents[], memoryCount) — pass a dummy array with correct length
+  return calculateMood(new Array(xpCount), memCount);
 }
 
 function awardXp(companionId: string, eventType: string): { newXp: number; newLevel: number; leveledUp: boolean } {
@@ -59,6 +59,17 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
   db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
 
   return { newXp, newLevel, leveledUp };
+}
+
+/**
+ * Award XP, recalculate mood, update DB, and load companion — shared by observe + pet.
+ */
+function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
+  const xpResult = awardXp(row.id, eventType);
+  const newMood = recalcMood(row.id, xpResult.leveledUp);
+  db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
+  const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
+  return { companion, xpResult };
 }
 
 
@@ -290,13 +301,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
     }
 
-    const xpResult = awardXp(row.id, 'observe');
-
-    // Recalculate mood — observing adds an interaction, level-up sets happy
-    const newMood = recalcMood(row.id, xpResult.leveledUp);
-    db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
-
-    const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, user_id)!;
+    const { companion, xpResult } = awardXpAndRefresh(row, 'observe', user_id);
     const result = buildObserverPrompt(companion, mode, summary);
 
     // Render speech bubble with template fallback for immediate visual feedback
@@ -344,13 +349,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: "No companion to pet! Use buddy_hatch first." }] };
     }
 
-    const xpResult = awardXp(row.id, 'session');
-
-    // Recalculate mood — petting adds an interaction, level-up sets happy
-    const newMood = recalcMood(row.id, xpResult.leveledUp);
-    db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
-
-    const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel })!;
+    const { companion, xpResult } = awardXpAndRefresh(row, 'session');
     const art = renderSprite(companion);
 
     const hearts = [

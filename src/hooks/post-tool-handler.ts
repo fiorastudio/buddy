@@ -8,10 +8,7 @@
 // Pure Node.js — only fs, path, os imports.
 
 import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
-
-const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
+import { BUDDY_STATUS_PATH } from "../lib/constants.js";
 
 // Error patterns — word-boundary anchored to avoid false positives
 // like "error handling added", "0 errors", or "isError: false"

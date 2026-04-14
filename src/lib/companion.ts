@@ -9,10 +9,8 @@ import { type Companion, RARITY_STARS } from './types.js';
 import { levelFromXp } from './leveling.js';
 import { randomUUID } from 'crypto';
 import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
-
-const BUDDY_STATUS_PATH = join(homedir(), '.claude', 'buddy-status.json');
+import { dirname } from 'path';
+import { BUDDY_STATUS_PATH } from './constants.js';
 let statusDirEnsured = false;
 
 /**
@@ -59,7 +57,7 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
 export function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[] }) {
   try {
     if (!statusDirEnsured) {
-      mkdirSync(join(homedir(), '.claude'), { recursive: true });
+      mkdirSync(dirname(BUDDY_STATUS_PATH), { recursive: true });
       statusDirEnsured = true;
     }
     writeFileSync(BUDDY_STATUS_PATH, JSON.stringify({
