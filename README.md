@@ -129,29 +129,45 @@ Then point your client's MCP config at:
 
 ### 21 species
 
-Buddy ships with 21 companions, including:
+Buddy ships with 21 companions:
 
-- Void Cat
-- Rust Hound
-- Data Drake
-- Log Golem
-- Cache Crow
-- Shell Turtle
-- Duck
-- Goose
-- Blob
-- Octopus
-- Owl
-- Penguin
-- Snail
-- Ghost
-- Axolotl
-- Capybara
-- Cactus
-- Robot
-- Rabbit
-- Mushroom
-- Chonk
+```text
+ void cat         rust hound        data drake       log golem
+ |\---/|           /^ ^\             /^\  /^\         [=====]
+ | ° ° |          / ° ° \           < °  ° >        [ °  ° ]
+ (  w  )          V\ Y /V           (  ~~  )        [  __  ]
+ (")_(")            |_|              `-vv-'         [______]
+
+ cache crow       shell turtle      duck             goose
+   ___             _,--._             __             (°>
+ (° °)            ( °  ° )         <(° )___          ||
+ /| V |\          /[______]\         ( ._>          _(__)_
+   ^^ ^^            ``  ``            `--'           ^^^^
+
+ blob             octopus           owl              penguin
+ .----.           .----.             /\  /\          .---.
+( °  ° )         ( °  ° )           (°)(°)         (°>°)
+(      )         (______)           (  ><  )       /(   )\
+ `----'          /\/\/\/\            `----'         `---'
+
+ snail            ghost             axolotl         capybara
+°    .--.         .----.          }~(______)~{      n______n
+ \  ( @ )        / °  ° \         }~(° .. °)~{     ( °    ° )
+  \_`--'         |      |           ( .--. )       (   oo   )
+ ~~~~~~~         ~`~``~`~           (_/  \_)        `------'
+
+ cactus           robot             rabbit           mushroom
+n  ____  n        .[||].             (\__/)         .-o-OO-o-.
+| |°  °| |       [ °  ° ]           ( °  ° )       (__________)
+|_|    |_|       [ ==== ]          =(  ..  )=         |°  °|
+  |    |          `------'          (")__(")          |____|
+
+ chonk
+ /\    /\
+( °    ° )
+(   ..   )
+ `------'
+```
 
 ### 5 personality stats
 
