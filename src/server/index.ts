@@ -20,6 +20,7 @@ import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble } from "../lib/bubble.js";
 import { XP_REWARDS, levelFromXp, levelBar, levelProgress } from "../lib/leveling.js";
 import { sanitizeName } from "../lib/sanitize.js";
+import { importOldBuddy } from "../lib/import.js";
 import { randomUUID } from "crypto";
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
@@ -214,7 +215,57 @@ function hatchAnimation(companion: Companion): string {
   ].join('\n');
 }
 
-function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string }) {
+function rescueAnimation(companion: Companion): string {
+  const stage1 = [
+    '   *static*   ',
+    '     ~~~      ',
+    '    ~???~     ',
+    '     ~~~      ',
+    '',
+    '  searching...',
+  ].join('\n');
+
+  const stage2 = [
+    '  scanning... ',
+    '    .---.     ',
+    '   | ? ? |   ',
+    '    \'---\'    ',
+    '',
+    '  signal found!',
+  ].join('\n');
+
+  const art = renderSprite(companion);
+  const stage3 = [
+    '  * FOUND! *  ',
+    ' *  *  *  *  *',
+    ...art,
+    ' *  *  *  *  *',
+    '  * FOUND! *  ',
+  ].join('\n');
+
+  const card = renderCard(companion);
+
+  const footer = [
+    '',
+    `Welcome back, ${companion.name}!`,
+    `Your old buddy has been rescued and upgraded with leveling, XP, and mood.`,
+    `${companion.name} is here and remembers you.`,
+  ].join('\n');
+
+  return [
+    'Searching for your old companion...\n',
+    stage1,
+    '\n...picking up a signal!\n',
+    stage2,
+    '\n...it\'s them!!\n',
+    stage3,
+    '\n',
+    card,
+    footer,
+  ].join('\n');
+}
+
+function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[] }) {
   try {
     if (!statusDirEnsured) {
       mkdirSync(join(homedir(), ".claude"), { recursive: true });
@@ -239,6 +290,7 @@ function writeBuddyStatus(companion: Companion, reaction?: { state: string; text
         reaction_expires: reaction.expires,
         reaction_eye: reaction.eyeOverride || '',
         reaction_indicator: reaction.indicator || '',
+        ...(reaction.bubbleLines ? { bubble_lines: reaction.bubbleLines } : {}),
       } : {}),
     }));
   } catch { /* non-fatal */ }
@@ -361,6 +413,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "Unmute your buddy so it can chime in again.",
         inputSchema: { type: "object", properties: {} },
       },
+      {
+        name: "buddy_onboard",
+        description: "Start the onboarding flow. Choose 'save' to rescue your old Claude Code buddy, or 'hatch' for a brand new companion.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              enum: ["save", "hatch"],
+              description: "Choose 'save' to rescue your old Claude Code buddy, or 'hatch' for a new companion",
+            },
+            name: { type: "string", description: "Optional name override" },
+            species: {
+              type: "string",
+              enum: Object.values(SPECIES),
+              description: "Optional species (for hatch path)",
+            },
+            user_id: { type: "string", description: "Optional user ID for deterministic generation" },
+          },
+          required: ["path"],
+        },
+      },
     ],
   };
 });
@@ -418,7 +492,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { user_id } = args as { user_id?: string };
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) {
-      return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch to start." }] };
+      const onboardingMsg = [
+        'No companion found! You have two options:',
+        '',
+        'Rescue your old buddy: Call buddy_onboard with path "save"',
+        '   This will search for your Claude Code companion and bring them home',
+        '   with our new leveling and progression system.',
+        '',
+        'Hatch a new buddy: Call buddy_onboard with path "hatch"',
+        '   Get a brand new companion with random species, stats, and personality.',
+      ].join('\n');
+      return { content: [{ type: "text", text: onboardingMsg }] };
     }
 
     const userId = user_id || row.user_id || 'anon';
@@ -505,22 +589,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, user_id)!;
     const result = buildObserverPrompt(companion, mode, summary);
 
-    // Write reaction state to status file (expires in 10s)
-    // Level-up overrides: sparkle eyes + special indicator
-    writeBuddyStatus(companion, {
-      state: xpResult.leveledUp ? 'excited' : result.reaction.state,
-      text: xpResult.leveledUp ? `✨ Level ${xpResult.newLevel}! ✨` : result.templateFallback,
-      expires: Date.now() + (xpResult.leveledUp ? 15_000 : 10_000),
-      eyeOverride: xpResult.leveledUp ? SPARKLE_EYE : result.reaction.eyeOverride,
-      indicator: xpResult.leveledUp ? '✨' : result.reaction.indicator,
-    });
-
     // Render speech bubble with template fallback for immediate visual feedback
     const art = renderSprite(companion);
     const bubbleText = xpResult.leveledUp
       ? `✨ ${companion.name} leveled up to ${xpResult.newLevel}! ✨\n\n${result.templateFallback}`
       : result.templateFallback;
     const bubble = renderSpeechBubble(bubbleText, art, companion.name, 34);
+
+    // Write reaction state to status file (expires in 10s)
+    // Level-up overrides: sparkle eyes + special indicator
+    // Include bubble_lines so the statusline can render the full speech bubble
+    writeBuddyStatus(companion, {
+      state: xpResult.leveledUp ? 'excited' : result.reaction.state,
+      text: xpResult.leveledUp ? `✨ Level ${xpResult.newLevel}! ✨` : result.templateFallback,
+      expires: Date.now() + (xpResult.leveledUp ? 15_000 : 10_000),
+      eyeOverride: xpResult.leveledUp ? SPARKLE_EYE : result.reaction.eyeOverride,
+      indicator: xpResult.leveledUp ? '✨' : result.reaction.indicator,
+      bubbleLines: bubble.split('\n'),
+    });
 
     return {
       content: [
@@ -607,6 +693,130 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     ].join('\n');
 
     return { content: [{ type: "text", text: petDisplay }] };
+  }
+
+  if (name === "buddy_onboard") {
+    const { path: onboardPath, name: requestedName, species: requestedSpecies, user_id } = args as {
+      path: 'save' | 'hatch'; name?: string; species?: string; user_id?: string;
+    };
+
+    // Check if a companion already exists
+    const existing = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (existing) {
+      return {
+        content: [{ type: "text", text: `You already have a companion: ${existing.name} the ${existing.species}! Use buddy_respawn first if you want to start over.` }],
+      };
+    }
+
+    if (onboardPath === 'save') {
+      const imported = importOldBuddy();
+
+      if (!imported.found) {
+        return {
+          content: [{
+            type: "text",
+            text: [
+              'No old Claude Code buddy found.',
+              '',
+              'Looked in:',
+              `  ~/.claude.json`,
+              `  ~/.claude/claude.json`,
+              '',
+              'If you had a buddy in Claude Code, make sure the file still exists.',
+              'Otherwise, try buddy_onboard with path "hatch" to get a new companion!',
+            ].join('\n'),
+          }],
+        };
+      }
+
+      // Create companion from imported data
+      const userId = user_id || 'imported-' + randomUUID();
+      const { bones } = roll(userId, SPECIES_LIST);
+
+      // Use imported species if available, otherwise roll
+      const finalSpecies = imported.species && SPECIES_LIST.includes(imported.species as any)
+        ? imported.species
+        : requestedSpecies && SPECIES_LIST.includes(requestedSpecies as any)
+          ? requestedSpecies
+          : bones.species;
+
+      // Preserve old name, allow override
+      const finalName = sanitizeName(requestedName) || sanitizeName(imported.name) || generateName(finalSpecies);
+      const id = randomUUID();
+
+      // Use imported bio if it exists, otherwise generate fresh
+      const bio = imported.bio || generateBio({ ...bones, species: finalSpecies });
+
+      db.prepare(
+        "INSERT INTO companions (id, name, species, user_id, personality_bio, imported) VALUES (?, ?, ?, ?, ?, 1)"
+      ).run(id, finalName, finalSpecies, userId, bio);
+
+      const companion: Companion = {
+        ...bones,
+        species: finalSpecies,
+        name: finalName,
+        personalityBio: bio,
+        level: 1,
+        xp: 0,
+        mood: 'happy',
+        hatchedAt: Date.now(),
+      };
+
+      const reaction = getReaction(finalSpecies, 'hatch', 'happy');
+
+      writeBuddyStatus(companion);
+
+      return {
+        content: [
+          { type: "text", text: rescueAnimation(companion) },
+          { type: "text", text: reaction },
+        ],
+      };
+    }
+
+    if (onboardPath === 'hatch') {
+      // Delegate to the same logic as buddy_hatch
+      const userId = user_id || 'anon-' + randomUUID();
+      const { bones } = roll(userId, SPECIES_LIST);
+
+      const finalSpecies = requestedSpecies && SPECIES_LIST.includes(requestedSpecies as any)
+        ? requestedSpecies
+        : bones.species;
+
+      const finalName = sanitizeName(requestedName) || generateName(finalSpecies);
+      const id = randomUUID();
+      const bio = generateBio({ ...bones, species: finalSpecies });
+
+      db.prepare(
+        "INSERT INTO companions (id, name, species, user_id, personality_bio) VALUES (?, ?, ?, ?, ?)"
+      ).run(id, finalName, finalSpecies, userId, bio);
+
+      const companion: Companion = {
+        ...bones,
+        species: finalSpecies,
+        name: finalName,
+        personalityBio: bio,
+        level: 1,
+        xp: 0,
+        mood: 'happy',
+        hatchedAt: Date.now(),
+      };
+
+      const reaction = getReaction(finalSpecies, 'hatch', 'happy');
+
+      writeBuddyStatus(companion);
+
+      return {
+        content: [
+          { type: "text", text: hatchAnimation(companion) },
+          { type: "text", text: reaction },
+        ],
+      };
+    }
+
+    return {
+      content: [{ type: "text", text: 'Invalid path. Use "save" to rescue your old buddy or "hatch" for a new one.' }],
+    };
   }
 
   if (name === "buddy_mute") {
@@ -703,9 +913,15 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const voice = getVoice(companion.species);
     const never = getNever(companion.species);
 
+    const isImported = row.imported === 1;
+    const rescueLine = isImported
+      ? `\n${companion.name} was rescued from your old Claude Code session and remembers you.\n`
+      : '';
+
     const intro = `# Companion
 
 A small ${companion.species} named ${companion.name} watches from your terminal. ${companion.personalityBio}
+${rescueLine}
 
 VOICE: ${voice}
 

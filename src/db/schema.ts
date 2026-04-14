@@ -66,4 +66,11 @@ export function initDb() {
       FOREIGN KEY(companion_id) REFERENCES companions(id)
     );
   `);
+
+  // Migration: add imported flag for companions rescued from old Claude Code
+  try {
+    db.exec(`ALTER TABLE companions ADD COLUMN imported INTEGER DEFAULT 0`);
+  } catch {
+    // Column already exists — safe to ignore
+  }
 }
