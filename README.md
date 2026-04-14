@@ -66,7 +66,7 @@ hatch a buddy
 | **Persistent memory** | Save local memories and keep a continuous companion state |
 | **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
 
-### Nuzzlecap doing an actual code review
+### Buddy giving live code feedback
 
 ![Nuzzlecap Code Review](demo/screenshots/code-review.png)
 
