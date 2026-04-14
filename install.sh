@@ -235,8 +235,12 @@ else
   echo -e "  ${YELLOW}!${NC} Skipping Codex CLI prompt injection because Buddy MCP is not configured"
 fi
 
-# Gemini CLI
-inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+# Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
+if [ -f "$HOME/.gemini/AGENTS.md" ] && [ ! -f "$HOME/.gemini/GEMINI.md" ]; then
+  inject_prompt "$HOME/.gemini/AGENTS.md" "Gemini CLI"
+else
+  inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+fi
 
 # GitHub Copilot CLI
 inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"

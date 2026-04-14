@@ -143,7 +143,12 @@ if (!(Test-Path $cursorRulesDir)) { New-Item -ItemType Directory -Path $cursorRu
 Inject-BuddyPrompt "$cursorRulesDir\buddy.md" "Cursor CLI"
 
 Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
-Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
+# Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
+if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USERPROFILE\.gemini\GEMINI.md")) {
+  Inject-BuddyPrompt "$env:USERPROFILE\.gemini\AGENTS.md" "Gemini CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
+}
 Inject-BuddyPrompt "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
 
 Write-Host ""
