@@ -400,7 +400,7 @@ git clone https://github.com/fiorastudio/buddy.git
 cd buddy
 npm install
 npm run build
-npm test           # 243 tests
+npm test           # 261 tests
 npm start          # runs the MCP server on stdio
 ```
 

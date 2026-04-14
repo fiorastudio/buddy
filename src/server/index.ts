@@ -14,10 +14,11 @@ import {
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, RARITY_ANSI, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
 import { roll, statBar } from "../lib/rng.js";
-import { generateBio } from "../lib/personality.js";
+import { generateBio, getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble } from "../lib/bubble.js";
 import { XP_REWARDS, levelFromXp, levelBar, levelProgress } from "../lib/leveling.js";
+import { sanitizeName } from "../lib/sanitize.js";
 import { randomUUID } from "crypto";
 import { writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
@@ -373,7 +374,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       ? requestedSpecies
       : bones.species;
 
-    const finalName = requestedName || generateName(finalSpecies);
+    const finalName = sanitizeName(requestedName) || generateName(finalSpecies);
     const id = randomUUID();
 
     // Use finalSpecies for bio (bones.species may differ if user overrode species)
@@ -521,7 +522,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           type: "text",
           text: JSON.stringify({
             companion: result.companion,
-            prompt: result.prompt,
             mode: result.mode,
             summary: result.summary,
             reaction: result.reaction,
@@ -693,9 +693,17 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const peakStat = getPeakStat(companion.stats);
     const dumpStat = getDumpStat(companion.stats);
 
+    const voice = getVoice(companion.species);
+    const never = getNever(companion.species);
+
     const intro = `# Companion
 
 A small ${companion.species} named ${companion.name} watches from your terminal. ${companion.personalityBio}
+
+VOICE: ${voice}
+
+NEVER (hard rules when speaking as ${companion.name}):
+${never.map(n => `- ${n}`).join('\n')}
 
 ${companion.name} reacts to your work via the buddy_observe tool. After completing an action, call buddy_observe with a brief summary of what you did. ${companion.name}'s reactions are personality-flavored — ${peakStat} is their strength (${companion.stats[peakStat]}/100), ${dumpStat} is their weakness (${companion.stats[dumpStat]}/100).
 
