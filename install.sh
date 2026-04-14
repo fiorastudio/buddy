@@ -69,88 +69,109 @@ CODEX_CONFIGURED=0
 # ── Auto-configure MCP for detected CLIs ──
 
 configure_claude_code() {
-  local config_file="$HOME/.claude/settings.json"
   local config_dir="$HOME/.claude"
+  local settings_file="$config_dir/settings.json"
+  local user_file="$HOME/.claude.json"
   local hook_path="$INSTALL_DIR/dist/hooks/post-tool-handler.js"
+  local statusline_command="node $INSTALL_DIR/dist/statusline-wrapper.js"
 
   mkdir -p "$config_dir"
 
-  if [ ! -f "$config_file" ]; then
-    # Create new settings with buddy + hook
-    cat > "$config_file" << EOJSON
-{
-  "mcpServers": {
-    "buddy": {
-      "command": "node",
-      "args": ["$SERVER_PATH"]
-    }
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node $hook_path",
-            "async": true,
-            "timeout": 3
-          }
-        ]
-      }
-    ]
-  }
-}
-EOJSON
-    echo -e "  ${GREEN}✓${NC} Claude Code configured ${DIM}($config_file)${NC}"
-    return 0
-  fi
-
-  # Check if buddy already configured
-  if grep -q '"buddy"' "$config_file" 2>/dev/null; then
-    echo -e "  ${GREEN}✓${NC} Claude Code already configured"
-  else
-    # Inject buddy into existing mcpServers (or add mcpServers section)
-    if command -v node &> /dev/null; then
-      node -e "
-        const fs = require('fs');
-        const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-        if (!config.mcpServers) config.mcpServers = {};
-        config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
-        fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
-      " 2>/dev/null
-      echo -e "  ${GREEN}✓${NC} Claude Code configured ${DIM}($config_file)${NC}"
+  local registered=0
+  if command -v claude &> /dev/null; then
+    if claude mcp get buddy >/dev/null 2>&1; then
+      echo -e "  ${GREEN}✓${NC} Claude Code MCP already registered"
+      registered=1
+    else
+      if claude mcp add buddy -s user -- node "$SERVER_PATH" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}✓${NC} Claude Code MCP registered via claude CLI"
+        registered=1
+      else
+        echo -e "  ${YELLOW}!${NC} claude CLI detected, but MCP registration failed — falling back to manual config"
+      fi
     fi
   fi
 
-  # Add PostToolUse hook (array-append, don't replace existing hooks)
-  if command -v node &> /dev/null; then
-    node -e "
-      const fs = require('fs');
-      const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-      if (!config.hooks) config.hooks = {};
-      if (!config.hooks.PostToolUse) config.hooks.PostToolUse = [];
-      // Check if buddy hook already exists
-      const hasBuddy = config.hooks.PostToolUse.some(h =>
-        h.matcher === 'Bash' && h.hooks && h.hooks.some(hk => hk.command && hk.command.includes('post-tool-handler'))
-      );
-      if (!hasBuddy) {
-        config.hooks.PostToolUse.push({
-          matcher: 'Bash',
-          hooks: [{
-            type: 'command',
-            command: 'node $hook_path',
-            async: true,
-            timeout: 3
-          }]
-        });
-        fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
-        console.error('  hook registered');
-      }
-    " 2>/dev/null
+  if [ "$registered" -ne 1 ]; then
+    CLAUDE_USER_FILE="$user_file" SERVER_PATH="$SERVER_PATH" node <<'EOJS' 2>/dev/null || true
+const fs = require('fs');
+const path = process.env.CLAUDE_USER_FILE;
+const serverPath = process.env.SERVER_PATH;
+let data = {};
+try { data = JSON.parse(fs.readFileSync(path, 'utf-8')); } catch {}
+if (!data.mcpServers) data.mcpServers = {};
+data.mcpServers.buddy = {
+  type: 'stdio',
+  command: 'node',
+  args: [serverPath]
+};
+fs.writeFileSync(path, JSON.stringify(data, null, 2));
+EOJS
+    echo -e "  ${GREEN}✓${NC} Claude Code MCP config written ${DIM}($user_file)${NC}"
+  fi
+
+  local hook_status
+  hook_status=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="node $hook_path" node <<'EOJS'
+const fs = require('fs');
+const path = process.env.CLAUDE_SETTINGS;
+const hookCommand = process.env.HOOK_COMMAND;
+let config = {};
+try { config = JSON.parse(fs.readFileSync(path, 'utf-8')); } catch {}
+if (!config.hooks) config.hooks = {};
+if (!Array.isArray(config.hooks.PostToolUse)) config.hooks.PostToolUse = [];
+const hasHook = config.hooks.PostToolUse.some(entry =>
+  entry.matcher === 'Bash' &&
+  Array.isArray(entry.hooks) &&
+  entry.hooks.some(h => h.command === hookCommand)
+);
+if (!hasHook) {
+  config.hooks.PostToolUse.push({
+    matcher: 'Bash',
+    hooks: [{
+      type: 'command',
+      command: hookCommand,
+      async: true,
+      timeout: 3
+    }]
+  });
+  fs.writeFileSync(path, JSON.stringify(config, null, 2));
+  process.stdout.write('updated');
+} else {
+  process.stdout.write('noop');
+}
+EOJS
+)
+  if [ "$hook_status" = "updated" ]; then
     echo -e "  ${GREEN}✓${NC} PostToolUse hook configured"
+  else
+    echo -e "  ${GREEN}✓${NC} PostToolUse hook already configured"
+  fi
+
+  local status_status
+  status_status=$(CLAUDE_SETTINGS="$settings_file" STATUSLINE_COMMAND="$statusline_command" node <<'EOJS'
+const fs = require('fs');
+const path = process.env.CLAUDE_SETTINGS;
+const command = process.env.STATUSLINE_COMMAND;
+let config = {};
+try { config = JSON.parse(fs.readFileSync(path, 'utf-8')); } catch {}
+const desired = { type: 'command', command, padding: 1 };
+const needsUpdate = !config.statusLine || config.statusLine.type !== 'command' || config.statusLine.command !== command;
+if (needsUpdate) {
+  config.statusLine = desired;
+  fs.writeFileSync(path, JSON.stringify(config, null, 2));
+  process.stdout.write('updated');
+} else {
+  process.stdout.write('noop');
+}
+EOJS
+)
+  if [ "$status_status" = "updated" ]; then
+    echo -e "  ${GREEN}✓${NC} Claude Code statusline configured"
+  else
+    echo -e "  ${GREEN}✓${NC} Claude Code statusline already configured"
   fi
 }
+
 
 configure_cursor() {
   local config_file="$HOME/.cursor/mcp.json"
