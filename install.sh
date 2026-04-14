@@ -298,6 +298,13 @@ else
   inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
 fi
 
+# ── Run onboarding wizard ──
+
+ONBOARD_SCRIPT="$INSTALL_DIR/dist/cli/onboard.js"
+if [ -f "$ONBOARD_SCRIPT" ]; then
+  node "$ONBOARD_SCRIPT" </dev/tty || true
+fi
+
 echo ""
 if [ "$CODEX_CONFIGURED" -eq 1 ] || ! command -v codex &> /dev/null; then
   echo -e "${GREEN}  ✅ Buddy installed! Say \"hatch a buddy\" to start.${NC}"

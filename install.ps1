@@ -210,6 +210,17 @@ if (Test-Path "$env:USERPROFILE\.copilot\AGENTS.md") {
   Inject-BuddyPrompt "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
 }
 
+# ── Run onboarding wizard ──
+
+$ONBOARD_SCRIPT = "$INSTALL_DIR\dist\cli\onboard.js"
+if (Test-Path $ONBOARD_SCRIPT) {
+  try {
+    node $ONBOARD_SCRIPT
+  } catch {
+    # Non-fatal — wizard is optional
+  }
+}
+
 Write-Host ""
 Write-Host "  ✅ Buddy installed! Say `"hatch a buddy`" to start." -ForegroundColor Green
 Write-Host ""

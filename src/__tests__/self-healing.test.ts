@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { initDb, db } from '../db/schema.js';
-import { loadCompanion, recalcMood } from '../server/index.js';
+import { loadCompanion } from '../lib/companion.js';
+import { recalcMood } from '../server/index.js';
 import { levelFromXp } from '../lib/leveling.js';
 import { randomUUID } from 'crypto';
 

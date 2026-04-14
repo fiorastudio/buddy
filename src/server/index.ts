@@ -9,21 +9,22 @@ import {
 import { initDb, db } from "../db/schema.js";
 import { fileURLToPath } from "url";
 import {
-  SPECIES, SPECIES_LIST,
-  generateName, calculateMood, getReaction, type Mood,
+  SPECIES,
+  calculateMood, getReaction, type Mood,
   renderSprite,
 } from "../lib/species.js";
-import { type Companion, STAT_NAMES, RARITY_STARS, RARITY_ANSI, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
-import { roll, statBar } from "../lib/rng.js";
-import { generateBio, getVoice, getNever } from "../lib/personality.js";
+import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
+import { statBar } from "../lib/rng.js";
+import { getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble } from "../lib/bubble.js";
-import { XP_REWARDS, levelFromXp, levelBar, levelProgress } from "../lib/leveling.js";
-import { sanitizeName } from "../lib/sanitize.js";
+import { XP_REWARDS, levelFromXp, levelBar } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { readFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
+import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
+import { renderCard, hatchAnimation } from "../lib/card.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,35 +33,6 @@ const VERSION: string = JSON.parse(
 ).version;
 
 const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
-let statusDirEnsured = false;
-const RESET = '\x1b[0m';
-
-// Note: when species was overridden at hatch time, bones (rarity, stats, eye, hat)
-// still come from the deterministic roll. Only species name comes from DB.
-// This is intentional — bones are tied to the userId hash, not the species.
-export function loadCompanion(row: any, userIdOverride?: string): Companion | null {
-  if (!row) return null;
-  const userId = userIdOverride || row.user_id || 'anon';
-  const { bones } = roll(userId, SPECIES_LIST);
-  const xp = row.xp || 0;
-  const derivedLevel = levelFromXp(xp);
-
-  // Self-healing: if DB level drifted from XP-derived level, fix it
-  if (row.id && row.level !== derivedLevel) {
-    db.prepare("UPDATE companions SET level = ? WHERE id = ?").run(derivedLevel, row.id);
-  }
-
-  return {
-    ...bones,
-    species: row.species,
-    name: row.name,
-    personalityBio: row.personality_bio || '',
-    level: derivedLevel,
-    xp,
-    mood: row.mood,
-    hatchedAt: new Date(row.created_at).getTime(),
-  };
-}
 
 export function recalcMood(companionId: string, leveledUp: boolean): Mood {
   if (leveledUp) return 'happy';
@@ -89,161 +61,6 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
   return { newXp, newLevel, leveledUp };
 }
 
-function renderCard(companion: Companion): string {
-  const art = renderSprite(companion);
-  const stars = RARITY_STARS[companion.rarity];
-  const statLines = STAT_NAMES.map(s => statBar(s, companion.stats[s]));
-
-  const cardWidth = 44;
-  const inner = cardWidth - 4;
-  const topBorder = '.' + '_'.repeat(cardWidth - 2) + '.';
-  const bottomBorder = "'" + '_'.repeat(cardWidth - 2) + "'";
-  const emptyLine = '| ' + ' '.repeat(inner) + ' |';
-  const ln = (text: string) => '| ' + text.padEnd(inner) + ' |';
-
-  const headerLeft = `${stars} ${companion.rarity.toUpperCase()}`;
-  const headerRight = companion.species.toUpperCase();
-  const headerGap = inner - headerLeft.length - headerRight.length;
-  const headerLine = ln(headerLeft + ' '.repeat(Math.max(1, headerGap)) + headerRight);
-
-  const bioLines: string[] = [];
-  if (companion.personalityBio) {
-    const bioText = `"${companion.personalityBio}"`;
-    const words = bioText.split(' ');
-    let cur = '';
-    for (const w of words) {
-      if (cur.length + w.length + 1 > inner - 2 && cur) {
-        bioLines.push(ln(' ' + cur));
-        cur = w;
-      } else {
-        cur = cur ? `${cur} ${w}` : w;
-      }
-    }
-    if (cur) bioLines.push(ln(' ' + cur));
-  }
-
-  return [
-    topBorder,
-    headerLine,
-    emptyLine,
-    ...art.map(l => ln(l)),
-    emptyLine,
-    ln(companion.name),
-    ...(bioLines.length > 0 ? [emptyLine, ...bioLines] : []),
-    emptyLine,
-    ...statLines.map(l => ln(l)),
-    emptyLine,
-    (() => {
-      const { level, currentXp, neededXp } = levelProgress(companion.xp);
-      const lvlLine = level >= 50 ? 'Lv.50 MAX' : `Lv.${level} · ${currentXp}/${neededXp} XP to next`;
-      return ln(lvlLine);
-    })(),
-    bottomBorder,
-  ].join('\n');
-}
-
-function hatchAnimation(companion: Companion): string {
-  const egg1 = [
-    '        ',
-    '   .--. ',
-    '  /    \\',
-    ' |  ??  |',
-    '  \\    /',
-    "   '--' ",
-  ].join('\n');
-
-  const egg2 = [
-    '    *   ',
-    '   .--. ',
-    '  / *  \\',
-    ' | \\??/ |',
-    '  \\  * /',
-    "   '--' ",
-  ].join('\n');
-
-  const egg3 = [
-    '  * . * ',
-    '   ,--. ',
-    '  / /\\ \\',
-    ' | |??| |',
-    '  \\ \\/ /',
-    "   `--´ ",
-  ].join('\n');
-
-  const egg4 = [
-    ' \\* . */  ',
-    '  \\,--./  ',
-    '   /  \\   ',
-    '  | ?? |  ',
-    '   \\  /   ',
-    "    `´    ",
-  ].join('\n');
-
-  const art = renderSprite(companion);
-  const hatched = [
-    '  ·  ✦  · ',
-    ' ✦ ·  · ✦ ',
-    ...art,
-    ' ✦ ·  · ✦ ',
-    '  ·  ✦  · ',
-  ].join('\n');
-
-  const card = renderCard(companion);
-
-  const footer = [
-    '',
-    `${companion.name} is here · it'll chime in as you code`,
-    `uses the same AI subscription you're on`,
-    `say its name to get its take · /buddy pet · /buddy off`,
-  ].join('\n');
-
-  return [
-    '🥚 An egg appears...\n',
-    egg1,
-    '\n...something is moving!\n',
-    egg2,
-    '\n...cracks are forming!\n',
-    egg3,
-    '\n...it\'s hatching!!\n',
-    egg4,
-    '\n✨ ✨ ✨\n',
-    hatched,
-    '\n',
-    card,
-    footer,
-  ].join('\n');
-}
-
-function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[] }) {
-  try {
-    if (!statusDirEnsured) {
-      mkdirSync(join(homedir(), ".claude"), { recursive: true });
-      statusDirEnsured = true;
-    }
-    writeFileSync(BUDDY_STATUS_PATH, JSON.stringify({
-      name: companion.name,
-      species: companion.species,
-      level: companion.level,
-      xp: companion.xp,
-      mood: companion.mood,
-      rarity: companion.rarity,
-      is_shiny: companion.shiny,
-      eye: companion.eye,
-      hat: companion.hat,
-      stats: companion.stats,
-      rarity_stars: RARITY_STARS[companion.rarity],
-      personality_bio: companion.personalityBio,
-      ...(reaction ? {
-        reaction: reaction.state,
-        reaction_text: reaction.text,
-        reaction_expires: reaction.expires,
-        reaction_eye: reaction.eyeOverride || '',
-        reaction_indicator: reaction.indicator || '',
-        ...(reaction.bubbleLines ? { bubble_lines: reaction.bubbleLines } : {}),
-      } : {}),
-    }));
-  } catch { /* non-fatal */ }
-}
 
 const server = new Server(
   {
@@ -375,37 +192,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       name?: string; species?: string; user_id?: string;
     };
 
-    const userId = user_id || 'anon-' + randomUUID();
-    const { bones } = roll(userId, SPECIES_LIST);
+    const { companion } = createCompanion({
+      userId: user_id,
+      name: requestedName,
+      species: requestedSpecies,
+    });
 
-    const finalSpecies = requestedSpecies && SPECIES_LIST.includes(requestedSpecies as any)
-      ? requestedSpecies
-      : bones.species;
-
-    const finalName = sanitizeName(requestedName) || generateName(finalSpecies);
-    const id = randomUUID();
-
-    // Use finalSpecies for bio (bones.species may differ if user overrode species)
-    const bio = generateBio({ ...bones, species: finalSpecies });
-
-    db.prepare(
-      "INSERT INTO companions (id, name, species, user_id, personality_bio) VALUES (?, ?, ?, ?, ?)"
-    ).run(id, finalName, finalSpecies, userId, bio);
-
-    const companion: Companion = {
-      ...bones,
-      species: finalSpecies,
-      name: finalName,
-      personalityBio: bio,
-      level: 1,
-      xp: 0,
-      mood: 'happy',
-      hatchedAt: Date.now(),
-    };
-
-    const reaction = getReaction(finalSpecies, 'hatch', 'happy');
-
-    writeBuddyStatus(companion);
+    const reaction = getReaction(companion.species, 'hatch', 'happy');
 
     return {
       content: [
