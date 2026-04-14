@@ -14,7 +14,14 @@ const MAGENTA = "\x1b[35m";
 
 const toUnix = (p: string) => p.replace(/\\/g, "/");
 const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
-const FRAME_INTERVAL_MS = 800;
+const FRAME_INTERVAL_MS = 500;
+
+// Choreographed animation sequences (save-buddy/claude-buddy pattern).
+// -1 = blink (render frame 0 with eyes replaced by '-').
+// Mostly idle (0) with natural blink timing and one species-specific action per cycle.
+const IDLE_SEQUENCE   = [0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 2, 0, 0, 0];
+const GRUMPY_SEQUENCE = [0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0];
+const HAPPY_SEQUENCE  = [0, 1, 0, 2, 0, -1, 0, 1, 0, 2, 0, -1, 0, 1, 0];
 
 // True randomness for animation — each render picks a fresh random value.
 // Idle animations SHOULD be unpredictable, like a real creature.
@@ -95,36 +102,43 @@ try {
       const totalFrames = frames.length;
       const hasReaction = buddy.reaction_expires && Date.now() < buddy.reaction_expires;
 
-      // Organic frame selection — pseudo-random, not fixed timer
-      // Each render picks a frame based on hashed time + buddy name
-      // This makes the buddy feel alive, not mechanical
+      // Choreographed animation — deterministic sequence creates natural rhythm.
+      // Tick advances every FRAME_INTERVAL_MS (500ms). Each mood/state has its
+      // own sequence pattern, inspired by save-buddy's 15-frame idle cycle.
+      const tick = Math.floor(Date.now() / FRAME_INTERVAL_MS);
       let frameIndex: number;
-      const r = Math.random();
 
       if (hasReaction && (buddy.reaction === 'excited' || buddy.reaction === 'impressed')) {
-        // Energetic: any frame, biased toward expressive (1-4)
-        frameIndex = r < 0.3 ? 0 : Math.floor(r * totalFrames);
+        // Energetic: rapid cycle through all frames
+        frameIndex = tick % totalFrames;
       } else if (hasReaction && buddy.reaction === 'concerned') {
-        // Worried: mostly blink, sometimes idle
-        frameIndex = r < 0.6 ? 1 : 0;
+        // Worried: alternate between idle and blink
+        frameIndex = tick % 4 === 0 ? -1 : 0;
       } else if (hasReaction) {
-        // Other reactions: expressive frames
-        frameIndex = 1 + Math.floor(r * Math.max(1, totalFrames - 1));
+        // Other reactions: cycle expressive frames (skip idle)
+        frameIndex = 1 + (tick % Math.max(1, totalFrames - 1));
       } else if (buddy.mood === 'grumpy' || buddy.mood === 'muted') {
-        // Grumpy: mostly idle, rare blink (~15% chance)
-        frameIndex = r < 0.15 ? 1 : 0;
+        // Grumpy: mostly still, rare blink (1 per 15-frame cycle)
+        frameIndex = GRUMPY_SEQUENCE[tick % GRUMPY_SEQUENCE.length]!;
+      } else if (buddy.mood === 'happy' || buddy.mood === 'content') {
+        // Happy: more varied, frequent expressions
+        frameIndex = HAPPY_SEQUENCE[tick % HAPPY_SEQUENCE.length]!;
       } else {
-        // Normal idle: weighted random
-        // 40% idle, 20% blink, 15% expression, 15% wiggle, 10% special
-        if (r < 0.40) frameIndex = 0;
-        else if (r < 0.60) frameIndex = 1;
-        else if (r < 0.75) frameIndex = 2 % totalFrames;
-        else if (r < 0.90) frameIndex = 3 % totalFrames;
-        else frameIndex = (totalFrames - 1) % totalFrames;
+        // Normal idle: natural rhythm with one blink and one action per cycle
+        frameIndex = IDLE_SEQUENCE[tick % IDLE_SEQUENCE.length]!;
       }
 
+      // -1 = blink: render frame 0 with eyes replaced by '-'
+      const isBlink = frameIndex === -1;
+      if (isBlink) frameIndex = 0;
+
       const artLines = renderSprite(bones, frameIndex);
-      ascii = artLines.join('\n');
+      // Blink: replace eye character with '-' for a natural blink effect
+      if (isBlink && buddy.eye) {
+        ascii = artLines.map(line => line.replaceAll(buddy.eye, '-')).join('\n');
+      } else {
+        ascii = artLines.join('\n');
+      }
     }
 
     // Fallback to SPECIES_ANIMATIONS if new format didn't produce output
