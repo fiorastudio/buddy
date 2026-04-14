@@ -93,7 +93,8 @@ configure_claude_code() {
   fi
 
   if [ "$registered" -ne 1 ]; then
-    CLAUDE_USER_FILE="$user_file" SERVER_PATH="$SERVER_PATH" node <<'EOJS' 2>/dev/null || true
+    if command -v node &> /dev/null; then
+      if CLAUDE_USER_FILE="$user_file" SERVER_PATH="$SERVER_PATH" node <<'EOJS' 2>/dev/null; then
 const fs = require('fs');
 const path = process.env.CLAUDE_USER_FILE;
 const serverPath = process.env.SERVER_PATH;
@@ -107,16 +108,29 @@ data.mcpServers.buddy = {
 };
 fs.writeFileSync(path, JSON.stringify(data, null, 2));
 EOJS
-    echo -e "  ${GREEN}✓${NC} Claude Code MCP config written ${DIM}($user_file)${NC}"
+        echo -e "  ${GREEN}✓${NC} Claude Code MCP config written ${DIM}($user_file)${NC}"
+      else
+        echo -e "  ${YELLOW}!${NC} Could not write MCP config to $user_file"
+      fi
+    else
+      echo -e "  ${YELLOW}!${NC} node not found — cannot configure Claude Code MCP"
+    fi
   fi
 
-  local hook_status
-  hook_status=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="node $hook_path" node <<'EOJS'
+  # Configure hook + statusline in a single settings.json write
+  if command -v node &> /dev/null; then
+    local settings_result
+    settings_result=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="node $hook_path" STATUSLINE_COMMAND="$statusline_command" node <<'EOJS'
 const fs = require('fs');
-const path = process.env.CLAUDE_SETTINGS;
+const settingsPath = process.env.CLAUDE_SETTINGS;
 const hookCommand = process.env.HOOK_COMMAND;
+const statuslineCommand = process.env.STATUSLINE_COMMAND;
 let config = {};
-try { config = JSON.parse(fs.readFileSync(path, 'utf-8')); } catch {}
+try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
+let changed = false;
+const result = [];
+
+// Hook
 if (!config.hooks) config.hooks = {};
 if (!Array.isArray(config.hooks.PostToolUse)) config.hooks.PostToolUse = [];
 const hasHook = config.hooks.PostToolUse.some(entry =>
@@ -127,48 +141,42 @@ const hasHook = config.hooks.PostToolUse.some(entry =>
 if (!hasHook) {
   config.hooks.PostToolUse.push({
     matcher: 'Bash',
-    hooks: [{
-      type: 'command',
-      command: hookCommand,
-      async: true,
-      timeout: 3
-    }]
+    hooks: [{ type: 'command', command: hookCommand, async: true, timeout: 3 }]
   });
-  fs.writeFileSync(path, JSON.stringify(config, null, 2));
-  process.stdout.write('updated');
+  changed = true;
+  result.push('hook:updated');
 } else {
-  process.stdout.write('noop');
+  result.push('hook:noop');
 }
-EOJS
-)
-  if [ "$hook_status" = "updated" ]; then
-    echo -e "  ${GREEN}✓${NC} PostToolUse hook configured"
-  else
-    echo -e "  ${GREEN}✓${NC} PostToolUse hook already configured"
-  fi
 
-  local status_status
-  status_status=$(CLAUDE_SETTINGS="$settings_file" STATUSLINE_COMMAND="$statusline_command" node <<'EOJS'
-const fs = require('fs');
-const path = process.env.CLAUDE_SETTINGS;
-const command = process.env.STATUSLINE_COMMAND;
-let config = {};
-try { config = JSON.parse(fs.readFileSync(path, 'utf-8')); } catch {}
-const desired = { type: 'command', command, padding: 1 };
-const needsUpdate = !config.statusLine || config.statusLine.type !== 'command' || config.statusLine.command !== command;
-if (needsUpdate) {
-  config.statusLine = desired;
-  fs.writeFileSync(path, JSON.stringify(config, null, 2));
-  process.stdout.write('updated');
+// Statusline
+const needsStatusline = !config.statusLine ||
+  config.statusLine.type !== 'command' ||
+  config.statusLine.command !== statuslineCommand;
+if (needsStatusline) {
+  config.statusLine = { type: 'command', command: statuslineCommand, padding: 1 };
+  changed = true;
+  result.push('statusline:updated');
 } else {
-  process.stdout.write('noop');
+  result.push('statusline:noop');
 }
+
+if (changed) {
+  fs.writeFileSync(settingsPath, JSON.stringify(config, null, 2));
+}
+process.stdout.write(result.join(','));
 EOJS
 )
-  if [ "$status_status" = "updated" ]; then
-    echo -e "  ${GREEN}✓${NC} Claude Code statusline configured"
+    case "$settings_result" in
+      *hook:updated*) echo -e "  ${GREEN}✓${NC} PostToolUse hook configured" ;;
+      *)              echo -e "  ${GREEN}✓${NC} PostToolUse hook already configured" ;;
+    esac
+    case "$settings_result" in
+      *statusline:updated*) echo -e "  ${GREEN}✓${NC} Claude Code statusline configured" ;;
+      *)                    echo -e "  ${GREEN}✓${NC} Claude Code statusline already configured" ;;
+    esac
   else
-    echo -e "  ${GREEN}✓${NC} Claude Code statusline already configured"
+    echo -e "  ${YELLOW}!${NC} node not found — cannot configure hooks or statusline"
   fi
 }
 

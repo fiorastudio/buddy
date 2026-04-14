@@ -102,16 +102,16 @@ if (!(Test-Path $claudeDir)) { New-Item -ItemType Directory -Path $claudeDir -Fo
 
 $claudeRegistered = $false
 if (Get-Command claude -ErrorAction SilentlyContinue) {
-  try {
-    claude mcp get buddy 1>$null 2>$null
+  claude mcp get buddy 1>$null 2>$null
+  if ($LASTEXITCODE -eq 0) {
     Write-Host "  ✓ Claude Code MCP already registered" -ForegroundColor Green
     $claudeRegistered = $true
-  } catch {
-    try {
-      claude mcp add buddy -s user -- node "$SERVER_PATH_UNIX" 1>$null 2>$null
+  } else {
+    claude mcp add buddy -s user -- node "$SERVER_PATH_UNIX" 1>$null 2>$null
+    if ($LASTEXITCODE -eq 0) {
       Write-Host "  ✓ Claude Code MCP registered via claude CLI" -ForegroundColor Green
       $claudeRegistered = $true
-    } catch {
+    } else {
       Write-Host "  ! claude CLI detected, but MCP registration failed — falling back to manual config" -ForegroundColor Yellow
     }
   }
