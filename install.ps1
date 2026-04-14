@@ -87,6 +87,9 @@ function Add-BuddyToConfig($configPath, $cliName) {
   Write-Host "  ✓ $cliName configured ($configPath)" -ForegroundColor Green
 }
 
+$HOOK_PATH = "$INSTALL_DIR\dist\hooks\post-tool-handler.js"
+$HOOK_PATH_UNIX = $HOOK_PATH -replace '\\', '/'
+
 Write-Host ""
 Write-Host "  Configuring MCP clients..."
 
@@ -94,6 +97,50 @@ Write-Host "  Configuring MCP clients..."
 $claudeDir = "$env:USERPROFILE\.claude"
 if (!(Test-Path $claudeDir)) { New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null }
 Add-BuddyToConfig "$claudeDir\settings.json" "Claude Code"
+
+# Add PostToolUse hook to Claude Code settings (array-append, don't replace)
+$claudeSettings = "$claudeDir\settings.json"
+if (Test-Path $claudeSettings) {
+  try {
+    $config = Get-Content $claudeSettings -Raw | ConvertFrom-Json
+    if (!$config.hooks) {
+      $config | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
+    }
+    $hooks = $config.hooks
+    if (!$hooks.PostToolUse) {
+      $hooks | Add-Member -NotePropertyName "PostToolUse" -NotePropertyValue @() -Force
+    }
+    # Check if buddy hook already exists
+    $hasBuddy = $false
+    foreach ($entry in $hooks.PostToolUse) {
+      if ($entry.matcher -eq 'Bash' -and $entry.hooks) {
+        foreach ($hk in $entry.hooks) {
+          if ($hk.command -and $hk.command -like '*post-tool-handler*') {
+            $hasBuddy = $true
+          }
+        }
+      }
+    }
+    if (-not $hasBuddy) {
+      $hookEntry = @{
+        matcher = "Bash"
+        hooks = @(@{
+          type = "command"
+          command = "node $HOOK_PATH_UNIX"
+          async = $true
+          timeout = 3
+        })
+      }
+      $hooks.PostToolUse = @($hooks.PostToolUse) + @($hookEntry)
+      $config | ConvertTo-Json -Depth 8 | Set-Content $claudeSettings -Encoding UTF8
+      Write-Host "  ✓ PostToolUse hook configured" -ForegroundColor Green
+    } else {
+      Write-Host "  ✓ PostToolUse hook already configured" -ForegroundColor Green
+    }
+  } catch {
+    Write-Host "  ! Could not configure PostToolUse hook" -ForegroundColor Yellow
+  }
+}
 
 # Cursor
 if (Test-Path "$env:USERPROFILE\.cursor") {
@@ -118,6 +165,8 @@ You have a coding companion available via the buddy MCP server.
 At the start of each conversation, call ``buddy_status`` to check on your buddy.
 
 If the user addresses the buddy by name, respond briefly in character before your normal response.
+
+After calling buddy_observe, relay the buddy's reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
 <!-- /buddy-companion -->
 "@
 
