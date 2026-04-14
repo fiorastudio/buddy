@@ -553,7 +553,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const companion = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!companion) {
       return {
-        content: [{ type: "text", text: "No companion to release. Use buddy_onboard to get started!" }],
+        content: [{ type: "text", text: "No companion to release. Use buddy_onboard or buddy_hatch to get started!" }],
       };
     }
 
@@ -573,7 +573,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return {
       content: [
         { type: "text", text: `${oldName} the ${oldSpecies} has been released. Goodbye, friend!` },
-        { type: "text", text: "Use buddy_onboard to welcome a new companion." },
+        { type: "text", text: "Use buddy_onboard or buddy_hatch to welcome a new companion." },
       ],
     };
   }
@@ -585,7 +585,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) {
-      return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_onboard first." }] };
+      return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_onboard to get started, or buddy_hatch for a quick start." }] };
     }
 
     const xpResult = awardXp(row.id, 'observe');
@@ -639,7 +639,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "buddy_pet") {
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) {
-      return { content: [{ type: "text", text: "No companion to pet! Use buddy_onboard first." }] };
+      return { content: [{ type: "text", text: "No companion to pet! Use buddy_onboard or buddy_hatch first." }] };
     }
 
     const xpResult = awardXp(row.id, 'session');
@@ -834,7 +834,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "buddy_mute") {
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) {
-      return { content: [{ type: "text", text: "No companion to mute! Use buddy_onboard first." }] };
+      return { content: [{ type: "text", text: "No companion to mute! Use buddy_onboard or buddy_hatch first." }] };
     }
 
     db.prepare("UPDATE companions SET mood = 'muted' WHERE id = ?").run(row.id);
@@ -848,7 +848,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "buddy_unmute") {
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) {
-      return { content: [{ type: "text", text: "No companion to unmute! Use buddy_onboard first." }] };
+      return { content: [{ type: "text", text: "No companion to unmute! Use buddy_onboard or buddy_hatch first." }] };
     }
 
     db.prepare("UPDATE companions SET mood = 'happy' WHERE id = ?").run(row.id);
@@ -916,7 +916,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   if (uri === "buddy://intro") {
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) {
-      return { contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet. Use buddy_onboard to get started." }] };
+      return { contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet. Use buddy_onboard or buddy_hatch to get started." }] };
     }
     const companion = loadCompanion(row)!;
     const peakStat = getPeakStat(companion.stats);
