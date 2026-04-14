@@ -228,6 +228,8 @@ There is also a 1% shiny chance on any hatch.
 <details>
 <summary><strong>See the core tools and commands</strong></summary>
 
+These stay tucked away by default, but Buddy exposes a real MCP surface for companion state, reactions, and progression.
+
 ### MCP tools
 
 | Tool | Description |
@@ -242,6 +244,13 @@ There is also a 1% shiny chance on any hatch.
 | `buddy_unmute` | Resume reactions |
 | `buddy_respawn` | Reset and start over |
 
+The most important loop is:
+
+- `buddy_hatch` creates the companion
+- `buddy_status` shows the current card, mood, and progression
+- `buddy_observe` gives in-character reactions and awards XP after real work
+- `buddy_pet` adds interaction and helps keep the buddy feeling alive
+
 ### MCP resources
 
 | URI | Description |
@@ -249,6 +258,8 @@ There is also a 1% shiny chance on any hatch.
 | `buddy://companion` | Full buddy JSON state |
 | `buddy://status` | ASCII status card |
 | `buddy://intro` | Prompt text for host CLI integration |
+
+Those resources let host clients keep Buddy present in the session without hard-coding one terminal or editor.
 
 </details>
 
@@ -263,15 +274,26 @@ AI terminal client
     -> Buddy server
       -> SQLite state
       -> species + rarity engine
-      -> observer / memory / XP systems
+      -> mood / memory / XP systems
+      -> reaction and status rendering
 ```
 
 The flow is simple:
 
 1. `buddy_hatch` creates or restores a companion.
 2. State is stored locally in `~/.buddy/buddy.db`.
-3. `buddy_observe` reacts to task summaries instead of reading your whole repository.
-4. The host CLI uses Buddy's MCP tools and resources to keep the companion present in your workflow.
+3. `buddy_observe` reacts to task summaries instead of reading your whole repository, then awards XP and can trigger level-ups.
+4. `buddy_pet` and other interactions feed the mood system, so the companion can become happier over time.
+5. The host CLI uses Buddy's MCP tools and resources to keep the companion present in your workflow.
+
+Under the hood, Buddy combines:
+
+- deterministic species and personality generation
+- local SQLite persistence for companion state and memories
+- an observer system for live code feedback
+- mood recalculation from interaction history
+- XP and leveling progression
+- status-card and terminal rendering for the companion presence layer
 
 This keeps Buddy:
 
