@@ -17,7 +17,12 @@
     "start": "node dist/server/index.js",
     "dev": "ts-node src/server/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "version": "npm run build && git add -f dist/",
+    "prepack": "npm run build",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major"
   },
   "keywords": [],
   "author": "",
