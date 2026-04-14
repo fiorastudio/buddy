@@ -128,17 +128,12 @@ try {
         frameIndex = IDLE_SEQUENCE[tick % IDLE_SEQUENCE.length]!;
       }
 
-      // -1 = blink: render frame 0 with eyes replaced by '-'
-      const isBlink = frameIndex === -1;
-      if (isBlink) frameIndex = 0;
+      // -1 = blink: use frame 1 (every species has frame 1 as the blink frame
+      // with eyes replaced by '-' in the sprite data itself)
+      if (frameIndex === -1) frameIndex = 1;
 
       const artLines = renderSprite(bones, frameIndex);
-      // Blink: replace eye character with '-' for a natural blink effect
-      if (isBlink && buddy.eye) {
-        ascii = artLines.map(line => line.replaceAll(buddy.eye, '-')).join('\n');
-      } else {
-        ascii = artLines.join('\n');
-      }
+      ascii = artLines.join('\n');
     }
 
     // Fallback to SPECIES_ANIMATIONS if new format didn't produce output
