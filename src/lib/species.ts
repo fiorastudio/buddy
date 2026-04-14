@@ -384,14 +384,51 @@ export function calculateMood(xpEvents: any[], recentMemories: number): Mood {
   return 'grumpy';
 }
 
-export function generateName(species: string): string {
-  const prefixes = ['Bit', 'Hex', 'Zip', 'Log', 'Null', 'Void', 'Rust', 'Data', 'Cyber', 'Neo', 'Giga', 'Nano'];
-  const suffixes = ['y', 'o', 'it', 'ox', 'us', 'ix', 'en', 'ly', 'oid', 'bot', 'tron', 'kin'];
-  
-  const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-  const suffix = suffixes[Math.floor(Math.random() * suffixes.length)];
-  
-  return prefix + suffix;
+// Species-specific two-pool name system — combine first+second for ~100 unique names per species
+type NamePools = { first: string[]; second: string[] };
+
+const SPECIES_NAMES: Record<string, NamePools> = {
+  'Void Cat':     { first: ['Shadow','Onyx','Ember','Ash','Dusk','Nyx','Luna','Umbra','Vesper','Soot'], second: ['paw','whisker','claw','fang','fur','tail','eye','step','purr','shade'] },
+  'Rust Hound':   { first: ['Iron','Steel','Copper','Bolt','Rivet','Gear','Axle','Chrome','Forge','Titan'], second: ['bark','fang','paw','snout','howl','scout','run','dig','wag','nose'] },
+  'Data Drake':   { first: ['Cipher','Flux','Prism','Vector','Scalar','Delta','Sigma','Byte','Pixel','Qubit'], second: ['wing','fire','scale','claw','tail','fang','spark','flare','blaze','horn'] },
+  'Log Golem':    { first: ['Stone','Slab','Brick','Crag','Flint','Basalt','Cobble','Rune','Quarry','Ore'], second: ['fist','guard','wall','step','core','helm','shard','block','forge','chip'] },
+  'Cache Crow':   { first: ['Jet','Raven','Ink','Coal','Flint','Storm','Gust','Swift','Talon','Plume'], second: ['beak','wing','caw','eye','flight','perch','swoop','call','glide','feather'] },
+  'Shell Turtle': { first: ['Moss','Coral','Tide','Pearl','Shell','Reef','Drift','Kelp','Shore','Wave'], second: ['shell','back','fin','pace','drift','guard','swim','trek','plod','calm'] },
+  'Duck':         { first: ['Quill','Puddle','Waddle','Drake','Splash','Ripple','Reed','Marsh','Brook','Pond'], second: ['bill','wing','flap','float','dip','dive','quack','swim','bob','tuft'] },
+  'Goose':        { first: ['Gale','Storm','Brass','Flint','Thunder','Noble','Baron','Guard','Sentry','Valor'], second: ['honk','wing','step','guard','charge','strut','call','gaze','march','fury'] },
+  'Blob':         { first: ['Goo','Jelly','Slick','Ooze','Wobble','Pudge','Glob','Squish','Bubble','Drop'], second: ['blob','plop','drip','goo','bounce','wiggle','jiggle','slide','stretch','morph'] },
+  'Octopus':      { first: ['Ink','Coral','Deep','Tide','Reef','Abyss','Kraken','Pearl','Drift','Azure'], second: ['arm','ink','jet','swirl','grip','wave','coil','pulse','flow','dash'] },
+  'Owl':          { first: ['Sage','Dusk','Alder','Glen','Hazel','Willow','Aspen','Cedar','Briar','Fern'], second: ['hoot','talon','wing','gaze','perch','swoop','watch','flight','brow','plume'] },
+  'Penguin':      { first: ['Frost','Ice','Snow','Floe','Sleet','Drift','Chill','Polar','Arctic','Glaze'], second: ['flip','slide','waddle','dive','tux','march','chill','splash','glide','beak'] },
+  'Snail':        { first: ['Dew','Moss','Fern','Petal','Leaf','Lichen','Trail','Mist','Glen','Meadow'], second: ['shell','trail','pace','curl','glide','slow','slime','swirl','inch','coil'] },
+  'Ghost':        { first: ['Wisp','Shade','Mist','Echo','Haze','Drift','Vapor','Veil','Gloom','Fade'], second: ['haunt','fade','drift','chill','glow','wail','hover','phase','float','flick'] },
+  'Axolotl':      { first: ['Coral','Bloom','Lily','Petal','Brine','Splash','Ripple','Foam','Fizz','Aqua'], second: ['gill','fin','frill','swim','glow','wave','drift','splash','bloom','frond'] },
+  'Capybara':     { first: ['Marsh','Clover','Sage','Meadow','Willow','Honey','Maple','Birch','Hazel','Reed'], second: ['munch','calm','chill','snooze','loaf','soak','wade','graze','plod','nap'] },
+  'Cactus':       { first: ['Spike','Thorn','Agave','Prickle','Sandy','Mesa','Dune','Arid','Flint','Sage'], second: ['spike','bloom','thorn','poke','sun','grit','sand','root','stem','guard'] },
+  'Robot':        { first: ['Volt','Spark','Circuit','Pixel','Binary','Logic','Chip','Servo','Core','Nano'], second: ['bot','byte','bit','beep','buzz','whir','click','sync','ping','boop'] },
+  'Rabbit':       { first: ['Clover','Thistle','Bramble','Fern','Daisy','Poppy','Hazel','Nutmeg','Basil','Sage'], second: ['hop','ear','paw','nose','thump','dash','leap','fluff','bound','skip'] },
+  'Mushroom':     { first: ['Spore','Morel','Truffle','Cap','Myco','Shroom','Toadly','Fungi','Porcini','Chanty'], second: ['cap','stem','gill','ring','veil','bloom','dew','root','moss','kin'] },
+  'Chonk':        { first: ['Pudge','Chunk','Fluff','Plump','Round','Husky','Beefy','Hefty','Stout','Waddle'], second: ['loaf','roll','nap','plop','sit','purr','snore','flop','lump','chub'] },
+};
+
+const FALLBACK_POOLS: NamePools = {
+  first: ['Bit','Hex','Zip','Log','Null','Void','Rust','Data','Cyber','Neo'],
+  second: ['kin','bot','oid','tron','ix','en','us','ly','ox','it'],
+};
+
+import { seededIndex } from './rng.js';
+
+export function generateName(species: string, userId?: string): string {
+  const pools = SPECIES_NAMES[species] || FALLBACK_POOLS;
+  if (!userId) {
+    const p1 = pools.first[Math.floor(Math.random() * pools.first.length)];
+    const p2 = pools.second[Math.floor(Math.random() * pools.second.length)];
+    return p1 + p2;
+  }
+  const seed = userId + species;
+  const i1 = seededIndex(seed, 'name:first', pools.first.length);
+  const i2 = seededIndex(seed, 'name:second', pools.second.length);
+  return pools.first[i1]! + pools.second[i2]!;
 }
 
 export function getReaction(species: string, event: string, mood: Mood): string {

@@ -38,6 +38,17 @@ function hashString(s: string): number {
   return h >>> 0;
 }
 
+/**
+ * Deterministic index selection from a seed string + namespace.
+ * Keeps hashString/mulberry32 private — this is the public API.
+ */
+export function seededIndex(seed: string, namespace: string, length: number): number {
+  if (length <= 0) return 0;
+  const hash = hashString(seed + ':' + namespace);
+  const rng = mulberry32(hash);
+  return Math.floor(rng() * length);
+}
+
 function pick<T>(rng: () => number, arr: readonly T[]): T {
   return arr[Math.floor(rng() * arr.length)]!;
 }

@@ -100,7 +100,7 @@ export function createCompanion(opts: {
     ? opts.species
     : bones.species;
 
-  const finalName = sanitizeName(opts.name) || generateName(finalSpecies);
+  const finalName = sanitizeName(opts.name) || generateName(finalSpecies, userId);
   const id = randomUUID();
 
   // Use finalSpecies for bio (bones.species may differ if user overrode species)
@@ -147,7 +147,7 @@ export function rescueCompanion(importResult: {
     ? importResult.species
     : bones.species;
 
-  const finalName = sanitizeName(importResult.name) || generateName(finalSpecies);
+  const finalName = sanitizeName(importResult.name) || generateName(finalSpecies, userId);
   const id = randomUUID();
 
   const bio = generateBio({ ...bones, species: finalSpecies });
