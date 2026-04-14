@@ -129,6 +129,8 @@ Then point your client's MCP config at:
 
 ### 21 species
 
+Buddy pays homage to the original companion lineup, then adds a little more flair with Buddy-specific characters like Void Cat, Rust Hound, Data Drake, Log Golem, Cache Crow, and Shell Turtle.
+
 Buddy ships with 21 companions:
 
 ```text
