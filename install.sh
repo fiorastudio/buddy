@@ -4,8 +4,17 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh | bash
+#   curl ... | bash -s -- --no-onboard    # skip onboarding wizard (CI/scripted installs)
 
 set -e
+
+# Parse flags
+NO_ONBOARD=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-onboard) NO_ONBOARD=1 ;;
+  esac
+done
 
 REPO="https://github.com/fiorastudio/buddy.git"
 INSTALL_DIR="$HOME/.buddy/server"
@@ -296,6 +305,17 @@ if [ -f "$HOME/.copilot/AGENTS.md" ]; then
   inject_prompt "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
 else
   inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+fi
+
+# ── Run onboarding wizard ──
+
+ONBOARD_SCRIPT="$INSTALL_DIR/dist/cli/onboard.js"
+if [ -f "$ONBOARD_SCRIPT" ] && [ "$NO_ONBOARD" -eq 0 ]; then
+  # Let onboard.ts detect TTY itself — don't force /dev/tty
+  # (fails in headless SSH, CI, cron where no controlling terminal exists)
+  node "$ONBOARD_SCRIPT" || true
+elif [ "$NO_ONBOARD" -eq 1 ]; then
+  echo -e "  ${DIM}Onboarding skipped (--no-onboard). Run buddy-onboard later to set up.${NC}"
 fi
 
 echo ""

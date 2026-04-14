@@ -191,13 +191,15 @@ $cursorRulesDir = "$env:USERPROFILE\.cursor\rules"
 if (!(Test-Path $cursorRulesDir)) { New-Item -ItemType Directory -Path $cursorRulesDir -Force | Out-Null }
 Inject-BuddyPrompt "$cursorRulesDir\buddy.md" "Cursor CLI"
 
-# Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
-if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
-  Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
-} else {
-  Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+# Codex CLI (only inject prompts if codex command exists — matches bash behavior)
+if (Get-Command codex -ErrorAction SilentlyContinue) {
+  if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
+    Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
+  } else {
+    Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+  }
 }
-# Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
+# Gemini CLI
 if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USERPROFILE\.gemini\GEMINI.md")) {
   Inject-BuddyPrompt "$env:USERPROFILE\.gemini\AGENTS.md" "Gemini CLI"
 } else {
@@ -208,6 +210,17 @@ if (Test-Path "$env:USERPROFILE\.copilot\AGENTS.md") {
   Inject-BuddyPrompt "$env:USERPROFILE\.copilot\AGENTS.md" "GitHub Copilot CLI"
 } else {
   Inject-BuddyPrompt "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
+}
+
+# ── Run onboarding wizard ──
+
+$ONBOARD_SCRIPT = "$INSTALL_DIR\dist\cli\onboard.js"
+if (Test-Path $ONBOARD_SCRIPT) {
+  try {
+    node $ONBOARD_SCRIPT
+  } catch {
+    # Non-fatal — wizard is optional
+  }
 }
 
 Write-Host ""
