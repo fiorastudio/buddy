@@ -279,16 +279,13 @@ npm start
 
 </details>
 
-## Sources and Attribution
+## Credits
 
-Buddy is part of a broader community effort to preserve the `/buddy` experience after it disappeared from hosted clients. This implementation is not presented as appearing from nowhere. It builds on public community work, public documentation, and the open protocol surface exposed by MCP-capable terminals.
-
-- [save-buddy](https://github.com/jrykn/save-buddy) by [@jrykn](https://github.com/jrykn) is a strong reference point for transparent provenance. Its README and methodology framing are a good example of explicitly documenting where preservation ideas came from and how reconstruction work should be credited.
-- [claude-buddy](https://github.com/1270011/claude-buddy) by [@1270011](https://github.com/1270011) helped establish the community pattern of rebuilding buddy-like behavior around stable extension points instead of brittle patching. The MCP plus terminal-integration approach in projects like this helped validate that the companion experience could survive client churn.
-- Public community reverse-engineering and discussion around the original buddy behavior, including research threads that identified endpoint behavior and reconstruction details, helped shape the preservation direction for projects in this space.
-- Official documentation for MCP and host-client integration contracts remains foundational for Buddy's portable architecture. The project relies on the documented MCP server model and on supported client configuration surfaces rather than patching hidden binaries.
-
-If you are building in this area too, credit upstream community research clearly. These preservation projects are strongest when the lineage stays visible.
+- Original buddy concept by [Anthropic](https://www.anthropic.com/) in Claude Code `v2.1.89` to `v2.1.94`
+- Inspired by [any-buddy](https://github.com/your-diary/any-buddy), [buddy-reroll](https://github.com/paradoxical-dev/buddy-reroll), and [ccbuddyy](https://github.com/chroxify/ccbuddyy)
+- Built with the [Model Context Protocol](https://modelcontextprotocol.io/)
+- Community preservation reference: [claude-buddy](https://github.com/1270011/claude-buddy)
+- Transparent provenance reference: [save-buddy](https://github.com/jrykn/save-buddy)
 
 ## Author
 
