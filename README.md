@@ -370,6 +370,10 @@ npm start
 
 </details>
 
+## Find Buddy
+
+Buddy is an open-source Claude Code `/buddy` alternative, MCP server, AI terminal pet, terminal companion, and CLI-first coding buddy for Claude Code CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI, Cursor CLI, and other MCP-capable clients.
+
 ## Credits
 
 - Original buddy concept by [Anthropic](https://www.anthropic.com/) in Claude Code `v2.1.89` to `v2.1.94`
