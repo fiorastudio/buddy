@@ -66,6 +66,10 @@ hatch a buddy
 | **Persistent memory** | Save local memories and keep a continuous companion state |
 | **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
 
+### Nuzzlecap doing an actual code review
+
+![Nuzzlecap Code Review](demo/screenshots/code-review.png)
+
 ## Supported Clients
 
 | Client | Status |
@@ -142,11 +146,13 @@ Buddy ships with 21 companions, including:
 ### 5 personality stats
 
 ```text
-DEBUGGING  ███████▓   92
-PATIENCE   ██▓░░░░░   28
-CHAOS      █████░░░   60
-WISDOM     ██████▓░   78
-SNARK      ██████▓░   85
+.________________________________.
+| DEBUGGING  ███████▓   92        |
+| PATIENCE   ██▓░░░░░   28        |
+| CHAOS      █████░░░   60        |
+| WISDOM     ██████▓░   78        |
+| SNARK      ██████▓░   85        |
+'________________________________'
 ```
 
 These stats shape how your buddy behaves:
