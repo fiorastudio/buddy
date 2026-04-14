@@ -18,7 +18,7 @@
     "dev": "ts-node src/server/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "version": "npm run build && git add dist/",
+    "version": "npm run build && git add -f dist/",
     "prepack": "npm run build",
     "release:patch": "npm version patch",
     "release:minor": "npm version minor",

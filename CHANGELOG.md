@@ -25,4 +25,4 @@ All notable changes to this project will follow [Semantic Versioning](https://se
 - Install scripts for Claude Code, Cursor CLI, Codex CLI, Gemini CLI, GitHub Copilot CLI
 - MCP tools: buddy_hatch, buddy_status, buddy_observe, buddy_pet, buddy_mute/unmute, buddy_remember, buddy_dream, buddy_respawn
 - MCP resources: buddy://companion, buddy://status, buddy://intro
-- 246+ tests (core, species, observer, self-healing)
+- 270+ tests (core, species, observer, self-healing, personality)
