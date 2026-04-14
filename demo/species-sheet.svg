@@ -200,7 +200,7 @@
     </g>
   </g>
 
-  <g transform="translate(475,1140)">
+  <g transform="translate(48,1140)">
     <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
     <text class="name" x="20" y="30">Chonk</text>
     <text class="ascii" x="20" y="66">/\    /\</text>
