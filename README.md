@@ -61,14 +61,24 @@ hatch a buddy
 |---|---|
 | **21 species** | Void Cat, Rust Hound, Goose, Mushroom, Chonk, and more, each with distinct ASCII art and flavor |
 | **5 stats** | `DEBUGGING`, `PATIENCE`, `CHAOS`, `WISDOM`, and `SNARK` shape reactions and personality |
-| **XP and levels** | Your buddy grows with usage instead of disappearing every session |
+| **Mood system** | Your buddy can be happy, content, neutral, curious, grumpy, or exhausted based on how you interact with it |
+| **XP and levels** | Your buddy grows with usage instead of disappearing every session, with a real leveling curve behind it |
 | **Observer reactions** | `buddy_observe` lets your companion react to work you just finished |
+| **Pet-to-happiness loop** | Petting your buddy is not cosmetic only. More interaction makes it happier and more alive over time |
 | **Persistent memory** | Save local memories and keep a continuous companion state |
 | **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
 
 ### Buddy giving live code feedback
 
 ![Nuzzlecap Code Review](demo/screenshots/code-review.png)
+
+## What Makes Buddy Different
+
+- **It has a real mood system.** Buddy is not just a static pet card. It tracks moods like `happy`, `content`, `neutral`, `curious`, `grumpy`, and `exhausted`.
+- **Petting changes the relationship.** The more you interact with and pet your buddy, the happier it becomes. That care loop is part of the product, not just a gimmick.
+- **It actually levels up.** Buddy has a real XP and leveling system, so your companion develops over time instead of resetting every session.
+- **Feedback is personality-driven.** Reactions are shaped by species, stats, mood, and observer state, so the companion feels like a character rather than a random text generator.
+- **It survives client churn.** Because it is built on MCP and local state, your buddy can outlive terminal restarts and host-client changes.
 
 ## Supported Clients
 
@@ -176,6 +186,12 @@ These stats shape how your buddy behaves:
 There is also a 1% shiny chance on any hatch.
 
 </details>
+
+## Roadmap
+
+- Unlockable reactions tied to leveling and longer-term interaction
+- Companion upgrades and progression systems beyond base leveling
+- More expressive mood-driven behavior and presentation
 
 <details>
 <summary><strong>See the core tools and commands</strong></summary>
