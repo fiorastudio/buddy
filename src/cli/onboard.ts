@@ -8,6 +8,7 @@ import {
   loadCompanion,
   createCompanion,
   rescueCompanion,
+  writeBuddyStatus,
 } from '../lib/companion.js';
 import { renderCard, hatchAnimation, rescueAnimation } from '../lib/card.js';
 import { readFileSync } from 'fs';
@@ -164,11 +165,12 @@ async function main() {
   // Initialize database
   initDb();
 
-  // Check if companion already exists
+  // Check if companion already exists — refresh status file and exit
   const existing = companionExists();
   if (existing) {
     const companion = loadCompanion(existing);
     if (companion) {
+      writeBuddyStatus(companion);
       console.log(`\n  ${c(GREEN, 'Already have')} ${c(CYAN, companion.name)} the ${c(MAGENTA, companion.species)}!\n`);
       process.exit(0);
     }
