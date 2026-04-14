@@ -191,11 +191,13 @@ $cursorRulesDir = "$env:USERPROFILE\.cursor\rules"
 if (!(Test-Path $cursorRulesDir)) { New-Item -ItemType Directory -Path $cursorRulesDir -Force | Out-Null }
 Inject-BuddyPrompt "$cursorRulesDir\buddy.md" "Cursor CLI"
 
-# Codex CLI (prompt injection is harmless — always inject so it's ready when CLI is installed)
-if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
-  Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
-} else {
-  Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+# Codex CLI (only inject prompts if codex command exists — matches bash behavior)
+if (Get-Command codex -ErrorAction SilentlyContinue) {
+  if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
+    Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
+  } else {
+    Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+  }
 }
 # Gemini CLI
 if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USERPROFILE\.gemini\GEMINI.md")) {
