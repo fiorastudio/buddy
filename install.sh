@@ -128,11 +128,10 @@ EOJSON
   fi
 }
 
-configure_windsurf() {
-  local config_file="$HOME/.codeium/windsurf/mcp_config.json"
+configure_copilot() {
+  local config_file="$HOME/.copilot/mcp-config.json"
 
-  if [ -d "$HOME/.codeium" ]; then
-    mkdir -p "$(dirname "$config_file")"
+  if [ -d "$HOME/.copilot" ]; then
     if [ ! -f "$config_file" ]; then
       cat > "$config_file" << EOJSON
 {
@@ -145,15 +144,20 @@ configure_windsurf() {
 }
 EOJSON
     elif ! grep -q '"buddy"' "$config_file" 2>/dev/null; then
-      node -e "
-        const fs = require('fs');
-        const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-        if (!config.mcpServers) config.mcpServers = {};
-        config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
-        fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
-      " 2>/dev/null
+      if command -v node &> /dev/null; then
+        node -e "
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
+          if (!config.mcpServers) config.mcpServers = {};
+          config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
+          fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
+        " 2>/dev/null
+      else
+        echo -e "  ${YELLOW}!${NC} GitHub Copilot CLI: node not found, could not merge into existing config"
+        return 1
+      fi
     fi
-    echo -e "  ${GREEN}✓${NC} Windsurf configured ${DIM}($config_file)${NC}"
+    echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI configured ${DIM}($config_file)${NC}"
   fi
 }
 
@@ -182,7 +186,7 @@ echo ""
 echo "  Configuring MCP clients..."
 configure_claude_code
 configure_cursor
-configure_windsurf
+configure_copilot
 configure_codex
 
 # ── Inject buddy instructions into CLI prompt files ──
@@ -221,21 +225,33 @@ inject_prompt() {
 echo ""
 echo "  Injecting buddy instructions..."
 inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
-inject_prompt "$HOME/.cursorrules" "Cursor"
+mkdir -p "$HOME/.cursor/rules" 2>/dev/null
+inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor CLI"
 
-# Windsurf uses a rules directory
-mkdir -p "$HOME/.codeium/windsurf/rules" 2>/dev/null
-inject_prompt "$HOME/.codeium/windsurf/rules/buddy.md" "Windsurf"
-
-# Codex CLI
+# Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
 if [ "$CODEX_CONFIGURED" -eq 1 ]; then
-  inject_prompt "$HOME/.codex/instructions.md" "Codex CLI"
+  if [ -f "$HOME/.codex/AGENTS.md" ]; then
+    inject_prompt "$HOME/.codex/AGENTS.md" "Codex CLI"
+  else
+    inject_prompt "$HOME/.codex/instructions.md" "Codex CLI"
+  fi
 else
   echo -e "  ${YELLOW}!${NC} Skipping Codex CLI prompt injection because Buddy MCP is not configured"
 fi
 
-# Gemini CLI
-inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+# Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
+if [ -f "$HOME/.gemini/AGENTS.md" ] && [ ! -f "$HOME/.gemini/GEMINI.md" ]; then
+  inject_prompt "$HOME/.gemini/AGENTS.md" "Gemini CLI"
+else
+  inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+fi
+
+# GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
+if [ -f "$HOME/.copilot/AGENTS.md" ]; then
+  inject_prompt "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
+else
+  inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+fi
 
 echo ""
 if [ "$CODEX_CONFIGURED" -eq 1 ] || ! command -v codex &> /dev/null; then

@@ -100,11 +100,9 @@ if (Test-Path "$env:USERPROFILE\.cursor") {
   Add-BuddyToConfig "$env:USERPROFILE\.cursor\mcp.json" "Cursor"
 }
 
-# Windsurf
-if (Test-Path "$env:USERPROFILE\.codeium") {
-  $windsurfDir = "$env:USERPROFILE\.codeium\windsurf"
-  if (!(Test-Path $windsurfDir)) { New-Item -ItemType Directory -Path $windsurfDir -Force | Out-Null }
-  Add-BuddyToConfig "$windsurfDir\mcp_config.json" "Windsurf"
+# GitHub Copilot CLI (only if ~/.copilot exists — don't create dir for users without Copilot)
+if (Test-Path "$env:USERPROFILE\.copilot") {
+  Add-BuddyToConfig "$env:USERPROFILE\.copilot\mcp-config.json" "GitHub Copilot CLI"
 }
 
 # ── Inject buddy instructions into CLI prompt files ──
@@ -140,14 +138,28 @@ Write-Host ""
 Write-Host "  Injecting buddy instructions..."
 
 Inject-BuddyPrompt "$env:USERPROFILE\.claude\CLAUDE.md" "Claude Code"
-Inject-BuddyPrompt "$env:USERPROFILE\.cursorrules" "Cursor"
+$cursorRulesDir = "$env:USERPROFILE\.cursor\rules"
+if (!(Test-Path $cursorRulesDir)) { New-Item -ItemType Directory -Path $cursorRulesDir -Force | Out-Null }
+Inject-BuddyPrompt "$cursorRulesDir\buddy.md" "Cursor CLI"
 
-$windsurfRulesDir = "$env:USERPROFILE\.codeium\windsurf\rules"
-if (!(Test-Path $windsurfRulesDir)) { New-Item -ItemType Directory -Path $windsurfRulesDir -Force | Out-Null }
-Inject-BuddyPrompt "$windsurfRulesDir\buddy.md" "Windsurf"
-
-Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
-Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
+# Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
+if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
+  Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+}
+# Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
+if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USERPROFILE\.gemini\GEMINI.md")) {
+  Inject-BuddyPrompt "$env:USERPROFILE\.gemini\AGENTS.md" "Gemini CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
+}
+# GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
+if (Test-Path "$env:USERPROFILE\.copilot\AGENTS.md") {
+  Inject-BuddyPrompt "$env:USERPROFILE\.copilot\AGENTS.md" "GitHub Copilot CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
+}
 
 Write-Host ""
 Write-Host "  ✅ Buddy installed! Say `"hatch a buddy`" to start." -ForegroundColor Green
