@@ -288,11 +288,8 @@ npm start
 ## Credits
 
 - Original buddy concept by [Anthropic](https://www.anthropic.com/) in Claude Code `v2.1.89` to `v2.1.94`
-- Inspired by [any-buddy](https://github.com/your-diary/any-buddy), [buddy-reroll](https://github.com/paradoxical-dev/buddy-reroll), and [ccbuddyy](https://github.com/chroxify/ccbuddyy)
-- Additional inspiration from contributor Justin's [effigy](https://github.com/justinstimatze/effigy)
+- Inspired by [any-buddy](https://github.com/your-diary/any-buddy), [buddy-reroll](https://github.com/paradoxical-dev/buddy-reroll), [ccbuddyy](https://github.com/chroxify/ccbuddyy), [effigy](https://github.com/justinstimatze/effigy), [claude-buddy](https://github.com/1270011/claude-buddy), and [save-buddy](https://github.com/jrykn/save-buddy). Thanks!
 - Built with the [Model Context Protocol](https://modelcontextprotocol.io/)
-- Community preservation reference: [claude-buddy](https://github.com/1270011/claude-buddy)
-- Transparent provenance reference: [save-buddy](https://github.com/jrykn/save-buddy)
 
 ## Author
 
