@@ -3,9 +3,10 @@ import path from 'path';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 
-const buddyDir = path.join(homedir(), '.buddy');
-mkdirSync(buddyDir, { recursive: true });
-const dbPath = path.join(buddyDir, 'buddy.db');
+// BUDDY_DB_PATH env var allows tests to use an isolated DB
+// instead of the production ~/.buddy/buddy.db
+const dbPath = process.env.BUDDY_DB_PATH || path.join(homedir(), '.buddy', 'buddy.db');
+mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = new Database(dbPath);
 
