@@ -10,6 +10,7 @@ export type ImportResult = {
   name?: string;
   species?: string;
   bio?: string;
+  userId?: string;
 };
 
 /**
@@ -65,7 +66,13 @@ export function importOldBuddy(overridePath?: string): ImportResult {
         if (match) species = match;
       }
 
-      return { found: true, name, species, bio };
+      // Extract userID — the account UUID that CC used for deterministic generation.
+      // With this, roll(userId) reproduces the exact same species, stats, eye, hat, rarity.
+      const userId = typeof data.userID === 'string' && data.userID.trim()
+        ? data.userID.trim()
+        : undefined;
+
+      return { found: true, name, species, bio, userId };
     } catch {
       // File not found, invalid JSON, etc. — try next path
       continue;

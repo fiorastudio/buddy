@@ -730,18 +730,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       // Create companion from imported data
-      const userId = user_id || 'imported-' + randomUUID();
+      // Use the original CC userID for deterministic roll — reproduces exact same
+      // species, stats, eye, hat, rarity as the old buddy
+      const userId = imported.userId || user_id || 'imported-' + randomUUID();
       const { bones } = roll(userId, SPECIES_LIST);
 
-      // Use imported species if available, otherwise roll
+      // Species comes from deterministic roll (same as original CC behavior)
+      // If the old format happened to store species, honor it; otherwise roll is authoritative
       const finalSpecies = imported.species && SPECIES_LIST.includes(imported.species as any)
         ? imported.species
-        : requestedSpecies && SPECIES_LIST.includes(requestedSpecies as any)
-          ? requestedSpecies
-          : bones.species;
+        : bones.species;
 
-      // Preserve old name, allow override
-      const finalName = sanitizeName(requestedName) || sanitizeName(imported.name) || generateName(finalSpecies);
+      // Name is preserved exactly from the old buddy — this is a rescue, not a re-roll
+      const finalName = sanitizeName(imported.name) || generateName(finalSpecies);
       const id = randomUUID();
 
       // Use imported bio if it exists, otherwise generate fresh
