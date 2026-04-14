@@ -181,7 +181,7 @@ try {
         // Bubble lines go LEFT, buddy art goes RIGHT
         // Name/mood info shifts to below the art
         const bubbleLines: string[] = buddy.bubble_lines;
-        const bubbleWidth = Math.max(...bubbleLines.map((l: string) => l.length), 0);
+        const bubbleWidth = Math.max(...bubbleLines.map((l: string) => stripAnsi(l).length), 0);
 
         const shinyTag = buddy.is_shiny ? " ✨" : "";
         const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;

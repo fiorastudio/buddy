@@ -7,15 +7,16 @@
 //
 // Pure Node.js — only fs, path, os imports.
 
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
 const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
 
 // Error patterns — word-boundary anchored to avoid false positives
-// like "error handling added" or "0 errors"
-export const ERROR_REGEX = /\berror:|Error:|ENOENT|EACCES|exit code [1-9]|\bFAILED\b|panicked at/;
+// like "error handling added", "0 errors", or "isError: false"
+// Note: Error: (capitalized) intentionally has no \b prefix so TypeError:, RangeError: etc. match
+export const ERROR_REGEX = /\berror:|Error:|\bENOENT\b|\bEACCES\b|exit code [1-9]\d*|\bFAILED\b|panicked at/;
 
 // Concerned reactions — species-generic, short
 const CONCERNED_REACTIONS = [
@@ -48,13 +49,17 @@ export function hasActiveReaction(statusPath: string = BUDDY_STATUS_PATH): boole
 
 /**
  * Write a concerned reaction to buddy-status.json.
- * Preserves existing buddy data, only adds/updates reaction fields.
+ * Single-pass: reads file, checks for active reaction, writes if safe.
+ * This avoids the TOCTOU race of checking separately then writing.
  */
 export function writeConcernedReaction(statusPath: string = BUDDY_STATUS_PATH, expiryMs: number = 8_000): boolean {
   try {
     const raw = readFileSync(statusPath, "utf-8");
     const status = JSON.parse(raw);
     if (!status || !status.name) return false;
+
+    // Single-pass race protection: bail if a fresh reaction exists
+    if (status.reaction_expires && status.reaction_expires > Date.now()) return false;
 
     const reaction = CONCERNED_REACTIONS[Math.floor(Date.now() / 1000) % CONCERNED_REACTIONS.length];
 
@@ -84,10 +89,7 @@ export function handlePostToolUse(input: PostToolUseInput, statusPath: string = 
   // Check for error patterns
   if (!ERROR_REGEX.test(output)) return false;
 
-  // Race protection: don't overwrite an active reaction
-  if (hasActiveReaction(statusPath)) return false;
-
-  // Write concerned reaction with 8s expiry
+  // Write concerned reaction (includes single-pass race protection)
   return writeConcernedReaction(statusPath);
 }
 
