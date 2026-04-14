@@ -191,6 +191,20 @@ These stats shape how your buddy behaves:
 - `WISDOM` affects architectural insight
 - `SNARK` affects sass level
 
+### Leveling milestones
+
+Buddy uses a real XP curve, so early levels come quickly and later ones take real commitment.
+
+| Milestone | XP needed for that level | Total XP to reach it |
+|---|---:|---:|
+| Level 2 | 17 | 17 |
+| Level 3 | 36 | 53 |
+| Level 5 | 90 | 203 |
+| Level 10 | 315 | 1280 |
+| Level 25 | 1641 | 15471 |
+| Level 49 | 5512 | 99209 |
+| Level 50 | 5716 | 104925 |
+
 ### Rarity
 
 | Rarity | Chance | Bonus |
