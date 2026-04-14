@@ -142,7 +142,12 @@ $cursorRulesDir = "$env:USERPROFILE\.cursor\rules"
 if (!(Test-Path $cursorRulesDir)) { New-Item -ItemType Directory -Path $cursorRulesDir -Force | Out-Null }
 Inject-BuddyPrompt "$cursorRulesDir\buddy.md" "Cursor CLI"
 
-Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+# Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
+if (Test-Path "$env:USERPROFILE\.codex\AGENTS.md") {
+  Inject-BuddyPrompt "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
+} else {
+  Inject-BuddyPrompt "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+}
 # Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
 if ((Test-Path "$env:USERPROFILE\.gemini\AGENTS.md") -and !(Test-Path "$env:USERPROFILE\.gemini\GEMINI.md")) {
   Inject-BuddyPrompt "$env:USERPROFILE\.gemini\AGENTS.md" "Gemini CLI"

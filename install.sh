@@ -228,9 +228,13 @@ inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
 mkdir -p "$HOME/.cursor/rules" 2>/dev/null
 inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor CLI"
 
-# Codex CLI
+# Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
 if [ "$CODEX_CONFIGURED" -eq 1 ]; then
-  inject_prompt "$HOME/.codex/instructions.md" "Codex CLI"
+  if [ -f "$HOME/.codex/AGENTS.md" ]; then
+    inject_prompt "$HOME/.codex/AGENTS.md" "Codex CLI"
+  else
+    inject_prompt "$HOME/.codex/instructions.md" "Codex CLI"
+  fi
 else
   echo -e "  ${YELLOW}!${NC} Skipping Codex CLI prompt injection because Buddy MCP is not configured"
 fi
