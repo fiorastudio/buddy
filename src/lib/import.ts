@@ -68,8 +68,9 @@ export function importOldBuddy(overridePath?: string): ImportResult {
 
       // Extract userID — the account UUID that CC used for deterministic generation.
       // With this, roll(userId) reproduces the exact same species, stats, eye, hat, rarity.
-      const userId = typeof data.userID === 'string' && data.userID.trim()
-        ? data.userID.trim()
+      // Preserve exact value without trimming — the seed must match what CC used.
+      const userId = typeof data.userID === 'string' && data.userID.length > 0
+        ? data.userID
         : undefined;
 
       return { found: true, name, species, bio, userId };
