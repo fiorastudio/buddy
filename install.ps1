@@ -100,10 +100,10 @@ if (Test-Path "$env:USERPROFILE\.cursor") {
   Add-BuddyToConfig "$env:USERPROFILE\.cursor\mcp.json" "Cursor"
 }
 
-# GitHub Copilot CLI
-$copilotDir = "$env:USERPROFILE\.copilot"
-if (!(Test-Path $copilotDir)) { New-Item -ItemType Directory -Path $copilotDir -Force | Out-Null }
-Add-BuddyToConfig "$copilotDir\mcp-config.json" "GitHub Copilot CLI"
+# GitHub Copilot CLI (only if ~/.copilot exists — don't create dir for users without Copilot)
+if (Test-Path "$env:USERPROFILE\.copilot") {
+  Add-BuddyToConfig "$env:USERPROFILE\.copilot\mcp-config.json" "GitHub Copilot CLI"
+}
 
 # ── Inject buddy instructions into CLI prompt files ──
 

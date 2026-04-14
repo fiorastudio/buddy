@@ -130,12 +130,10 @@ EOJSON
 
 configure_copilot() {
   local config_file="$HOME/.copilot/mcp-config.json"
-  local config_dir="$HOME/.copilot"
 
-  mkdir -p "$config_dir"
-
-  if [ ! -f "$config_file" ]; then
-    cat > "$config_file" << EOJSON
+  if [ -d "$HOME/.copilot" ]; then
+    if [ ! -f "$config_file" ]; then
+      cat > "$config_file" << EOJSON
 {
   "mcpServers": {
     "buddy": {
@@ -145,23 +143,20 @@ configure_copilot() {
   }
 }
 EOJSON
-    echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI configured ${DIM}($config_file)${NC}"
-    return 0
-  fi
-
-  if grep -q '"buddy"' "$config_file" 2>/dev/null; then
-    echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI already configured"
-    return 0
-  fi
-
-  if command -v node &> /dev/null; then
-    node -e "
-      const fs = require('fs');
-      const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-      if (!config.mcpServers) config.mcpServers = {};
-      config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
-      fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
-    " 2>/dev/null
+    elif ! grep -q '"buddy"' "$config_file" 2>/dev/null; then
+      if command -v node &> /dev/null; then
+        node -e "
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
+          if (!config.mcpServers) config.mcpServers = {};
+          config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
+          fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
+        " 2>/dev/null
+      else
+        echo -e "  ${YELLOW}!${NC} GitHub Copilot CLI: node not found, could not merge into existing config"
+        return 1
+      fi
+    fi
     echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI configured ${DIM}($config_file)${NC}"
   fi
 }
