@@ -163,11 +163,61 @@ if [ "$ASSUME_YES" -ne 1 ]; then
   esac
 fi
 
+remove_buddy_hooks() {
+  local config_file="$1"
+  local cli_name="$2"
+
+  if [ ! -f "$config_file" ]; then
+    return 0
+  fi
+
+  if [ -z "$NODE_BIN" ]; then
+    echo -e "  ${YELLOW}!${NC} Skipping $cli_name hook cleanup because Node.js is not available"
+    return 0
+  fi
+
+  set +e
+  "$NODE_BIN" -e "
+    const fs = require('fs');
+    const path = process.argv[1];
+    try {
+      const raw = fs.readFileSync(path, 'utf8');
+      const config = JSON.parse(raw);
+      if (!config || !config.hooks || !config.hooks.PostToolUse) process.exit(10);
+      const before = config.hooks.PostToolUse.length;
+      config.hooks.PostToolUse = config.hooks.PostToolUse.filter(h => {
+        if (!h.hooks) return true;
+        return !h.hooks.some(hk => hk.command && hk.command.includes('post-tool-handler'));
+      });
+      if (config.hooks.PostToolUse.length === before) process.exit(10);
+      if (config.hooks.PostToolUse.length === 0) delete config.hooks.PostToolUse;
+      if (Object.keys(config.hooks).length === 0) delete config.hooks;
+      fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+    } catch {
+      process.exit(11);
+    }
+  " "$config_file" >/dev/null 2>&1
+  local rc=$?
+  set -e
+
+  case "$rc" in
+    0)
+      echo -e "  ${GREEN}✓${NC} Removed Buddy hooks from $cli_name ${DIM}($config_file)${NC}"
+      ;;
+    10)
+      ;;
+    *)
+      echo -e "  ${YELLOW}!${NC} Could not update $cli_name hooks ${DIM}($config_file)${NC}"
+      ;;
+  esac
+}
+
 echo ""
 echo "  Removing MCP client configuration..."
 remove_json_buddy "$HOME/.claude/settings.json" "Claude Code"
+remove_buddy_hooks "$HOME/.claude/settings.json" "Claude Code"
 remove_json_buddy "$HOME/.cursor/mcp.json" "Cursor"
-remove_json_buddy "$HOME/.codeium/windsurf/mcp_config.json" "Windsurf"
+remove_json_buddy "$HOME/.copilot/mcp-config.json" "GitHub Copilot CLI"
 
 if command -v codex >/dev/null 2>&1; then
   if codex mcp get buddy >/dev/null 2>&1; then
@@ -182,10 +232,13 @@ fi
 echo ""
 echo "  Removing injected prompt instructions..."
 remove_prompt_block "$HOME/.claude/CLAUDE.md" "Claude Code"
-remove_prompt_block "$HOME/.cursorrules" "Cursor"
-remove_prompt_block "$HOME/.codeium/windsurf/rules/buddy.md" "Windsurf"
+remove_prompt_block "$HOME/.cursor/rules/buddy.md" "Cursor"
 remove_prompt_block "$HOME/.codex/instructions.md" "Codex CLI"
+remove_prompt_block "$HOME/.codex/AGENTS.md" "Codex CLI"
 remove_prompt_block "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+remove_prompt_block "$HOME/.gemini/AGENTS.md" "Gemini CLI"
+remove_prompt_block "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+remove_prompt_block "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
 
 if [ -f "$STATUS_FILE" ]; then
   rm -f "$STATUS_FILE"

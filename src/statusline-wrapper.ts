@@ -156,7 +156,8 @@ try {
       // Apply reaction state (eye override + indicator) if active and not expired
       let reactionIndicator = '';
       let reactionText = '';
-      if (buddy.reaction && buddy.reaction_expires && Date.now() < buddy.reaction_expires) {
+      const hasReactionActive = buddy.reaction_expires && Date.now() < buddy.reaction_expires;
+      if (buddy.reaction && hasReactionActive) {
         const reactionEye = buddy.reaction_eye || '';
         reactionIndicator = buddy.reaction_indicator || '';
 
@@ -175,65 +176,92 @@ try {
         }
       }
 
-      // --- Micro-expression: append tiny ASCII particle to last art line ---
-      const hasReactionActive = buddy.reaction_expires && Date.now() < buddy.reaction_expires;
-      const microR = Math.random();
-      const microParticles = ['', '', '~', '', '*', '', '.', '♪', '', 'z', '·', ''];
-      if (!hasReactionActive) {
-        const particle = microParticles[Math.floor(microR * microParticles.length)];
-        if (particle && asciiLines.length > 0) {
-          asciiLines[asciiLines.length - 1] = asciiLines[asciiLines.length - 1].trimEnd() + ' ' + particle;
+      // --- Speech bubble mode: show full bubble when active ---
+      if (buddy.bubble_lines && Array.isArray(buddy.bubble_lines) && hasReactionActive) {
+        // Bubble lines go LEFT, buddy art goes RIGHT
+        // Name/mood info shifts to below the art
+        const bubbleLines: string[] = buddy.bubble_lines;
+        const bubbleWidth = Math.max(...bubbleLines.map((l: string) => l.length), 0);
+
+        const shinyTag = buddy.is_shiny ? " ✨" : "";
+        const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
+        const stars = buddy.rarity_stars || '';
+        const nameIndicator = reactionIndicator ? `${YELLOW}${reactionIndicator}${RESET}` : '';
+        const nameInfo = `${CYAN}${buddy.name}${nameIndicator}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
+        const reactionSuffix = reactionText ? `  ${DIM}"${reactionText}"${RESET}` : '';
+        const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}${reactionSuffix}`;
+
+        // Output the pre-rendered bubble lines directly — they already contain
+        // bubble (left) + art (right) layout from renderSpeechBubble()
+        for (const line of bubbleLines) {
+          buddyRight.push(line);
         }
-      }
+        // Append name and mood info below the bubble
+        const indent = ' '.repeat(Math.min(bubbleWidth + 4, 38));
+        buddyRight.push(`${indent}${nameInfo}`);
+        buddyRight.push(`${indent}${moodInfo}`);
+      } else {
+        // --- Normal (no bubble) layout: art right, info inline ---
 
-      // --- Ambient activity text: species-aware, changes randomly ~every 15-45s ---
-      const speciesAmbient: Record<string, string[]> = {
-        'Void Cat': ['· judging your code', '· grooming silently', '· staring into void', '· plotting'],
-        'Rust Hound': ['· sniffing for bugs', '· guarding the repo', '· chasing a pointer', '· tail wagging'],
-        'Data Drake': ['· datastreams humming', '· hoarding clean packets', '· tracing old routes', '· smoke puff sync'],
-        'Log Golem': ['· stacking logs neatly', '· grinding through traces', '· carving a new block', '· standing guard'],
-        'Cache Crow': ['· caching shiny crumbs', '· stashing hot paths', '· pecking at temp files', '· circling the build'],
-        'Shell Turtle': ['· moving at shell speed', '· retreating into shell', '· polishing the armor', '· carrying the payload'],
-        'Duck': ['· quacking softly', '· rubber ducking', '· waddling in place', '· preening feathers'],
-        'Goose': ['· eyeing your code', '· honk pending', '· standing guard', '· scheming'],
-        'Blob': ['· wobbling cheerfully', '· merging into one', '· oozing around bugs', '· reshaping softly'],
-        'Octopus': ['· juggling eight thoughts', '· ink ready', '· flexing a tentacle', '· solving many problems'],
-        'Owl': ['· watching the details', '· blinking slowly', '· hunting for edge cases', '· perched on the stack'],
-        'Penguin': ['· sliding into the fix', '· tuxedo mode active', '· huddling for warmth', '· beak pointed at bugs'],
-        'Snail': ['· inching forward', '· carrying the commit', '· leaving a careful trail', '· patience fully loaded'],
-        'Mushroom': ['· growing quietly', '· spreading spores', '· decomposing problems', '· cap shifting'],
-        'Axolotl': ['· gills fluttering', '· smiling at the waterline', '· regenerating a workaround', '· drifting gently'],
-        'Capybara': ['· soaking in the calm', '· sharing the workload', '· munching through tasks', '· radiating chill'],
-        'Cactus': ['· surviving on style', '· holding steady', '· blossoming under pressure', '· poking at bugs'],
-        'Robot': ['· scanning code', '· processing...', '· optimizing paths', '· beep boop'],
-        'Ghost': ['· haunting your logs', '· flickering softly', '· phasing through code', '· spectral hum'],
-        'Rabbit': ['· twitching nose', '· ready to critique', '· ear perked', '· thumping softly'],
-        'Chonk': ['· nap mode engaged', '· rolling with it', '· sitting on the problem', '· puffed and pleased'],
-      };
-      const defaultAmbient = ['· watching your cursor', '· counting semicolons', '· sniffing the git log', '· dreaming of v2.0', '· vibing'];
-      const ambientPool = speciesAmbient[buddy.species] || defaultAmbient;
-      const ambientR = Math.random();
-      const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[Math.floor(ambientR * ambientPool.length)]}${RESET}`;
+        // --- Micro-expression: append tiny ASCII particle to last art line ---
+        const microR = Math.random();
+        const microParticles = ['', '', '~', '', '*', '', '.', '♪', '', 'z', '·', ''];
+        if (!hasReactionActive) {
+          const particle = microParticles[Math.floor(microR * microParticles.length)];
+          if (particle && asciiLines.length > 0) {
+            asciiLines[asciiLines.length - 1] = asciiLines[asciiLines.length - 1].trimEnd() + ' ' + particle;
+          }
+        }
 
-      const shinyTag = buddy.is_shiny ? " ✨" : "";
-      const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
-      const stars = buddy.rarity_stars || '';
-      const nameIndicator = reactionIndicator ? `${YELLOW}${reactionIndicator}${RESET}` : '';
-      const nameInfo = `${CYAN}${buddy.name}${nameIndicator}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
-      const reactionSuffix = reactionText ? `  ${DIM}"${reactionText}"${RESET}` : '';
-      const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}${reactionSuffix}`;
+        // --- Ambient activity text: species-aware, changes randomly ~every 15-45s ---
+        const speciesAmbient: Record<string, string[]> = {
+          'Void Cat': ['· judging your code', '· grooming silently', '· staring into void', '· plotting'],
+          'Rust Hound': ['· sniffing for bugs', '· guarding the repo', '· chasing a pointer', '· tail wagging'],
+          'Data Drake': ['· datastreams humming', '· hoarding clean packets', '· tracing old routes', '· smoke puff sync'],
+          'Log Golem': ['· stacking logs neatly', '· grinding through traces', '· carving a new block', '· standing guard'],
+          'Cache Crow': ['· caching shiny crumbs', '· stashing hot paths', '· pecking at temp files', '· circling the build'],
+          'Shell Turtle': ['· moving at shell speed', '· retreating into shell', '· polishing the armor', '· carrying the payload'],
+          'Duck': ['· quacking softly', '· rubber ducking', '· waddling in place', '· preening feathers'],
+          'Goose': ['· eyeing your code', '· honk pending', '· standing guard', '· scheming'],
+          'Blob': ['· wobbling cheerfully', '· merging into one', '· oozing around bugs', '· reshaping softly'],
+          'Octopus': ['· juggling eight thoughts', '· ink ready', '· flexing a tentacle', '· solving many problems'],
+          'Owl': ['· watching the details', '· blinking slowly', '· hunting for edge cases', '· perched on the stack'],
+          'Penguin': ['· sliding into the fix', '· tuxedo mode active', '· huddling for warmth', '· beak pointed at bugs'],
+          'Snail': ['· inching forward', '· carrying the commit', '· leaving a careful trail', '· patience fully loaded'],
+          'Mushroom': ['· growing quietly', '· spreading spores', '· decomposing problems', '· cap shifting'],
+          'Axolotl': ['· gills fluttering', '· smiling at the waterline', '· regenerating a workaround', '· drifting gently'],
+          'Capybara': ['· soaking in the calm', '· sharing the workload', '· munching through tasks', '· radiating chill'],
+          'Cactus': ['· surviving on style', '· holding steady', '· blossoming under pressure', '· poking at bugs'],
+          'Robot': ['· scanning code', '· processing...', '· optimizing paths', '· beep boop'],
+          'Ghost': ['· haunting your logs', '· flickering softly', '· phasing through code', '· spectral hum'],
+          'Rabbit': ['· twitching nose', '· ready to critique', '· ear perked', '· thumping softly'],
+          'Chonk': ['· nap mode engaged', '· rolling with it', '· sitting on the problem', '· puffed and pleased'],
+        };
+        const defaultAmbient = ['· watching your cursor', '· counting semicolons', '· sniffing the git log', '· dreaming of v2.0', '· vibing'];
+        const ambientPool = speciesAmbient[buddy.species] || defaultAmbient;
+        const ambientR = Math.random();
+        const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[Math.floor(ambientR * ambientPool.length)]}${RESET}`;
 
-      const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
-      for (let i = 0; i < asciiLines.length; i++) {
-        const artPart = `${MAGENTA}${(asciiLines[i] || "").padEnd(artWidth)}${RESET}`;
-        if (i === 0) {
-          buddyRight.push(`${artPart} ${nameInfo}`);
-        } else if (i === 1) {
-          buddyRight.push(`${artPart} ${moodInfo}`);
-        } else if (i === 2 && ambientText) {
-          buddyRight.push(`${artPart} ${ambientText}`);
-        } else {
-          buddyRight.push(artPart);
+        const shinyTag = buddy.is_shiny ? " ✨" : "";
+        const rarityColor = buddy.rarity ? (RARITY_ANSI[buddy.rarity as keyof typeof RARITY_ANSI] || DIM) : DIM;
+        const stars = buddy.rarity_stars || '';
+        const nameIndicator = reactionIndicator ? `${YELLOW}${reactionIndicator}${RESET}` : '';
+        const nameInfo = `${CYAN}${buddy.name}${nameIndicator}${RESET} ${DIM}(${buddy.species})${RESET} ${YELLOW}Lv.${buddy.level}${shinyTag}${RESET}`;
+        const reactionSuffix = reactionText ? `  ${DIM}"${reactionText}"${RESET}` : '';
+        const moodInfo = `${moodColor(buddy.mood)}${buddy.mood}${RESET} ${DIM}XP:${RESET}${buddy.xp} ${rarityColor}${stars}${RESET}${reactionSuffix}`;
+
+        const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
+        for (let i = 0; i < asciiLines.length; i++) {
+          const artPart = `${MAGENTA}${(asciiLines[i] || "").padEnd(artWidth)}${RESET}`;
+          if (i === 0) {
+            buddyRight.push(`${artPart} ${nameInfo}`);
+          } else if (i === 1) {
+            buddyRight.push(`${artPart} ${moodInfo}`);
+          } else if (i === 2 && ambientText) {
+            buddyRight.push(`${artPart} ${ambientText}`);
+          } else {
+            buddyRight.push(artPart);
+          }
         }
       }
     }

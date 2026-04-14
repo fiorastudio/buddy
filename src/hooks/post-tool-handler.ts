@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+// src/hooks/post-tool-handler.ts
+//
+// PostToolUse hook handler for Buddy MCP.
+// Reads stdin JSON (PostToolUse schema), detects errors in Bash output,
+// and writes a concerned reaction to buddy-status.json when appropriate.
+//
+// Pure Node.js — only fs, path, os imports.
+
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
+
+const BUDDY_STATUS_PATH = join(homedir(), ".claude", "buddy-status.json");
+
+// Error patterns — word-boundary anchored to avoid false positives
+// like "error handling added" or "0 errors"
+export const ERROR_REGEX = /\berror:|Error:|ENOENT|EACCES|exit code [1-9]|\bFAILED\b|panicked at/;
+
+// Concerned reactions — species-generic, short
+const CONCERNED_REACTIONS = [
+  "hmm, that doesn't look right...",
+  "uh oh, something went wrong",
+  "that error might need attention",
+  "something broke — want to investigate?",
+  "oops... let me take a closer look",
+];
+
+export interface PostToolUseInput {
+  tool_name: string;
+  tool_input?: Record<string, unknown>;
+  tool_response?: string;
+}
+
+/**
+ * Check if a fresh reaction already exists (race protection).
+ * Returns true if we should bail and not overwrite.
+ */
+export function hasActiveReaction(statusPath: string = BUDDY_STATUS_PATH): boolean {
+  try {
+    const raw = readFileSync(statusPath, "utf-8");
+    const status = JSON.parse(raw);
+    return !!(status.reaction_expires && status.reaction_expires > Date.now());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write a concerned reaction to buddy-status.json.
+ * Preserves existing buddy data, only adds/updates reaction fields.
+ */
+export function writeConcernedReaction(statusPath: string = BUDDY_STATUS_PATH, expiryMs: number = 8_000): boolean {
+  try {
+    const raw = readFileSync(statusPath, "utf-8");
+    const status = JSON.parse(raw);
+    if (!status || !status.name) return false;
+
+    const reaction = CONCERNED_REACTIONS[Math.floor(Date.now() / 1000) % CONCERNED_REACTIONS.length];
+
+    status.reaction = "concerned";
+    status.reaction_text = reaction;
+    status.reaction_expires = Date.now() + expiryMs;
+    status.reaction_eye = "\u00d7"; // ×
+    status.reaction_indicator = "?";
+    // No bubble_lines for hook reactions — keep it lightweight
+
+    writeFileSync(statusPath, JSON.stringify(status));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Main handler — reads stdin, processes PostToolUse event.
+ */
+export function handlePostToolUse(input: PostToolUseInput, statusPath: string = BUDDY_STATUS_PATH): boolean {
+  // Only act on Bash tool
+  if (input.tool_name !== "Bash") return false;
+
+  const output = input.tool_response || "";
+
+  // Check for error patterns
+  if (!ERROR_REGEX.test(output)) return false;
+
+  // Race protection: don't overwrite an active reaction
+  if (hasActiveReaction(statusPath)) return false;
+
+  // Write concerned reaction with 8s expiry
+  return writeConcernedReaction(statusPath);
+}
+
+// --- CLI entry point ---
+// When run directly, read stdin and process
+const isDirectRun = process.argv[1]?.includes("post-tool-handler");
+if (isDirectRun) {
+  try {
+    const stdin = readFileSync(0, "utf-8");
+    const input: PostToolUseInput = JSON.parse(stdin);
+    handlePostToolUse(input);
+  } catch {
+    // Silent failure — hooks should never crash the host
+  }
+}

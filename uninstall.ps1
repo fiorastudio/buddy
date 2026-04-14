@@ -70,11 +70,46 @@ if (-not $Force) {
   }
 }
 
+function Remove-BuddyHooks($configPath, $cliName) {
+  if (!(Test-Path $configPath)) { return }
+
+  try {
+    $content = Get-Content $configPath -Raw | ConvertFrom-Json
+    if (!$content.hooks -or !$content.hooks.PostToolUse) { return }
+    $before = $content.hooks.PostToolUse.Count
+    $filtered = @($content.hooks.PostToolUse | Where-Object {
+      $dominated = $false
+      if ($_.hooks) {
+        foreach ($hk in $_.hooks) {
+          if ($hk.command -and $hk.command -like '*post-tool-handler*') {
+            $dominated = $true
+          }
+        }
+      }
+      -not $dominated
+    })
+    if ($filtered.Count -eq $before) { return }
+    if ($filtered.Count -eq 0) {
+      $content.hooks.PSObject.Properties.Remove('PostToolUse')
+    } else {
+      $content.hooks.PostToolUse = $filtered
+    }
+    if ($content.hooks.PSObject.Properties.Count -eq 0) {
+      $content.PSObject.Properties.Remove('hooks')
+    }
+    $content | ConvertTo-Json -Depth 8 | Set-Content $configPath -Encoding UTF8
+    Write-Host "  ✓ Removed Buddy hooks from $cliName ($configPath)" -ForegroundColor Green
+  } catch {
+    Write-Host "  ! Could not update $cliName hooks ($configPath)" -ForegroundColor Yellow
+  }
+}
+
 Write-Host ""
 Write-Host "  Removing MCP client configuration..."
 Remove-BuddyFromJsonConfig "$env:USERPROFILE\.claude\settings.json" "Claude Code"
+Remove-BuddyHooks "$env:USERPROFILE\.claude\settings.json" "Claude Code"
 Remove-BuddyFromJsonConfig "$env:USERPROFILE\.cursor\mcp.json" "Cursor"
-Remove-BuddyFromJsonConfig "$env:USERPROFILE\.codeium\windsurf\mcp_config.json" "Windsurf"
+Remove-BuddyFromJsonConfig "$env:USERPROFILE\.copilot\mcp-config.json" "GitHub Copilot CLI"
 
 try {
   $null = Get-Command codex -ErrorAction Stop
@@ -94,10 +129,13 @@ try {
 Write-Host ""
 Write-Host "  Removing injected prompt instructions..."
 Remove-BuddyPromptBlock "$env:USERPROFILE\.claude\CLAUDE.md" "Claude Code"
-Remove-BuddyPromptBlock "$env:USERPROFILE\.cursorrules" "Cursor"
-Remove-BuddyPromptBlock "$env:USERPROFILE\.codeium\windsurf\rules\buddy.md" "Windsurf"
+Remove-BuddyPromptBlock "$env:USERPROFILE\.cursor\rules\buddy.md" "Cursor"
 Remove-BuddyPromptBlock "$env:USERPROFILE\.codex\instructions.md" "Codex CLI"
+Remove-BuddyPromptBlock "$env:USERPROFILE\.codex\AGENTS.md" "Codex CLI"
 Remove-BuddyPromptBlock "$env:USERPROFILE\.gemini\GEMINI.md" "Gemini CLI"
+Remove-BuddyPromptBlock "$env:USERPROFILE\.gemini\AGENTS.md" "Gemini CLI"
+Remove-BuddyPromptBlock "$env:USERPROFILE\.copilot\copilot-instructions.md" "GitHub Copilot CLI"
+Remove-BuddyPromptBlock "$env:USERPROFILE\.copilot\AGENTS.md" "GitHub Copilot CLI"
 
 if (Test-Path $StatusFile) {
   Remove-Item $StatusFile -Force

@@ -62,11 +62,12 @@ CODEX_CONFIGURED=0
 configure_claude_code() {
   local config_file="$HOME/.claude/settings.json"
   local config_dir="$HOME/.claude"
+  local hook_path="$INSTALL_DIR/dist/hooks/post-tool-handler.js"
 
   mkdir -p "$config_dir"
 
   if [ ! -f "$config_file" ]; then
-    # Create new settings with buddy
+    # Create new settings with buddy + hook
     cat > "$config_file" << EOJSON
 {
   "mcpServers": {
@@ -74,6 +75,21 @@ configure_claude_code() {
       "command": "node",
       "args": ["$SERVER_PATH"]
     }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $hook_path",
+            "async": true,
+            "timeout": 3
+          }
+        ]
+      }
+    ]
   }
 }
 EOJSON
@@ -84,19 +100,46 @@ EOJSON
   # Check if buddy already configured
   if grep -q '"buddy"' "$config_file" 2>/dev/null; then
     echo -e "  ${GREEN}✓${NC} Claude Code already configured"
-    return 0
+  else
+    # Inject buddy into existing mcpServers (or add mcpServers section)
+    if command -v node &> /dev/null; then
+      node -e "
+        const fs = require('fs');
+        const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
+        if (!config.mcpServers) config.mcpServers = {};
+        config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
+        fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
+      " 2>/dev/null
+      echo -e "  ${GREEN}✓${NC} Claude Code configured ${DIM}($config_file)${NC}"
+    fi
   fi
 
-  # Inject buddy into existing mcpServers (or add mcpServers section)
+  # Add PostToolUse hook (array-append, don't replace existing hooks)
   if command -v node &> /dev/null; then
     node -e "
       const fs = require('fs');
       const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-      if (!config.mcpServers) config.mcpServers = {};
-      config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
-      fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
+      if (!config.hooks) config.hooks = {};
+      if (!config.hooks.PostToolUse) config.hooks.PostToolUse = [];
+      // Check if buddy hook already exists
+      const hasBuddy = config.hooks.PostToolUse.some(h =>
+        h.matcher === 'Bash' && h.hooks && h.hooks.some(hk => hk.command && hk.command.includes('post-tool-handler'))
+      );
+      if (!hasBuddy) {
+        config.hooks.PostToolUse.push({
+          matcher: 'Bash',
+          hooks: [{
+            type: 'command',
+            command: 'node $hook_path',
+            async: true,
+            timeout: 3
+          }]
+        });
+        fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
+        console.error('  hook registered');
+      }
     " 2>/dev/null
-    echo -e "  ${GREEN}✓${NC} Claude Code configured ${DIM}($config_file)${NC}"
+    echo -e "  ${GREEN}✓${NC} PostToolUse hook configured"
   fi
 }
 
@@ -201,6 +244,8 @@ You have a coding companion available via the buddy MCP server.
 At the start of each conversation, call `buddy_status` to check on your buddy.
 
 If the user addresses the buddy by name, respond briefly in character before your normal response.
+
+After calling buddy_observe, relay the buddy'\''s reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
 <!-- /buddy-companion -->'
 
 inject_prompt() {

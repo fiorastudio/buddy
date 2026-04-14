@@ -214,7 +214,7 @@ function hatchAnimation(companion: Companion): string {
   ].join('\n');
 }
 
-function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string }) {
+function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[] }) {
   try {
     if (!statusDirEnsured) {
       mkdirSync(join(homedir(), ".claude"), { recursive: true });
@@ -239,6 +239,7 @@ function writeBuddyStatus(companion: Companion, reaction?: { state: string; text
         reaction_expires: reaction.expires,
         reaction_eye: reaction.eyeOverride || '',
         reaction_indicator: reaction.indicator || '',
+        ...(reaction.bubbleLines ? { bubble_lines: reaction.bubbleLines } : {}),
       } : {}),
     }));
   } catch { /* non-fatal */ }
@@ -505,22 +506,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, user_id)!;
     const result = buildObserverPrompt(companion, mode, summary);
 
-    // Write reaction state to status file (expires in 10s)
-    // Level-up overrides: sparkle eyes + special indicator
-    writeBuddyStatus(companion, {
-      state: xpResult.leveledUp ? 'excited' : result.reaction.state,
-      text: xpResult.leveledUp ? `✨ Level ${xpResult.newLevel}! ✨` : result.templateFallback,
-      expires: Date.now() + (xpResult.leveledUp ? 15_000 : 10_000),
-      eyeOverride: xpResult.leveledUp ? SPARKLE_EYE : result.reaction.eyeOverride,
-      indicator: xpResult.leveledUp ? '✨' : result.reaction.indicator,
-    });
-
     // Render speech bubble with template fallback for immediate visual feedback
     const art = renderSprite(companion);
     const bubbleText = xpResult.leveledUp
       ? `✨ ${companion.name} leveled up to ${xpResult.newLevel}! ✨\n\n${result.templateFallback}`
       : result.templateFallback;
     const bubble = renderSpeechBubble(bubbleText, art, companion.name, 34);
+
+    // Write reaction state to status file (expires in 10s)
+    // Level-up overrides: sparkle eyes + special indicator
+    // Include bubble_lines so the statusline can render the full speech bubble
+    writeBuddyStatus(companion, {
+      state: xpResult.leveledUp ? 'excited' : result.reaction.state,
+      text: xpResult.leveledUp ? `✨ Level ${xpResult.newLevel}! ✨` : result.templateFallback,
+      expires: Date.now() + (xpResult.leveledUp ? 15_000 : 10_000),
+      eyeOverride: xpResult.leveledUp ? SPARKLE_EYE : result.reaction.eyeOverride,
+      indicator: xpResult.leveledUp ? '✨' : result.reaction.indicator,
+      bubbleLines: bubble.split('\n'),
+    });
 
     return {
       content: [
