@@ -52,6 +52,8 @@ npm run build --quiet 2>$null
 
 $SERVER_PATH = "$INSTALL_DIR\dist\server\index.js"
 $SERVER_PATH_UNIX = $SERVER_PATH -replace '\\', '/'
+$STATUSLINE_PATH = "$INSTALL_DIR\dist\statusline-wrapper.js"
+$STATUSLINE_PATH_UNIX = $STATUSLINE_PATH -replace '\\', '/'
 
 Pop-Location
 
@@ -62,6 +64,7 @@ function Add-BuddyToConfig($configPath, $cliName) {
   if (!(Test-Path $configDir)) { return }
 
   $buddyConfig = @{
+    type = "stdio"
     command = "node"
     args = @($SERVER_PATH_UNIX)
   }
@@ -96,50 +99,106 @@ Write-Host "  Configuring MCP clients..."
 # Claude Code
 $claudeDir = "$env:USERPROFILE\.claude"
 if (!(Test-Path $claudeDir)) { New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null }
-Add-BuddyToConfig "$claudeDir\settings.json" "Claude Code"
 
-# Add PostToolUse hook to Claude Code settings (array-append, don't replace)
-$claudeSettings = "$claudeDir\settings.json"
-if (Test-Path $claudeSettings) {
-  try {
-    $config = Get-Content $claudeSettings -Raw | ConvertFrom-Json
-    if (!$config.hooks) {
-      $config | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
-    }
-    $hooks = $config.hooks
-    if (!$hooks.PostToolUse) {
-      $hooks | Add-Member -NotePropertyName "PostToolUse" -NotePropertyValue @() -Force
-    }
-    # Check if buddy hook already exists
-    $hasBuddy = $false
-    foreach ($entry in $hooks.PostToolUse) {
-      if ($entry.matcher -eq 'Bash' -and $entry.hooks) {
-        foreach ($hk in $entry.hooks) {
-          if ($hk.command -and $hk.command -like '*post-tool-handler*') {
-            $hasBuddy = $true
-          }
-        }
-      }
-    }
-    if (-not $hasBuddy) {
-      $hookEntry = @{
-        matcher = "Bash"
-        hooks = @(@{
-          type = "command"
-          command = "node $HOOK_PATH_UNIX"
-          async = $true
-          timeout = 3
-        })
-      }
-      $hooks.PostToolUse = @($hooks.PostToolUse) + @($hookEntry)
-      $config | ConvertTo-Json -Depth 8 | Set-Content $claudeSettings -Encoding UTF8
-      Write-Host "  ✓ PostToolUse hook configured" -ForegroundColor Green
+$claudeRegistered = $false
+if (Get-Command claude -ErrorAction SilentlyContinue) {
+  claude mcp get buddy 1>$null 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    Write-Host "  ✓ Claude Code MCP already registered" -ForegroundColor Green
+    $claudeRegistered = $true
+  } else {
+    claude mcp add buddy -s user -- node "$SERVER_PATH_UNIX" 1>$null 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "  ✓ Claude Code MCP registered via claude CLI" -ForegroundColor Green
+      $claudeRegistered = $true
     } else {
-      Write-Host "  ✓ PostToolUse hook already configured" -ForegroundColor Green
+      Write-Host "  ! claude CLI detected, but MCP registration failed — falling back to manual config" -ForegroundColor Yellow
     }
-  } catch {
-    Write-Host "  ! Could not configure PostToolUse hook" -ForegroundColor Yellow
   }
+}
+
+if (-not $claudeRegistered) {
+  $claudeUserFile = "$env:USERPROFILE\.claude.json"
+  $userConfig = @{}
+  if (Test-Path $claudeUserFile) {
+    try { $userConfig = Get-Content $claudeUserFile -Raw | ConvertFrom-Json }
+    catch { $userConfig = @{} }
+  }
+  if (!$userConfig.mcpServers) {
+    $userConfig | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue @{} -Force
+  }
+  $userConfig.mcpServers | Add-Member -NotePropertyName "buddy" -NotePropertyValue @{
+    type = "stdio"
+    command = "node"
+    args = @($SERVER_PATH_UNIX)
+  } -Force
+  $userConfig | ConvertTo-Json -Depth 8 | Set-Content $claudeUserFile -Encoding UTF8
+  Write-Host "  ✓ Claude Code MCP config written ($claudeUserFile)" -ForegroundColor Green
+}
+
+$claudeSettings = "$claudeDir\settings.json"
+if (!(Test-Path $claudeSettings)) {
+  '{}' | Set-Content $claudeSettings -Encoding UTF8
+}
+
+$hookConfigured = $false
+$statuslineConfigured = $false
+$statuslineCommand = "node $STATUSLINE_PATH_UNIX"
+try {
+  $config = Get-Content $claudeSettings -Raw | ConvertFrom-Json
+} catch {
+  $config = @{}
+}
+if (!$config.hooks) {
+  $config | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
+}
+$hooks = $config.hooks
+if (!$hooks.PostToolUse) {
+  $hooks | Add-Member -NotePropertyName "PostToolUse" -NotePropertyValue @() -Force
+}
+$hasBuddyHook = $false
+foreach ($entry in @($hooks.PostToolUse)) {
+  if ($entry.matcher -eq 'Bash' -and $entry.hooks) {
+    foreach ($hk in $entry.hooks) {
+      if ($hk.command -and $hk.command -like "*post-tool-handler*") {
+        $hasBuddyHook = $true
+      }
+    }
+  }
+}
+if (-not $hasBuddyHook) {
+  $hookEntry = @{
+    matcher = "Bash"
+    hooks = @(@{
+      type = "command"
+      command = "node $HOOK_PATH_UNIX"
+      async = $true
+      timeout = 3
+    })
+  }
+  $hooks.PostToolUse = @($hooks.PostToolUse) + @($hookEntry)
+  $hookConfigured = $true
+}
+if ((-not $config.statusLine) -or $config.statusLine.command -ne $statuslineCommand -or $config.statusLine.type -ne 'command') {
+  $config | Add-Member -NotePropertyName "statusLine" -NotePropertyValue ([ordered]@{
+    type = "command"
+    command = $statuslineCommand
+    padding = 1
+  }) -Force
+  $statuslineConfigured = $true
+}
+if ($hookConfigured -or $statuslineConfigured) {
+  $config | ConvertTo-Json -Depth 8 | Set-Content $claudeSettings -Encoding UTF8
+}
+if ($hookConfigured) {
+  Write-Host "  ✓ PostToolUse hook configured" -ForegroundColor Green
+} else {
+  Write-Host "  ✓ PostToolUse hook already configured" -ForegroundColor Green
+}
+if ($statuslineConfigured) {
+  Write-Host "  ✓ Claude Code statusline configured ($statuslineCommand)" -ForegroundColor Green
+} else {
+  Write-Host "  ✓ Claude Code statusline already configured" -ForegroundColor Green
 }
 
 # Cursor

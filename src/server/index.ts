@@ -527,7 +527,9 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Buddy MCP Server running on stdio");
+  if (process.env.BUDDY_DEBUG) {
+    console.error("Buddy MCP Server running on stdio");
+  }
 }
 
 // Only auto-start when run directly (not when imported for testing)
