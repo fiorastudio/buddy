@@ -302,7 +302,9 @@ fi
 
 ONBOARD_SCRIPT="$INSTALL_DIR/dist/cli/onboard.js"
 if [ -f "$ONBOARD_SCRIPT" ]; then
-  node "$ONBOARD_SCRIPT" </dev/tty || true
+  # Let onboard.ts detect TTY itself — don't force /dev/tty
+  # (fails in headless SSH, CI, cron where no controlling terminal exists)
+  node "$ONBOARD_SCRIPT" || true
 fi
 
 echo ""
