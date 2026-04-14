@@ -288,8 +288,15 @@ npm start
 ## Credits
 
 - Original buddy concept by [Anthropic](https://www.anthropic.com/) in Claude Code `v2.1.89` to `v2.1.94`
-- Inspired by [any-buddy](https://github.com/your-diary/any-buddy), [buddy-reroll](https://github.com/paradoxical-dev/buddy-reroll), [ccbuddyy](https://github.com/chroxify/ccbuddyy), [effigy](https://github.com/justinstimatze/effigy), [claude-buddy](https://github.com/1270011/claude-buddy), and [save-buddy](https://github.com/jrykn/save-buddy). Thanks!
+- Inspired by [effigy](https://github.com/justinstimatze/effigy), [claude-buddy](https://github.com/1270011/claude-buddy), and [save-buddy](https://github.com/jrykn/save-buddy). Thanks!
 - Built with the [Model Context Protocol](https://modelcontextprotocol.io/)
+
+Buddy also draws on publicly shared community research around the original companion system and how to preserve it with stable extension points.
+
+- [BonziClaude](https://github.com/zakarth/BonziClaude) by [@zakarth](https://github.com/zakarth) is an important technical reference point in the ecosystem, especially around reverse-engineering and documenting companion-system behavior.
+- [claude-buddy](https://github.com/1270011/claude-buddy) by [@1270011](https://github.com/1270011) helped demonstrate the MCP plus terminal-integration preservation approach for keeping buddy-like experiences alive across client changes.
+- Community research and discussion, including work shared on r/Anthropic, helped clarify endpoint behavior and preserve details that would otherwise have been lost.
+- Official Claude Code and MCP documentation informed the portable integration approach: MCP server wiring, client configuration, and supported terminal integration surfaces.
 
 ## Author
 
