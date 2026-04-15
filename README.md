@@ -12,9 +12,10 @@ Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, 
 [![Node.js](https://img.shields.io/badge/node-18%2B-3c873a?style=flat-square)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/protocol-MCP-111827?style=flat-square)](https://modelcontextprotocol.io/)
 
-<p align="center">
-  <img src="demo/buddy-demo.gif" alt="Buddy demo showing hatch, observe, and pet interactions in the terminal" width="760">
-</p>
+<table><tr>
+<td align="center"><strong>Rescue your old buddy</strong><br><img src="demo/buddy-rescue.gif" alt="Buddy rescue flow — scanning for lost companion, signal found, stat card, observer reactions" width="370"></td>
+<td align="center"><strong>Hatch a new one</strong><br><img src="demo/buddy-hatch.gif" alt="Buddy hatch flow — egg animation, stat card, observer reactions, pet" width="370"></td>
+</tr></table>
 
 **Anthropic removed the built-in `/buddy`. Buddy brings them home and makes the companion experience portable across AI terminals.**
 
@@ -188,6 +189,30 @@ Here is the Buddy-owned species sheet in the same spirit: a scannable visual ref
 
 ![Buddy species sheet](demo/species-sheet.svg)
 
+<p align="center">
+<img src="demo/sprites/void-cat.gif" width="60" alt="Void Cat">
+<img src="demo/sprites/rust-hound.gif" width="60" alt="Rust Hound">
+<img src="demo/sprites/data-drake.gif" width="60" alt="Data Drake">
+<img src="demo/sprites/log-golem.gif" width="60" alt="Log Golem">
+<img src="demo/sprites/cache-crow.gif" width="60" alt="Cache Crow">
+<img src="demo/sprites/shell-turtle.gif" width="60" alt="Shell Turtle">
+<img src="demo/sprites/duck.gif" width="60" alt="Duck">
+<img src="demo/sprites/goose.gif" width="60" alt="Goose">
+<img src="demo/sprites/blob.gif" width="60" alt="Blob">
+<img src="demo/sprites/octopus.gif" width="60" alt="Octopus">
+<img src="demo/sprites/owl.gif" width="60" alt="Owl">
+<img src="demo/sprites/penguin.gif" width="60" alt="Penguin">
+<img src="demo/sprites/snail.gif" width="60" alt="Snail">
+<img src="demo/sprites/ghost.gif" width="60" alt="Ghost">
+<img src="demo/sprites/axolotl.gif" width="60" alt="Axolotl">
+<img src="demo/sprites/capybara.gif" width="60" alt="Capybara">
+<img src="demo/sprites/cactus.gif" width="60" alt="Cactus">
+<img src="demo/sprites/robot.gif" width="60" alt="Robot">
+<img src="demo/sprites/rabbit.gif" width="60" alt="Rabbit">
+<img src="demo/sprites/mushroom.gif" width="60" alt="Mushroom">
+<img src="demo/sprites/chonk.gif" width="60" alt="Chonk">
+</p>
+
 </details>
 
 ### 5 personality stats
@@ -332,28 +357,20 @@ This keeps Buddy:
 
 The current demo assets live in [`demo/`](demo):
 
-- [`demo/buddy-demo.gif`](demo/buddy-demo.gif)
-- [`demo/screenshots/code-review.png`](demo/screenshots/code-review.png)
-- [`demo/screenshots/statusline.png`](demo/screenshots/statusline.png)
-- [`demo/record-demo.sh`](demo/record-demo.sh)
-- [`demo/demo-auto.sh`](demo/demo-auto.sh)
-- [`demo/make-gif.mjs`](demo/make-gif.mjs)
-- [`demo/render-gif.mjs`](demo/render-gif.mjs)
+- [`demo/buddy-rescue.gif`](demo/buddy-rescue.gif) — rescue onboarding flow
+- [`demo/buddy-hatch.gif`](demo/buddy-hatch.gif) — hatch onboarding flow
+- [`demo/sprites/`](demo/sprites/) — animated GIF for each of the 21 species
+- [`demo/screenshots/`](demo/screenshots/) — static screenshots
+- [`demo/render-onboarding-gif.mjs`](demo/render-onboarding-gif.mjs) — generates both hero GIFs
 
-The repo already includes a reproducible recording path:
+To regenerate the hero GIFs:
 
-- `demo/record-demo.sh` scaffolds a **Terminalizer**-based recording flow
-- `demo/demo-auto.sh` plays a scripted terminal sequence for hatch, observe, and pet
-- the render scripts turn captured frames into the final GIF asset
-
-If you want to re-film the hero:
-
-1. Build the project
-2. Run `bash demo/record-demo.sh`
-3. Follow the prompts it prints for recording and rendering
-4. Replace `demo/buddy-demo.gif` with the refreshed capture
-
-If you prefer another toolchain, the issue that inspired this README direction specifically called out **asciinema** or **VHS** for recording and **gifski** for conversion as good alternatives.
+```bash
+npm run build
+node demo/render-onboarding-gif.mjs            # both
+node demo/render-onboarding-gif.mjs --rescue   # rescue only
+node demo/render-onboarding-gif.mjs --hatch    # hatch only
+```
 
 </details>
 
