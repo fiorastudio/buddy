@@ -210,9 +210,10 @@ function checkStatusline(): DiagnosticCheck {
   if (!cmd.includes('statusline-wrapper')) {
     return { id: 'config.statusline', status: 'warn', label: 'Statusline', detail: `Configured but not pointing to buddy: ${cmd}` };
   }
-  // Check if the wrapper file exists — strip quotes from path
-  const parts = cmd.split(' ');
-  const wrapperPath = parts[parts.length - 1]?.replace(/^["']|["']$/g, '');
+  // Extract wrapper path — handle "node /path/to/file.js" and "node '/path with spaces/file.js'"
+  // Match everything after "node " stripping surrounding quotes
+  const pathMatch = cmd.match(/node\s+["']?(.+?)["']?\s*$/);
+  const wrapperPath = pathMatch?.[1];
   if (wrapperPath && !fileExists(wrapperPath)) {
     return { id: 'config.statusline', status: 'fail', label: 'Statusline', detail: `Configured but wrapper missing: ${wrapperPath}`, suggestion: 'Re-run install script or rebuild' };
   }

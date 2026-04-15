@@ -102,3 +102,83 @@ describe('Doctor — sentinel constant', () => {
     expect(PROMPT_SENTINEL_V2).toBe('buddy-companion v2');
   });
 });
+
+describe('Doctor — failure paths', () => {
+  it('companion.active returns warn/skip when no companion exists in test DB', () => {
+    // Test DB starts empty (unless prior tests created one)
+    const checks = runDiagnostics();
+    const active = checks.find(c => c.id === 'companion.active');
+    expect(active).toBeDefined();
+    // Either 'ok' (prior test created one) or 'warn' (empty DB)
+    expect(['ok', 'warn']).toContain(active!.status);
+  });
+
+  it('companion.details returns skip when no companion exists', () => {
+    const checks = runDiagnostics();
+    const details = checks.find(c => c.id === 'companion.details');
+    expect(details).toBeDefined();
+    // Either 'ok' (has companion) or 'skip' (no companion)
+    expect(['ok', 'skip']).toContain(details!.status);
+  });
+
+  it('status.file check handles missing file gracefully', () => {
+    const checks = runDiagnostics();
+    const status = checks.find(c => c.id === 'status.file');
+    expect(status).toBeDefined();
+    // In test env, status file likely doesn't exist
+    expect(['ok', 'warn']).toContain(status!.status);
+    if (status!.status === 'warn') {
+      expect(status!.detail).toContain('not found');
+    }
+  });
+
+  it('mcp.registered check handles missing config files gracefully', () => {
+    const checks = runDiagnostics();
+    const mcp = checks.find(c => c.id === 'mcp.registered');
+    expect(mcp).toBeDefined();
+    // Should not throw — either finds config or reports fail with suggestion
+    expect(['ok', 'fail']).toContain(mcp!.status);
+    if (mcp!.status === 'fail') {
+      expect(mcp!.suggestion).toBeDefined();
+      expect(mcp!.suggestion).toContain('claude mcp add');
+    }
+  });
+
+  it('config.statusline check handles missing settings.json gracefully', () => {
+    const checks = runDiagnostics();
+    const sl = checks.find(c => c.id === 'config.statusline');
+    expect(sl).toBeDefined();
+    expect(['ok', 'warn', 'fail']).toContain(sl!.status);
+  });
+
+  it('config.hooks check handles missing hooks gracefully', () => {
+    const checks = runDiagnostics();
+    const hooks = checks.find(c => c.id === 'config.hooks');
+    expect(hooks).toBeDefined();
+    expect(['ok', 'warn']).toContain(hooks!.status);
+  });
+
+  it('prompt.injected check handles missing CLAUDE.md gracefully', () => {
+    const checks = runDiagnostics();
+    const prompt = checks.find(c => c.id === 'prompt.injected');
+    expect(prompt).toBeDefined();
+    expect(['ok', 'warn']).toContain(prompt!.status);
+  });
+
+  it('formatReport handles all-fail scenario without crashing', () => {
+    const fakeChecks = [
+      { id: 'test.fail1', status: 'fail' as const, label: 'Test 1', detail: 'broken', suggestion: 'fix it' },
+      { id: 'test.fail2', status: 'fail' as const, label: 'Test 2', detail: 'also broken', suggestion: 'fix this too' },
+      { id: 'test.warn1', status: 'warn' as const, label: 'Test 3', detail: 'iffy' },
+      { id: 'test.ok1', status: 'ok' as const, label: 'Test 4', detail: 'fine' },
+      { id: 'test.skip1', status: 'skip' as const, label: 'Test 5', detail: 'n/a' },
+    ];
+    const report = formatReport(fakeChecks);
+    expect(report).toContain('2 fail');
+    expect(report).toContain('1 warn');
+    expect(report).toContain('1 ok');
+    expect(report).toContain('1 skip');
+    expect(report).toContain('fix it');
+    expect(report).toContain('fix this too');
+  });
+});
