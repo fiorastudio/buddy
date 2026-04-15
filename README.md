@@ -392,13 +392,15 @@ Claude Code / Cursor sessions that use Sonnet 4.6 turn on [prompt caching](https
 
 Buddy has three observer modes that control how your companion reacts to completed work:
 
-| Mode | What it does | Tokens per call | Typical session (10–15 calls) |
-|------|-------------|-----------------|-------------------------------|
-| **Backseat** | Personality-driven reactions only. Short, fun, no code suggestions. | ~150–300 | ~1,500–4,500 |
-| **Skillcoach** | One specific, actionable code observation. Real technical feedback, in character. | ~300–500 | ~3,000–7,500 |
-| **Both** | Personality reaction + code observation. Capped at 3 sentences. | ~400–600 | ~4,000–9,000 |
+Each `buddy_observe` call sends a short prompt to the host LLM (~100–150 input tokens for the personality context + your summary) and receives a response. Total round-trip per call:
 
-**Template fallback reactions** (keyword-matched) cost **zero tokens** — triggered locally with no LLM generation.
+| Mode | What it does | Input tokens | Output tokens | Total per call | Typical session (10–15 calls) |
+|------|-------------|-------------|--------------|----------------|-------------------------------|
+| **Backseat** | Personality-driven reactions only. Short, fun, no code suggestions. | ~100–150 | ~50–150 | ~150–300 | ~1,500–4,500 |
+| **Skillcoach** | One specific, actionable code observation. Real technical feedback, in character. | ~100–150 | ~200–350 | ~300–500 | ~3,000–7,500 |
+| **Both** | Personality reaction + code observation. Capped at 3 sentences. | ~100–150 | ~300–450 | ~400–600 | ~4,000–9,000 |
+
+**Template fallback reactions** are keyword-matched locally and cost **zero tokens**. When your summary contains a recognized keyword (e.g. "bug", "refactor", "deploy"), Buddy picks a pre-written reaction template from its local library instead of asking the LLM. The speech bubble you see is this template — the LLM prompt is included in the JSON metadata for clients that want richer AI-generated reactions, but the immediate visual response is always free.
 
 ### Does Buddy make separate API calls?
 
@@ -432,7 +434,7 @@ For comparison, a single complex coding prompt ("refactor this module") typicall
 
 ### Will this affect my Claude Pro/Max limits?
 
-Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage limits are based on a rolling 5-hour window. Even in **both** mode with heavy use, Buddy adds <5% to your token throughput. Additionally, cached input tokens do **not** count toward rate limits on current Claude 4.x models.
+Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage limits are based on a rolling 5-hour window. Even in **both** mode with heavy use, Buddy adds <5% to your token throughput.
 
 ### Can I reduce token usage?
 
@@ -440,6 +442,22 @@ Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage
 - `buddy_mute` pauses reactions entirely during token-intensive work
 - Template reactions fire on keyword matches with zero token cost
 - The observer only runs when you call `buddy_observe` — nothing runs in the background
+
+### Does Buddy read my whole codebase?
+
+No. Buddy mainly reacts to short summaries you pass through tools like `buddy_observe`, plus its own saved state. It never scans your files or project directory.
+
+### What does Buddy store?
+
+Local companion state in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. Nothing leaves your machine.
+
+### Is Buddy tied to one client?
+
+No. Buddy is an MCP server, not a one-client hack. It works with any MCP-capable AI terminal: Claude Code, Cursor, Windsurf, Codex CLI, Gemini CLI, GitHub Copilot CLI, and others.
+
+### Can I remove it later?
+
+Yes. Run the uninstall script (`uninstall.sh` or `uninstall.ps1`) to remove Buddy and its configuration, or use `buddy_respawn` to release your companion and clear its data while keeping the server installed.
 
 <details>
 <summary><strong>Development</strong></summary>
