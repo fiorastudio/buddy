@@ -481,6 +481,16 @@ npm start
 
 </details>
 
+## Contributors
+
+Thank you to everyone who helped bring buddies back to life.
+
+<a href="https://github.com/fiorastudio/buddy/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=fiorastudio/buddy" alt="Contributors" />
+</a>
+
+<sub>Automatically generated via <a href="https://contrib.rocks">contrib.rocks</a></sub>
+
 ## Credits
 
 - Original buddy concept by [Anthropic](https://www.anthropic.com/) in [Claude Code](https://github.com/anthropics/claude-code) `v2.1.89` to `v2.1.94`
