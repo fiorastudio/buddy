@@ -373,7 +373,7 @@ Buddy runs inside whatever AI terminal or agentic client you already have open (
 
 **Static overhead (loaded every turn, cached after turn 1):**
 
-We measured the actual MCP payloads on April 15, 2026 (Void Cat companion, `o200k_base` tokenizer). The full tool list, resource list, companion bio, and ASCII card come out to **≈1,350 input tokens**, not 2,000.
+We measured the actual MCP payloads in April 2026 (Void Cat companion, `o200k_base` tokenizer). The full tool list, resource list, companion bio, and ASCII card come out to **≈1,350 input tokens**, not 2,000.
 
 | Component | Tokens (approx.) | Notes |
 |---|---|---|
@@ -400,7 +400,7 @@ Claude Code / Cursor sessions that use Sonnet 4.6 turn on [prompt caching](https
 
 Buddy has three observer modes that control how your companion reacts to completed work:
 
-Each `buddy_observe` call sends a short prompt to the host LLM (~100–150 input tokens for the personality context + your summary) and receives a response. Total round-trip per call:
+Each `buddy_observe` call sends a short prompt to the host LLM (~100–150 incremental input tokens for the tool-call payload — separate from the static overhead above which is already cached) and receives a response. Total round-trip per call:
 
 | Mode | What it does | Input tokens | Output tokens | Total per call | Typical session (10–15 calls) |
 |------|-------------|-------------|--------------|----------------|-------------------------------|
