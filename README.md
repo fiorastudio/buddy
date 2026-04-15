@@ -361,16 +361,7 @@ The current demo assets live in [`demo/`](demo):
 - [`demo/buddy-hatch.gif`](demo/buddy-hatch.gif) — hatch onboarding flow
 - [`demo/sprites/`](demo/sprites/) — animated GIF for each of the 21 species
 - [`demo/screenshots/`](demo/screenshots/) — static screenshots
-- [`demo/render-onboarding-gif.mjs`](demo/render-onboarding-gif.mjs) — generates both hero GIFs
-
-To regenerate the hero GIFs:
-
-```bash
-npm run build
-node demo/render-onboarding-gif.mjs            # both
-node demo/render-onboarding-gif.mjs --rescue   # rescue only
-node demo/render-onboarding-gif.mjs --hatch    # hatch only
-```
+Recording and rendering scripts (`demo/*.mjs`, `demo/*.sh`) are gitignored — they live locally for maintainers.
 
 </details>
 

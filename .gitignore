@@ -3,3 +3,9 @@ dist
 *.db
 .env
 CLAUDE.md
+
+# Demo recording/rendering scripts (keep GIFs + screenshots, ignore tooling)
+demo/*.mjs
+demo/*.sh
+demo/*.yml
+demo/frames/
