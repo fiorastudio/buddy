@@ -60,7 +60,7 @@ The installer will guide you through onboarding:
 |---|---|
 | **21 species** | Void Cat, Rust Hound, Goose, Mushroom, Chonk, and more, each with distinct ASCII art and flavor |
 | **5 stats** | `DEBUGGING`, `PATIENCE`, `CHAOS`, `WISDOM`, and `SNARK` shape reactions and personality |
-| **Mood system** | Your buddy can be happy, content, neutral, curious, grumpy, or exhausted based on how you interact with it |
+| **Mood system** | Your buddy can be happy, content, neutral, curious, grumpy based on how you interact with it |
 | **XP and levels** | Your buddy grows with usage instead of disappearing every session, with a real leveling curve behind it |
 | **Observer reactions** | `buddy_observe` lets your companion react to work you just finished |
 | **Pet-to-happiness loop** | Petting your buddy is not cosmetic only. More interaction makes it happier and more alive over time |
