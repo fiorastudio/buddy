@@ -213,7 +213,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     return {
       content: [
-        { type: "text", text: hatchAnimation(companion) },
+        { type: "text", text: '```\n' + hatchAnimation(companion) + '\n```' },
         { type: "text", text: reaction },
       ],
     };
@@ -237,7 +237,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     writeBuddyStatus(companion);
 
-    return { content: [{ type: "text", text: statusCard }] };
+    return { content: [{ type: "text", text: '```\n' + statusCard + '\n```' }] };
   }
 
   if (name === "buddy_remember") {
@@ -325,7 +325,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     return {
       content: [
-        { type: "text", text: bubble },
+        { type: "text", text: '```\n' + bubble + '\n```' },
         {
           type: "text",
           text: JSON.stringify({

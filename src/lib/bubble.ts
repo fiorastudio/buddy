@@ -75,5 +75,5 @@ export function renderSpeechBubble(
     }
   }
 
-  return '```\n' + output.join('\n') + '\n```';
+  return output.join('\n');
 }

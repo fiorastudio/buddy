@@ -41,7 +41,7 @@ export function renderCard(companion: Companion): string {
     if (cur) bioLines.push(ln(' ' + cur));
   }
 
-  const card = [
+  return [
     topBorder,
     headerLine,
     emptyLine,
@@ -59,7 +59,6 @@ export function renderCard(companion: Companion): string {
     })(),
     bottomBorder,
   ].join('\n');
-  return '```\n' + card + '\n```';
 }
 
 /**
@@ -120,7 +119,7 @@ export function hatchAnimation(companion: Companion): string {
     `say its name to get its take \u00b7 /buddy pet \u00b7 /buddy off`,
   ].join('\n');
 
-  const output = [
+  return [
     '\uD83E\uDD5A An egg appears...\n',
     egg1,
     '\n...something is moving!\n',
@@ -135,7 +134,6 @@ export function hatchAnimation(companion: Companion): string {
     card,
     footer,
   ].join('\n');
-  return '```\n' + output + '\n```';
 }
 
 /**
@@ -178,7 +176,7 @@ export function rescueAnimation(companion: Companion): string {
     `say its name to get its take \u00b7 /buddy pet \u00b7 /buddy off`,
   ].join('\n');
 
-  const output = [
+  return [
     '\uD83D\uDCE1 Scanning for lost companions...\n',
     signal1,
     '\n...signal detected!\n',
@@ -189,5 +187,4 @@ export function rescueAnimation(companion: Companion): string {
     card,
     footer,
   ].join('\n');
-  return '```\n' + output + '\n```';
 }

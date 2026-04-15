@@ -302,7 +302,7 @@ inject_prompt() {
   # Strip old v1 block if present (upgrade path)
   if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
     # Remove everything between <!-- buddy-companion --> and <!-- /buddy-companion -->
-    sed -i '/<!-- buddy-companion/,/<!-- \/buddy-companion -->/d' "$file" 2>/dev/null || true
+    sed -i'' -e '/<!-- buddy-companion/,/<!-- \/buddy-companion -->/d' "$file" 2>/dev/null || true
   fi
 
   # Append new instructions
