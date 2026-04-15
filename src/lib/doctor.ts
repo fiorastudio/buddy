@@ -1,0 +1,339 @@
+// src/lib/doctor.ts — Diagnostic engine for buddy_doctor tool and CLI
+
+import { readFileSync, accessSync, statSync, constants as fsConstants } from 'fs';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
+import { fileURLToPath } from 'url';
+import { BUDDY_DB_PATH, BUDDY_STATUS_PATH } from './constants.js';
+import { db } from '../db/schema.js';
+import { loadCompanion } from './companion.js';
+import { STAT_NAMES, RARITY_STARS } from './types.js';
+import { levelProgress } from './leveling.js';
+
+// Shared sentinel — keep in sync with install.sh / install.ps1
+export const PROMPT_SENTINEL_V2 = 'buddy-companion v2';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+export interface DiagnosticCheck {
+  id: string;
+  status: 'ok' | 'warn' | 'fail' | 'skip';
+  label: string;
+  detail: string;
+  suggestion?: string;
+}
+
+function getVersion(): string {
+  try {
+    return JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8')).version;
+  } catch { return 'unknown'; }
+}
+
+function fileExists(path: string): boolean {
+  try { accessSync(path, fsConstants.F_OK); return true; } catch { return false; }
+}
+
+function fileWritable(path: string): boolean {
+  try { accessSync(path, fsConstants.W_OK); return true; } catch { return false; }
+}
+
+function fileReadable(path: string): boolean {
+  try { accessSync(path, fsConstants.R_OK); return true; } catch { return false; }
+}
+
+function readJsonSafe(path: string): any {
+  try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return null; }
+}
+
+function readTextSafe(path: string): string | null {
+  try { return readFileSync(path, 'utf-8'); } catch { return null; }
+}
+
+// ── Individual checks ──
+
+function checkNodeVersion(): DiagnosticCheck {
+  const ver = process.version;
+  const major = parseInt(ver.slice(1), 10);
+  if (major < 18) {
+    return { id: 'env.node', status: 'fail', label: 'Node.js', detail: ver, suggestion: 'Node.js 18+ required. Upgrade at https://nodejs.org' };
+  }
+  return { id: 'env.node', status: 'ok', label: 'Node.js', detail: `${ver} \u2713` };
+}
+
+function checkPlatform(): DiagnosticCheck {
+  return { id: 'env.platform', status: 'ok', label: 'Platform', detail: `${process.platform} ${process.arch}` };
+}
+
+function checkEnvVars(): DiagnosticCheck {
+  const dbOverride = process.env.BUDDY_DB_PATH ? `(custom) ${process.env.BUDDY_DB_PATH}` : `(default) ${BUDDY_DB_PATH}`;
+  const statusOverride = process.env.BUDDY_STATUS_PATH ? `(custom) ${process.env.BUDDY_STATUS_PATH}` : `(default) ${BUDDY_STATUS_PATH}`;
+  // Warn only if custom path is set but doesn't exist
+  let status: 'ok' | 'warn' = 'ok';
+  let suggestion: string | undefined;
+  if (process.env.BUDDY_DB_PATH && !fileExists(process.env.BUDDY_DB_PATH)) {
+    status = 'warn';
+    suggestion = `BUDDY_DB_PATH is set to ${process.env.BUDDY_DB_PATH} but file does not exist`;
+  }
+  return { id: 'env.vars', status, label: 'Env overrides', detail: `DB: ${dbOverride}\n               STATUS: ${statusOverride}`, suggestion };
+}
+
+function checkPackageVersion(): DiagnosticCheck {
+  const ver = getVersion();
+  return { id: 'pkg.version', status: 'ok', label: 'Package', detail: `@fiorastudio/buddy v${ver}` };
+}
+
+function checkCompanionActive(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT * FROM companions LIMIT 1').get() as any;
+    if (!row) {
+      return { id: 'companion.active', status: 'warn', label: 'Active companion', detail: 'None', suggestion: 'Use buddy_hatch to create a companion' };
+    }
+    return { id: 'companion.active', status: 'ok', label: 'Active companion', detail: `\u2713 ${row.name} the ${row.species}` };
+  } catch {
+    return { id: 'companion.active', status: 'fail', label: 'Active companion', detail: 'DB query failed', suggestion: 'Database may be corrupted. Try deleting ~/.buddy/buddy.db and re-hatching' };
+  }
+}
+
+function checkCompanionCount(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT count(*) as count FROM companions').get() as any;
+    return { id: 'companion.count', status: 'ok', label: 'Total saved', detail: `${row?.count || 0} companion(s) in DB` };
+  } catch {
+    return { id: 'companion.count', status: 'fail', label: 'Total saved', detail: 'DB query failed' };
+  }
+}
+
+function checkCompanionDetails(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT * FROM companions LIMIT 1').get() as any;
+    if (!row) {
+      return { id: 'companion.details', status: 'skip', label: 'Companion details', detail: 'No companion' };
+    }
+    const companion = loadCompanion(row);
+    if (!companion) {
+      return { id: 'companion.details', status: 'fail', label: 'Companion details', detail: 'loadCompanion() returned null' };
+    }
+    const { level, currentXp, neededXp } = levelProgress(companion.xp);
+    const stars = RARITY_STARS[companion.rarity] || '';
+    const statStr = STAT_NAMES.map(s => `${s.slice(0, 3)}:${companion.stats[s]}`).join(' ');
+    const bioLen = companion.personalityBio?.length || 0;
+    return {
+      id: 'companion.details', status: 'ok', label: 'Details',
+      detail: `${stars} ${companion.rarity} | Lv.${level} (${currentXp}/${neededXp} XP) | mood: ${companion.mood}\n               Stats: ${statStr}\n               Bio: \u2713 (${bioLen} chars)`,
+    };
+  } catch (e: any) {
+    return { id: 'companion.details', status: 'fail', label: 'Companion details', detail: e?.message || 'Unknown error' };
+  }
+}
+
+function checkDbExists(): DiagnosticCheck {
+  if (!fileExists(BUDDY_DB_PATH)) {
+    return { id: 'db.exists', status: 'fail', label: 'Database file', detail: `${BUDDY_DB_PATH} not found`, suggestion: 'Database will be created on first buddy_hatch' };
+  }
+  const writable = fileWritable(BUDDY_DB_PATH);
+  try {
+    const stat = statSync(BUDDY_DB_PATH);
+    const sizeKb = (stat.size / 1024).toFixed(1);
+    return {
+      id: 'db.exists', status: writable ? 'ok' : 'warn', label: 'Database file',
+      detail: `${BUDDY_DB_PATH} ${writable ? '\u2713' : '\u2717 read-only'} (${sizeKb} KB)`,
+      suggestion: writable ? undefined : 'Database is not writable — check file permissions',
+    };
+  } catch {
+    return { id: 'db.exists', status: 'warn', label: 'Database file', detail: `${BUDDY_DB_PATH} exists but cannot stat` };
+  }
+}
+
+function checkDbTables(): DiagnosticCheck {
+  const expected = ['companions', 'memories', 'xp_events', 'sessions', 'evolution_history'];
+  try {
+    const rows = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[];
+    const tables = rows.map(r => r.name);
+    const results = expected.map(t => `${t} ${tables.includes(t) ? '\u2713' : '\u2717'}`);
+    const missing = expected.filter(t => !tables.includes(t));
+    return {
+      id: 'db.tables', status: missing.length > 0 ? 'fail' : 'ok', label: 'DB tables',
+      detail: results.join(' | '),
+      suggestion: missing.length > 0 ? `Missing tables: ${missing.join(', ')}. Try re-running the server to auto-create.` : undefined,
+    };
+  } catch {
+    return { id: 'db.tables', status: 'fail', label: 'DB tables', detail: 'Cannot query sqlite_master' };
+  }
+}
+
+function checkStatusFile(): DiagnosticCheck {
+  if (!fileExists(BUDDY_STATUS_PATH)) {
+    return { id: 'status.file', status: 'warn', label: 'Status file', detail: `${BUDDY_STATUS_PATH} not found`, suggestion: 'Status file is created when buddy_status or buddy_observe is called' };
+  }
+  const writable = fileWritable(BUDDY_STATUS_PATH);
+  try {
+    const stat = statSync(BUDDY_STATUS_PATH);
+    const ageMs = Date.now() - stat.mtimeMs;
+    const ageSec = Math.floor(ageMs / 1000);
+    const fresh = ageSec < 60;
+    return {
+      id: 'status.file', status: writable ? 'ok' : 'warn', label: 'Status file',
+      detail: `${BUDDY_STATUS_PATH} ${writable ? '\u2713' : '\u2717'} (${ageSec}s ago${fresh ? ' \u2713' : ' — stale'})`,
+      suggestion: writable ? undefined : 'Status file is not writable — check permissions',
+    };
+  } catch {
+    return { id: 'status.file', status: 'warn', label: 'Status file', detail: 'Exists but cannot stat' };
+  }
+}
+
+function checkMcpRegistered(): DiagnosticCheck {
+  const claudeJsonPath = join(homedir(), '.claude.json');
+  const config = readJsonSafe(claudeJsonPath);
+  if (config?.mcpServers?.buddy) {
+    return { id: 'mcp.registered', status: 'ok', label: 'MCP registration', detail: `\u2713 registered in ${claudeJsonPath}` };
+  }
+  // Also check ~/.claude/settings.json as fallback
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const settings = readJsonSafe(settingsPath);
+  if (settings?.mcpServers?.buddy) {
+    return { id: 'mcp.registered', status: 'ok', label: 'MCP registration', detail: `\u2713 registered in ${settingsPath}` };
+  }
+  return {
+    id: 'mcp.registered', status: 'fail', label: 'MCP registration', detail: '\u2717 not found',
+    suggestion: 'Run: claude mcp add buddy -s user -- node ~/.buddy/server/dist/server/index.js',
+  };
+}
+
+function checkStatusline(): DiagnosticCheck {
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const settings = readJsonSafe(settingsPath);
+  if (!settings?.statusLine?.command) {
+    return { id: 'config.statusline', status: 'warn', label: 'Statusline', detail: '\u2717 not configured in settings.json', suggestion: 'Re-run install script to configure statusline' };
+  }
+  const cmd: string = settings.statusLine.command;
+  if (!cmd.includes('statusline-wrapper')) {
+    return { id: 'config.statusline', status: 'warn', label: 'Statusline', detail: `Configured but not pointing to buddy: ${cmd}` };
+  }
+  // Extract wrapper path — handle "node /path/to/file.js" and "node '/path with spaces/file.js'"
+  // Match everything after "node " stripping surrounding quotes
+  const pathMatch = cmd.match(/node\s+["']?(.+?)["']?\s*$/);
+  const wrapperPath = pathMatch?.[1];
+  if (wrapperPath && !fileExists(wrapperPath)) {
+    return { id: 'config.statusline', status: 'fail', label: 'Statusline', detail: `Configured but wrapper missing: ${wrapperPath}`, suggestion: 'Re-run install script or rebuild' };
+  }
+  return { id: 'config.statusline', status: 'ok', label: 'Statusline', detail: '\u2713 configured in settings.json' };
+}
+
+function checkHooks(): DiagnosticCheck {
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const settings = readJsonSafe(settingsPath);
+  if (!settings?.hooks?.PostToolUse) {
+    return { id: 'config.hooks', status: 'warn', label: 'Hooks', detail: '\u2717 no PostToolUse hooks', suggestion: 'Re-run install script to configure hooks' };
+  }
+  const hooks: any[] = Array.isArray(settings.hooks.PostToolUse) ? settings.hooks.PostToolUse : [];
+  const hasBuddy = hooks.some((entry: any) => {
+    if (entry.matcher === 'Bash' && Array.isArray(entry.hooks)) {
+      return entry.hooks.some((h: any) => h.command && h.command.includes('post-tool-handler'));
+    }
+    // Handle legacy string format
+    if (typeof entry === 'string' && entry.includes('post-tool-handler')) return true;
+    return false;
+  });
+  if (!hasBuddy) {
+    return { id: 'config.hooks', status: 'warn', label: 'Hooks', detail: '\u2717 buddy hook not found in PostToolUse', suggestion: 'Re-run install script to configure hooks' };
+  }
+  return { id: 'config.hooks', status: 'ok', label: 'Hooks', detail: '\u2713 PostToolUse hook present' };
+}
+
+function checkPromptInjection(): DiagnosticCheck {
+  const claudeMdPath = join(homedir(), '.claude', 'CLAUDE.md');
+  const content = readTextSafe(claudeMdPath);
+  if (!content) {
+    return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: `${claudeMdPath} not found or unreadable`, suggestion: 'Re-run install script to inject buddy instructions' };
+  }
+  if (content.includes(PROMPT_SENTINEL_V2)) {
+    return { id: 'prompt.injected', status: 'ok', label: 'Prompt injection', detail: `\u2713 ${PROMPT_SENTINEL_V2} found in CLAUDE.md` };
+  }
+  if (content.includes('buddy-companion')) {
+    return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: 'v1 sentinel found — needs upgrade to v2', suggestion: 'Re-run install script to upgrade prompt instructions' };
+  }
+  return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: '\u2717 no buddy instructions in CLAUDE.md', suggestion: 'Re-run install script to inject buddy instructions' };
+}
+
+// ── Runner ──
+
+export function runDiagnostics(): DiagnosticCheck[] {
+  return [
+    checkNodeVersion(),
+    checkPlatform(),
+    checkEnvVars(),
+    checkPackageVersion(),
+    checkCompanionActive(),
+    checkCompanionCount(),
+    checkCompanionDetails(),
+    checkDbExists(),
+    checkDbTables(),
+    checkStatusFile(),
+    checkMcpRegistered(),
+    checkStatusline(),
+    checkHooks(),
+    checkPromptInjection(),
+  ];
+}
+
+// ── Report formatter ──
+
+export function formatReport(checks: DiagnosticCheck[]): string {
+  const version = getVersion();
+  const now = new Date().toISOString();
+  const counts = { ok: 0, warn: 0, fail: 0, skip: 0 };
+  for (const c of checks) counts[c.status]++;
+
+  const summaryParts = [];
+  if (counts.ok > 0) summaryParts.push(`${counts.ok} ok`);
+  if (counts.warn > 0) summaryParts.push(`${counts.warn} warn`);
+  if (counts.fail > 0) summaryParts.push(`${counts.fail} fail`);
+  if (counts.skip > 0) summaryParts.push(`${counts.skip} skip`);
+
+  const lines: string[] = [];
+  lines.push(`\uD83E\uDE7A Buddy Doctor v${version} \u2014 ${now}`);
+  lines.push(`${checks.length} checks: ${summaryParts.join(', ')}`);
+  lines.push('\u2550'.repeat(48));
+  lines.push('');
+
+  // Group checks by section
+  const sections: Record<string, DiagnosticCheck[]> = {
+    'ENVIRONMENT': checks.filter(c => c.id.startsWith('env.') || c.id.startsWith('pkg.')),
+    'COMPANION': checks.filter(c => c.id.startsWith('companion.')),
+    'DATABASE': checks.filter(c => c.id.startsWith('db.')),
+    'STATUS FILE': checks.filter(c => c.id.startsWith('status.')),
+    'CLAUDE CODE INTEGRATION': checks.filter(c => c.id.startsWith('mcp.') || c.id.startsWith('config.') || c.id.startsWith('prompt.')),
+  };
+
+  for (const [section, sectionChecks] of Object.entries(sections)) {
+    lines.push(section);
+    for (const c of sectionChecks) {
+      const pad = 15 - c.label.length;
+      lines.push(`  ${c.label}:${' '.repeat(Math.max(1, pad))}${c.detail}`);
+    }
+    lines.push('');
+  }
+
+  // Summary
+  const issues = checks.filter(c => c.status === 'fail' || c.status === 'warn');
+  lines.push('SUMMARY');
+  if (issues.length === 0) {
+    lines.push(`  \u2713 All ${checks.length} checks passed \u2014 Buddy is healthy!`);
+  } else {
+    const fails = checks.filter(c => c.status === 'fail');
+    const warns = checks.filter(c => c.status === 'warn');
+    const parts = [];
+    if (fails.length > 0) parts.push(`${fails.length} fail`);
+    if (warns.length > 0) parts.push(`${warns.length} warn`);
+    lines.push(`  \u2717 ${parts.join(', ')}:`);
+    let idx = 1;
+    for (const c of issues) {
+      lines.push(`    ${idx}. [${c.id}] ${c.label}: ${c.detail}`);
+      if (c.suggestion) lines.push(`       \u2192 ${c.suggestion}`);
+      idx++;
+    }
+  }
+
+  return lines.join('\n');
+}

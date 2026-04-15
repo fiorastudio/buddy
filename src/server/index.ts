@@ -26,6 +26,7 @@ import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
+import { runDiagnostics, formatReport } from "../lib/doctor.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -188,6 +189,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "buddy_unmute",
         description: "Unmute your buddy so it can chime in again.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "buddy_doctor",
+        description: "Run diagnostics on your Buddy installation. Checks companion state, database, MCP registration, statusline, hooks, and prompt injection. Returns a report you can paste into bug reports. IMPORTANT: Include the full diagnostic report verbatim in a code block in your response.",
         inputSchema: { type: "object", properties: {} },
       },
     ],
@@ -429,6 +435,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     writeBuddyStatus(companion);
 
     return { content: [{ type: "text", text: `${companion.name} is back! It'll chime in as you code.` }] };
+  }
+
+  if (name === "buddy_doctor") {
+    const checks = runDiagnostics();
+    const report = formatReport(checks);
+    return { content: [{ type: "text", text: '```\n' + report + '\n```' }] };
   }
 
   throw new Error(`Tool not found: ${name}`);

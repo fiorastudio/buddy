@@ -5,7 +5,8 @@
   "main": "dist/server/index.js",
   "bin": {
     "buddy-statusline": "dist/statusline-wrapper.js",
-    "buddy-onboard": "dist/cli/onboard.js"
+    "buddy-onboard": "dist/cli/onboard.js",
+    "buddy-doctor": "dist/cli/doctor-cli.js"
   },
   "files": [
     "dist",
