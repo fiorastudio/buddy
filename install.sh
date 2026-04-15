@@ -272,7 +272,7 @@ configure_codex
 
 # ── Inject buddy instructions into CLI prompt files ──
 
-BUDDY_INSTRUCTIONS='<!-- buddy-companion -->
+BUDDY_INSTRUCTIONS='<!-- buddy-companion v2 -->
 ## Buddy Companion
 
 You have a coding companion available via the buddy MCP server.
@@ -283,7 +283,7 @@ At the start of each conversation, call `buddy_status` to check on your buddy.
 
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
-After calling buddy_observe, relay the buddy'\''s reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
+When any buddy tool (buddy_status, buddy_observe, buddy_pet, buddy_hatch) returns ASCII art, include the full output verbatim in a code block. Do not summarize, paraphrase, or describe buddy output — the user wants to see it exactly as returned.
 <!-- /buddy-companion -->'
 
 inject_prompt() {
@@ -294,12 +294,18 @@ inject_prompt() {
 
   mkdir -p "$dir"
 
-  if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
+  if [ -f "$file" ] && grep -q "buddy-companion v2" "$file" 2>/dev/null; then
     echo -e "  ${GREEN}✓${NC} $cli_name prompt already has buddy instructions"
     return 0
   fi
 
-  # Append to existing file or create new one
+  # Strip old v1 block if present (upgrade path)
+  if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
+    # Remove everything between <!-- buddy-companion --> and <!-- /buddy-companion -->
+    sed -i '/<!-- buddy-companion/,/<!-- \/buddy-companion -->/d' "$file" 2>/dev/null || true
+  fi
+
+  # Append new instructions
   echo "" >> "$file"
   echo "$BUDDY_INSTRUCTIONS" >> "$file"
   echo -e "  ${GREEN}✓${NC} $cli_name prompt updated ${DIM}($file)${NC}"

@@ -214,7 +214,7 @@ if (Test-Path "$env:USERPROFILE\.copilot") {
 # ── Inject buddy instructions into CLI prompt files ──
 
 $BUDDY_INSTRUCTIONS = @"
-<!-- buddy-companion -->
+<!-- buddy-companion v2 -->
 ## Buddy Companion
 
 You have a coding companion available via the buddy MCP server.
@@ -225,7 +225,7 @@ At the start of each conversation, call ``buddy_status`` to check on your buddy.
 
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
-After calling buddy_observe, relay the buddy's reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
+When any buddy tool (buddy_status, buddy_observe, buddy_pet, buddy_hatch) returns ASCII art, include the full output verbatim in a code block. Do not summarize, paraphrase, or describe buddy output — the user wants to see it exactly as returned.
 <!-- /buddy-companion -->
 "@
 
@@ -233,9 +233,16 @@ function Inject-BuddyPrompt($filePath, $cliName) {
   $dir = Split-Path $filePath -Parent
   if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 
-  if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion" -Quiet)) {
+  if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion v2" -Quiet)) {
     Write-Host "  ✓ $cliName prompt already has buddy instructions" -ForegroundColor Green
     return
+  }
+
+  # Strip old v1 block if present (upgrade path)
+  if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion" -Quiet)) {
+    $content = Get-Content $filePath -Raw
+    $content = $content -replace '(?s)<!-- buddy-companion.*?<!-- /buddy-companion -->\s*', ''
+    Set-Content -Path $filePath -Value $content -Encoding UTF8
   }
 
   Add-Content -Path $filePath -Value "`n$BUDDY_INSTRUCTIONS" -Encoding UTF8

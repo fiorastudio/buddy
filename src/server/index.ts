@@ -97,7 +97,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "buddy_hatch",
-        description: "Hatch a new Buddy companion.",
+        description: "Hatch a new Buddy companion. Returns an ASCII hatch animation and stat card. IMPORTANT: Include the full output verbatim in a code block in your response. Do not summarize.",
         inputSchema: {
           type: "object",
           properties: {
@@ -113,7 +113,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_status",
-        description: "Get the current status of your Buddy companion. Call this at the start of a conversation to check on your buddy and learn its personality.",
+        description: "Get the current status of your Buddy companion. Call this at the start of a conversation to check on your buddy and learn its personality. Returns a pre-formatted ASCII stat card. IMPORTANT: Include the entire stat card verbatim in a code block in your response. Do not summarize, truncate, or describe it.",
         inputSchema: {
           type: "object",
           properties: {
@@ -154,7 +154,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_observe",
-        description: "IMPORTANT: Call this tool automatically after completing any coding task (writing code, fixing a bug, refactoring, running tests, deploying). Pass a 1-sentence summary of what was done. Returns your buddy's in-character reaction with a speech bubble and XP rewards. The user expects this to happen after every task — do not skip it.",
+        description: "IMPORTANT: Call this tool automatically after completing any coding task (writing code, fixing a bug, refactoring, running tests, deploying). Pass a 1-sentence summary of what was done. Returns your buddy's in-character reaction with a speech bubble and XP rewards. The user expects this to happen after every task — do not skip it. IMPORTANT: The first content block is a pre-formatted ASCII speech bubble. Include it verbatim in a code block in your response. Do not summarize or omit it.",
         inputSchema: {
           type: "object",
           properties: {
@@ -177,7 +177,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_pet",
-        description: "Pet your buddy! Shows a heart animation and a happy reaction.",
+        description: "Pet your buddy! Shows a heart animation and a happy reaction. Returns pre-formatted ASCII art with hearts. IMPORTANT: Include the full output verbatim in a code block in your response.",
         inputSchema: { type: "object", properties: {} },
       },
       {
@@ -401,7 +401,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       `${companion.name}: ${reaction}`,
     ].join('\n');
 
-    return { content: [{ type: "text", text: petDisplay }] };
+    return { content: [{ type: "text", text: '```\n' + petDisplay + '\n```' }] };
   }
 
   if (name === "buddy_mute") {
@@ -509,7 +509,9 @@ ${never.map(n => `- ${n}`).join('\n')}
 
 ${companion.name} reacts to your work via the buddy_observe tool. After completing an action, call buddy_observe with a brief summary of what you did. ${companion.name}'s reactions are personality-flavored — ${peakStat} is their strength (${companion.stats[peakStat]}/100), ${dumpStat} is their weakness (${companion.stats[dumpStat]}/100).
 
-When the user addresses ${companion.name} by name, respond briefly in character as ${companion.name} before your normal response. Don't explain that you're not ${companion.name} — they know.`;
+When the user addresses ${companion.name} by name, respond briefly in character as ${companion.name} before your normal response. Don't explain that you're not ${companion.name} — they know.
+
+When buddy tools return ASCII art, stat cards, or speech bubbles, always include the full output verbatim in a code block. Do not summarize or omit it.`;
 
     return { contents: [{ uri, mimeType: "text/plain", text: intro }] };
   }
