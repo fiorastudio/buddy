@@ -317,7 +317,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     writeBuddyStatus(companion, {
       state: xpResult.leveledUp ? 'excited' : result.reaction.state,
       text: xpResult.leveledUp ? `✨ Level ${xpResult.newLevel}! ✨` : result.templateFallback,
-      expires: Date.now() + (xpResult.leveledUp ? 45_000 : 30_000),
+      expires: Date.now() + (xpResult.leveledUp ? 15_000 : 10_000),
       eyeOverride: xpResult.leveledUp ? SPARKLE_EYE : result.reaction.eyeOverride,
       indicator: xpResult.leveledUp ? '✨' : result.reaction.indicator,
       bubbleLines: bubble.split('\n'),
@@ -389,7 +389,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     writeBuddyStatus(companion, {
       state: 'excited',
       text: reaction,
-      expires: Date.now() + 30_000,
+      expires: Date.now() + 10_000,
       eyeOverride: '◉',
       indicator: '♥',
     });
