@@ -128,22 +128,24 @@ export function createCompanion(opts: {
 
 /**
  * Rescue an old buddy from imported data (e.g. ~/.claude.json).
- * The importResult should have at least { name, species }.
+ * The importResult should have at least { name }.
  */
 export function rescueCompanion(importResult: {
   name: string;
-  species: string;
+  species?: string;
+  accountUuid?: string;
   userId?: string;
   user_id?: string;
 }, opts: { userId?: string } = {}): { companion: Companion; id: string } {
   const userId = opts.userId
     || importResult.userId
     || importResult.user_id
+    || importResult.accountUuid
     || `imported-${importResult.name}`;
 
   const { bones } = roll(userId, SPECIES_LIST);
 
-  const finalSpecies = SPECIES_LIST.includes(importResult.species as any)
+  const finalSpecies = importResult.species && SPECIES_LIST.includes(importResult.species as any)
     ? importResult.species
     : bones.species;
 

@@ -384,6 +384,8 @@ export function calculateMood(xpEvents: any[], recentMemories: number): Mood {
   return 'grumpy';
 }
 
+export { seededIndex } from './rng.js';
+
 // Species-specific two-pool name system — combine first+second for ~100 unique names per species
 type NamePools = { first: string[]; second: string[] };
 

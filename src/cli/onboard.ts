@@ -14,6 +14,7 @@ import { renderCard, hatchAnimation, rescueAnimation } from '../lib/card.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { SPECIES_LIST, seededIndex } from '../lib/species.js';
 
 import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA, BOLD } from '../lib/ansi.js';
 
@@ -31,7 +32,10 @@ function c(color: string, text: string): string {
 
 interface OldBuddy {
   name: string;
-  species: string;
+  species?: string;
+  personality?: string;
+  hatchedAt?: number;
+  accountUuid?: string;
   userId?: string;
   user_id?: string;
 }
@@ -45,19 +49,23 @@ function importOldBuddy(): OldBuddy | null {
     // Claude Code stored buddy data under various keys
     // Check common locations
     const buddy = data.buddy || data.companion || data.buddyCompanion;
-    if (buddy && buddy.name && buddy.species) {
+    if (buddy && buddy.name) {
       return {
         name: buddy.name,
         species: buddy.species,
+        personality: buddy.personality,
+        hatchedAt: buddy.hatchedAt,
+        accountUuid: data.oauthAccount?.accountUuid,
         userId: buddy.userId || buddy.user_id,
       };
     }
 
     // Check if the top-level has buddy fields
-    if (data.buddyName && data.buddySpecies) {
+    if (data.buddyName) {
       return {
         name: data.buddyName,
         species: data.buddySpecies,
+        accountUuid: data.oauthAccount?.accountUuid,
         userId: data.userId || data.user_id,
       };
     }
@@ -171,11 +179,20 @@ async function main() {
   // Try to import old buddy
   const oldBuddy = importOldBuddy();
 
+  // If species is missing but accountUuid exists, derive it deterministically
+  if (oldBuddy && !oldBuddy.species && oldBuddy.accountUuid) {
+    const speciesIndex = seededIndex(oldBuddy.accountUuid, 'friend-2026-401', SPECIES_LIST.length);
+    oldBuddy.species = SPECIES_LIST[speciesIndex];
+  }
+
   // Build menu choices
   const choices: MenuChoice[] = [];
   if (oldBuddy) {
+    const label = oldBuddy.species 
+      ? `Rescue ${oldBuddy.name} the ${oldBuddy.species}`
+      : `Rescue ${oldBuddy.name}`;
     choices.push({
-      label: `Rescue ${oldBuddy.name} the ${oldBuddy.species}`,
+      label,
       value: 'rescue',
     });
   }
