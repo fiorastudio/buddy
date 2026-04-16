@@ -465,6 +465,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: `Current observer mode: ${current}\n\nModes: backseat (personality only) · skillcoach (code feedback) · both (combined)` }] };
     }
 
+    const validModes = ['backseat', 'skillcoach', 'both'];
+    if (!validModes.includes(newMode)) {
+      return { content: [{ type: "text", text: `Invalid mode "${newMode}". Choose: backseat, skillcoach, or both.` }] };
+    }
+
     db.prepare("UPDATE companions SET observer_mode = ? WHERE id = ?").run(newMode, row.id);
     const companion = loadCompanion({ ...row, observer_mode: newMode })!;
     writeBuddyStatus(companion);
