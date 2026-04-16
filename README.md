@@ -491,6 +491,8 @@ Thank you to everyone who helped bring buddies back to life.
 
 <sub>Automatically generated via <a href="https://contrib.rocks">contrib.rocks</a></sub>
 
+Special thanks to [@gupta3681](https://github.com/gupta3681), [@kevinwei00](https://github.com/kevinwei00), and [@whaterFalls](https://github.com/whaterFalls) for their contributions.
+
 ## Credits
 
 - Original buddy concept by [Anthropic](https://www.anthropic.com/) in [Claude Code](https://github.com/anthropics/claude-code) `v2.1.89` to `v2.1.94`
