@@ -193,8 +193,23 @@ try {
         const bubbleLines: string[] = buddy.bubble_lines;
         const bubbleWidth = Math.max(...bubbleLines.map((l: string) => stripAnsi(l).length), 0);
 
+        // Colorize bubble lines — the bubble is plain text from renderSpeechBubble().
+        // Left side = text bubble (borders + content), right side = sprite art after connector.
         for (const line of bubbleLines) {
-          buddyRight.push(line);
+          // Lines with "  -  " connector or "     " gutter have sprite art on the right
+          const connectorMatch = line.match(/^(.+?)(  -  |     )(.+)$/);
+          if (connectorMatch) {
+            const [, left, sep, right] = connectorMatch;
+            // Check if right side looks like sprite art or buddy name
+            const isName = right.trim() === buddy.name;
+            const coloredRight = isName
+              ? `${CYAN}${right}${RESET}`
+              : `${MAGENTA}${right}${RESET}`;
+            buddyRight.push(`${DIM}${left}${RESET}${DIM}${sep}${RESET}${coloredRight}`);
+          } else {
+            // Pure bubble line (border or text) — dim it
+            buddyRight.push(`${DIM}${line}${RESET}`);
+          }
         }
         const indent = ' '.repeat(Math.min(bubbleWidth + 4, 38));
         buddyRight.push(`${indent}${nameInfo}`);
