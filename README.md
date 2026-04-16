@@ -496,11 +496,13 @@ Thank you to everyone who helped bring buddies back to life.
 - Original buddy concept by [Anthropic](https://www.anthropic.com/) in [Claude Code](https://github.com/anthropics/claude-code) `v2.1.89` to `v2.1.94`
 - Inspired by [effigy](https://github.com/justinstimatze/effigy), [claude-buddy](https://github.com/1270011/claude-buddy), and [save-buddy](https://github.com/jrykn/save-buddy). Thanks!
 - Built with the [Model Context Protocol](https://modelcontextprotocol.io/)
+- Compatible with [claude-hud](https://github.com/jarrodwatts/claude-hud) by [@jarrodwatts](https://github.com/jarrodwatts) — Buddy's statusline renders side-by-side with HUD metrics
 
 Buddy also draws on publicly shared community research around the original companion system and how to preserve it with stable extension points.
 
 - [BonziClaude](https://github.com/zakarth/BonziClaude) by [@zakarth](https://github.com/zakarth) is an important technical reference point in the ecosystem, especially around reverse-engineering and documenting companion-system behavior.
-- [claude-buddy](https://github.com/1270011/claude-buddy) by [@1270011](https://github.com/1270011) helped demonstrate the MCP plus terminal-integration preservation approach for keeping buddy-like experiences alive across client changes.
+- [claude-buddy](https://github.com/1270011/claude-buddy) by [@1270011](https://github.com/1270011) helped demonstrate the MCP plus terminal-integration preservation approach for keeping buddy-like experiences alive across client changes. Its diagnostic tooling (`bun run doctor`) and CLI bin pattern directly inspired our `buddy_doctor` tool.
+- [openclaw](https://github.com/openclaw) inspired our seamless onboarding experience — the idea that install should "just work" with auto-detection, rescue, and zero-config setup across multiple CLIs.
 - Community research and discussion, including work shared on r/Anthropic, helped clarify endpoint behavior and preserve details that would otherwise have been lost.
 - Official [Claude Code](https://github.com/anthropics/claude-code) and [MCP](https://modelcontextprotocol.io/) documentation informed the portable integration approach: MCP server wiring, client configuration, and supported terminal integration surfaces.
 
