@@ -115,14 +115,9 @@ export function hatchAnimation(companion: Companion): string {
   const footer = [
     '',
     `${companion.name} is here \u00b7 it'll chime in as you code`,
-    `uses the same AI subscription you're on`,
-    '',
-    `try one of these:`,
-    `  buddy pet        \u00b7 pet your buddy`,
-    `  buddy observe    \u00b7 react to completed work`,
-    `  buddy status     \u00b7 show stats and card art`,
-    `  buddy remember   \u00b7 save a memory`,
-    `  buddy mute       \u00b7 pause reactions`,
+    `it reacts automatically after each task you complete`,
+    `say "buddy pet" to interact \u00b7 "buddy status" for stats`,
+    `"buddy mute" to pause \u00b7 "buddy unmute" to bring it back`,
   ].join('\n');
 
   return [
@@ -178,14 +173,9 @@ export function rescueAnimation(companion: Companion): string {
   const footer = [
     '',
     `${companion.name} has been rescued! Welcome home.`,
-    `it'll chime in as you code`,
-    '',
-    `try one of these:`,
-    `  buddy pet        \u00b7 pet your buddy`,
-    `  buddy observe    \u00b7 react to completed work`,
-    `  buddy status     \u00b7 show stats and card art`,
-    `  buddy remember   \u00b7 save a memory`,
-    `  buddy mute       \u00b7 pause reactions`,
+    `it reacts automatically after each task you complete`,
+    `say "buddy pet" to interact \u00b7 "buddy status" for stats`,
+    `"buddy mute" to pause \u00b7 "buddy unmute" to bring it back`,
   ].join('\n');
 
   return [
