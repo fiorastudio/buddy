@@ -192,6 +192,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: { type: "object", properties: {} },
       },
       {
+        name: "buddy_mode",
+        description: "Set the observer mode for your buddy. Controls how it reacts after tasks: 'backseat' for personality-only reactions, 'skillcoach' for code feedback, or 'both' for combined. Shows current mode if called with no arguments.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            mode: {
+              type: "string",
+              enum: ["backseat", "skillcoach", "both"],
+              description: "The observer mode to set. Omit to see current mode."
+            }
+          },
+        },
+      },
+      {
         name: "buddy_doctor",
         description: "Run diagnostics on your Buddy installation. Checks companion state, database, MCP registration, statusline, hooks, and prompt injection. Returns a report you can paste into bug reports. IMPORTANT: Include the full diagnostic report verbatim in a code block in your response.",
         inputSchema: { type: "object", properties: {} },
@@ -298,7 +312,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_observe") {
-    const { summary, mode = 'both', user_id } = args as {
+    const { summary, mode: modeArg, user_id } = args as {
       summary: string; mode?: 'backseat' | 'skillcoach' | 'both'; user_id?: string;
     };
 
@@ -308,6 +322,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     const { companion, xpResult } = awardXpAndRefresh(row, 'observe', user_id);
+    // Priority: explicit arg > DB setting > default 'both'
+    const mode: 'backseat' | 'skillcoach' | 'both' = modeArg || row.observer_mode || 'both';
     const result = buildObserverPrompt(companion, mode, summary);
 
     // Render speech bubble with template fallback for immediate visual feedback
@@ -435,6 +451,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     writeBuddyStatus(companion);
 
     return { content: [{ type: "text", text: `${companion.name} is back! It'll chime in as you code.` }] };
+  }
+
+  if (name === "buddy_mode") {
+    const { mode: newMode } = args as { mode?: string };
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) {
+      return { content: [{ type: "text", text: "No companion yet! Use buddy_hatch first." }] };
+    }
+
+    if (!newMode) {
+      const current = row.observer_mode || 'both';
+      return { content: [{ type: "text", text: `Current observer mode: ${current}\n\nModes: backseat (personality only) · skillcoach (code feedback) · both (combined)` }] };
+    }
+
+    db.prepare("UPDATE companions SET observer_mode = ? WHERE id = ?").run(newMode, row.id);
+    const companion = loadCompanion({ ...row, observer_mode: newMode })!;
+    writeBuddyStatus(companion);
+
+    const descriptions: Record<string, string> = {
+      backseat: 'personality-only reactions — fun, no code suggestions',
+      skillcoach: 'code feedback — specific, actionable observations',
+      both: 'combined — personality reaction + code observation',
+    };
+    return { content: [{ type: "text", text: `Observer mode set to ${newMode}: ${descriptions[newMode] || newMode}` }] };
   }
 
   if (name === "buddy_doctor") {

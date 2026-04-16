@@ -203,10 +203,36 @@ try {
         // --- Normal (no bubble) layout: art right, info inline ---
 
         // --- Micro-expression: append tiny ASCII particle to last art line ---
+        // Species-aware particles — each species gets a curated set that fits
+        // its personality. ~60-70% appearance rate (10 particles, 3-4 blanks).
+        const speciesMicroParticles: Record<string, string[]> = {
+          'Mushroom':  ['~', '·', '°', '✿', '♪', '*', '.', '~', '·', '', '', '', '°'],
+          'Void Cat':  ['·', '*', '~', '.', '♪', 'z', '·', '~', '*', '', '', '', 'z'],
+          'Robot':     ['⚡', '·', '*', '0', '1', '♪', '·', '⚡', '*', '', '', '', '0'],
+          'Ghost':     ['~', '·', '.', '*', '○', '♪', '~', '·', '○', '', '', '', '.'],
+          'Duck':      ['~', '·', '♪', '*', '.', '^', '~', '♪', '·', '', '', '', '^'],
+          'Goose':     ['~', '·', '♪', '*', '.', '^', '!', '~', '·', '', '', '', '!'],
+          'Rust Hound':['·', '*', '~', '.', '♪', '^', '·', '*', '~', '', '', '', '.'],
+          'Data Drake':['·', '*', '~', '♪', '°', '⚡', '·', '*', '~', '', '', '', '°'],
+          'Log Golem': ['·', '*', '.', '~', '♪', '#', '·', '.', '*', '', '', '', '#'],
+          'Cache Crow':['·', '*', '~', '♪', '.', '^', '·', '*', '~', '', '', '', '^'],
+          'Shell Turtle':['·', '~', '.', '*', '♪', '°', '·', '~', '.', '', '', '', '°'],
+          'Blob':      ['~', '·', '.', '*', '♪', '○', '~', '·', '*', '', '', '', '○'],
+          'Octopus':   ['~', '·', '*', '♪', '.', '°', '~', '·', '*', '', '', '', '°'],
+          'Owl':       ['·', '*', '.', '♪', '~', '°', '·', '*', '.', '', '', '', '°'],
+          'Penguin':   ['·', '*', '~', '♪', '.', '^', '·', '*', '~', '', '', '', '.'],
+          'Snail':     ['·', '~', '.', '*', '♪', '°', '·', '~', '.', '', '', '', '°'],
+          'Axolotl':   ['~', '·', '°', '*', '♪', '.', '~', '·', '°', '', '', '', '.'],
+          'Capybara':  ['~', '·', '.', '*', '♪', '°', '~', '·', '.', '', '', '', '°'],
+          'Cactus':    ['·', '*', '.', '♪', '~', '✿', '·', '*', '.', '', '', '', '✿'],
+          'Rabbit':    ['·', '*', '^', '♪', '~', '.', '·', '*', '^', '', '', '', '.'],
+          'Chonk':     ['·', 'z', '~', '*', '♪', '.', '·', 'z', '~', '', '', '', 'z'],
+        };
+        const defaultMicroParticles = ['~', '·', '*', '.', '♪', '°', '~', '·', '*', '', '', '', '.'];
+        const microPool = speciesMicroParticles[buddy.species] || defaultMicroParticles;
         const microR = Math.random();
-        const microParticles = ['', '', '~', '', '*', '', '.', '♪', '', 'z', '·', ''];
         if (!hasReactionActive) {
-          const particle = microParticles[Math.floor(microR * microParticles.length)];
+          const particle = microPool[Math.floor(microR * microPool.length)];
           if (particle && asciiLines.length > 0) {
             asciiLines[asciiLines.length - 1] = asciiLines[asciiLines.length - 1].trimEnd() + ' ' + particle;
           }

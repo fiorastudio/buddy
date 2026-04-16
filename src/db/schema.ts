@@ -67,4 +67,9 @@ export function initDb() {
       FOREIGN KEY(companion_id) REFERENCES companions(id)
     );
   `);
+
+  // Migration: add observer_mode column (safe for existing DBs)
+  try {
+    db.exec(`ALTER TABLE companions ADD COLUMN observer_mode TEXT DEFAULT 'both'`);
+  } catch { /* column already exists */ }
 }
