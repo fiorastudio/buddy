@@ -144,6 +144,115 @@ describe('rescueCompanion', () => {
     expect(row.name).toBe('SavedBuddy');
     expect(row.species).toBe('Owl');
   });
+
+  it('preserves imported personality when provided (issue #60 — Fernsquire)', () => {
+    const personality =
+      'A philosophically unflappable turtle who responds to your bugs with measured skepticism...';
+    const { companion } = rescueCompanion({
+      name: 'Fernsquire',
+      species: 'Shell Turtle',
+      personality,
+    });
+    expect(companion.personalityBio).toBe(personality);
+    const row = db.prepare('SELECT personality_bio FROM companions LIMIT 1').get() as any;
+    expect(row.personality_bio).toBe(personality);
+  });
+
+  it('generates a fresh bio when no personality is imported', () => {
+    const { companion } = rescueCompanion({ name: 'NoBio', species: 'Owl' });
+    expect(companion.personalityBio).toBeTruthy();
+    expect(companion.personalityBio.length).toBeGreaterThan(0);
+  });
+
+  it('preserves imported hatchedAt (issue #60 — original hatch date survives rescue)', () => {
+    const originalHatchedAt = 1775074927992; // from issue #60 sample
+    const { companion, id } = rescueCompanion({
+      name: 'Fernsquire',
+      species: 'Shell Turtle',
+      hatchedAt: originalHatchedAt,
+    });
+    expect(companion.hatchedAt).toBe(originalHatchedAt);
+    // Round-trips cleanly through loadCompanion via ISO 8601 serialization.
+    const row = db.prepare('SELECT * FROM companions WHERE id = ?').get(id) as any;
+    const reloaded = loadCompanion(row);
+    expect(reloaded!.hatchedAt).toBe(originalHatchedAt);
+  });
+
+  it('defaults hatchedAt to now when not imported', () => {
+    const before = Date.now();
+    const { companion } = rescueCompanion({ name: 'Fresh', species: 'Duck' });
+    const after = Date.now();
+    expect(companion.hatchedAt).toBeGreaterThanOrEqual(before);
+    expect(companion.hatchedAt).toBeLessThanOrEqual(after);
+  });
+
+  it('uses accountUuid as userId fallback when no explicit userId is provided', () => {
+    rescueCompanion({
+      name: 'UuidBuddy',
+      species: 'Ghost',
+      accountUuid: 'user-uuid-abc-123',
+    });
+    const row = db.prepare('SELECT user_id FROM companions LIMIT 1').get() as any;
+    expect(row.user_id).toBe('user-uuid-abc-123');
+  });
+
+  it('prefers explicit opts.userId over accountUuid', () => {
+    rescueCompanion(
+      { name: 'Override', species: 'Ghost', accountUuid: 'uuid-lose' },
+      { userId: 'override-win' }
+    );
+    const row = db.prepare('SELECT user_id FROM companions LIMIT 1').get() as any;
+    expect(row.user_id).toBe('override-win');
+  });
+
+  it('rescues a buddy with no species (rolls one from bones)', () => {
+    const { companion } = rescueCompanion({ name: 'Speciesless' });
+    expect(SPECIES_LIST).toContain(companion.species);
+  });
+
+  it('produces deterministic species across rescues for the same accountUuid', () => {
+    const { companion: c1 } = rescueCompanion({
+      name: 'Det1',
+      accountUuid: 'same-uuid',
+    });
+    db.prepare('DELETE FROM companions').run();
+    const { companion: c2 } = rescueCompanion({
+      name: 'Det1',
+      accountUuid: 'same-uuid',
+    });
+    expect(c1.species).toBe(c2.species);
+    expect(c1.rarity).toBe(c2.rarity);
+    expect(c1.stats).toEqual(c2.stats);
+  });
+
+  it('normalizes legacy short species names ("turtle" → "Shell Turtle")', () => {
+    // The legacy Claude Code config stored bare animal nouns. If a user has
+    // that in ~/.claude.json, the rescue path should write the canonical name
+    // to the DB rather than the short form.
+    const { companion } = rescueCompanion({
+      name: 'Fern',
+      species: 'turtle',
+      accountUuid: 'legacy-short-uuid',
+    });
+    expect(companion.species).toBe('Shell Turtle');
+    const row = db.prepare('SELECT species FROM companions LIMIT 1').get() as any;
+    expect(row.species).toBe('Shell Turtle');
+  });
+
+  it('infers species from personality when none is given (Fernsquire → Shell Turtle)', () => {
+    // End-to-end: this is exactly the shape Josh (issue #60) has in ~/.claude.json.
+    const { companion } = rescueCompanion({
+      name: 'Fernsquire',
+      personality:
+        'A philosophically unflappable turtle who responds to your bugs with measured skepticism and the occasional cutting remark about your variable names, as if waiting 80 years to hatch has given them an exceptionally low tolerance for sloppy thinking.',
+      hatchedAt: 1775074927992,
+      accountUuid: 'josh-account-uuid',
+    });
+    expect(companion.species).toBe('Shell Turtle');
+    expect(companion.name).toBe('Fernsquire');
+    expect(companion.hatchedAt).toBe(1775074927992);
+    expect(companion.personalityBio).toMatch(/turtle/i);
+  });
 });
 
 describe('loadCompanion', () => {

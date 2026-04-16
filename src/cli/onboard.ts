@@ -14,7 +14,7 @@ import { renderCard, hatchAnimation, rescueAnimation } from '../lib/card.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { SPECIES_LIST, seededIndex } from '../lib/species.js';
+import { type OldBuddy, parseOldBuddy, deriveSpecies } from '../lib/oldBuddy.js';
 
 import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA, BOLD } from '../lib/ansi.js';
 
@@ -30,47 +30,11 @@ function c(color: string, text: string): string {
 
 // ── Import old buddy from ~/.claude.json ──
 
-interface OldBuddy {
-  name: string;
-  species?: string;
-  personality?: string;
-  hatchedAt?: number;
-  accountUuid?: string;
-  userId?: string;
-  user_id?: string;
-}
-
 function importOldBuddy(): OldBuddy | null {
   try {
     const claudeJsonPath = join(homedir(), '.claude.json');
     const raw = readFileSync(claudeJsonPath, 'utf-8');
-    const data = JSON.parse(raw);
-
-    // Claude Code stored buddy data under various keys
-    // Check common locations
-    const buddy = data.buddy || data.companion || data.buddyCompanion;
-    if (buddy && buddy.name) {
-      return {
-        name: buddy.name,
-        species: buddy.species,
-        personality: buddy.personality,
-        hatchedAt: buddy.hatchedAt,
-        accountUuid: data.oauthAccount?.accountUuid,
-        userId: buddy.userId || buddy.user_id,
-      };
-    }
-
-    // Check if the top-level has buddy fields
-    if (data.buddyName) {
-      return {
-        name: data.buddyName,
-        species: data.buddySpecies,
-        accountUuid: data.oauthAccount?.accountUuid,
-        userId: data.userId || data.user_id,
-      };
-    }
-
-    return null;
+    return parseOldBuddy(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -179,10 +143,13 @@ async function main() {
   // Try to import old buddy
   const oldBuddy = importOldBuddy();
 
-  // If species is missing but accountUuid exists, derive it deterministically
-  if (oldBuddy && !oldBuddy.species && oldBuddy.accountUuid) {
-    const speciesIndex = seededIndex(oldBuddy.accountUuid, 'friend-2026-401', SPECIES_LIST.length);
-    oldBuddy.species = SPECIES_LIST[speciesIndex];
+  // Normalize the species via the shared resolution ladder. This runs even
+  // when a species is already set because the legacy Claude Code config used
+  // short names ("turtle", "cat") that need to be mapped to canonical list
+  // entries ("Shell Turtle", "Void Cat") for the menu label to read correctly.
+  if (oldBuddy) {
+    const derived = deriveSpecies(oldBuddy);
+    if (derived) oldBuddy.species = derived;
   }
 
   // Build menu choices

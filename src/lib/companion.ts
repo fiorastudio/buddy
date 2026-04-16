@@ -7,6 +7,7 @@ import { generateBio } from './personality.js';
 import { sanitizeName } from './sanitize.js';
 import { type Companion, RARITY_STARS } from './types.js';
 import { levelFromXp } from './leveling.js';
+import { deriveSpecies } from './oldBuddy.js';
 import { randomUUID } from 'crypto';
 import { writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
@@ -129,10 +130,16 @@ export function createCompanion(opts: {
 /**
  * Rescue an old buddy from imported data (e.g. ~/.claude.json).
  * The importResult should have at least { name }.
+ *
+ * A "rescue" is a continuation, not a rebirth: if the imported record carries
+ * a hand-written personality or an original hatchedAt timestamp, we preserve
+ * them so the user doesn't lose the character they've already bonded with.
  */
 export function rescueCompanion(importResult: {
   name: string;
   species?: string;
+  personality?: string;
+  hatchedAt?: number;
   accountUuid?: string;
   userId?: string;
   user_id?: string;
@@ -145,18 +152,31 @@ export function rescueCompanion(importResult: {
 
   const { bones } = roll(userId, SPECIES_LIST);
 
-  const finalSpecies = importResult.species && SPECIES_LIST.includes(importResult.species as any)
-    ? importResult.species
-    : bones.species;
+  // Resolve species via the shared ladder (explicit → infer from personality →
+  // accountUuid-derived). bones.species is the last-resort fallback, keyed to
+  // the userId roll so it's stable per user even without personality/uuid.
+  const finalSpecies = deriveSpecies(importResult) ?? bones.species;
 
   const finalName = sanitizeName(importResult.name) || generateName(finalSpecies, userId);
   const id = randomUUID();
 
-  const bio = generateBio({ ...bones, species: finalSpecies });
+  // Preserve the imported personality if the user had one; otherwise generate fresh.
+  const bio = importResult.personality || generateBio({ ...bones, species: finalSpecies });
 
-  db.prepare(
-    'INSERT INTO companions (id, name, species, user_id, personality_bio) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, finalName, finalSpecies, userId, bio);
+  // Preserve the imported hatchedAt if present — rescuing is continuation, not rebirth.
+  const hatchedAt = importResult.hatchedAt ?? Date.now();
+
+  if (importResult.hatchedAt !== undefined) {
+    // ISO 8601 'Z' round-trips cleanly through loadCompanion's new Date(row.created_at).getTime().
+    const createdAt = new Date(importResult.hatchedAt).toISOString();
+    db.prepare(
+      'INSERT INTO companions (id, name, species, user_id, personality_bio, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, finalName, finalSpecies, userId, bio, createdAt);
+  } else {
+    db.prepare(
+      'INSERT INTO companions (id, name, species, user_id, personality_bio) VALUES (?, ?, ?, ?, ?)'
+    ).run(id, finalName, finalSpecies, userId, bio);
+  }
 
   const companion: Companion = {
     ...bones,
@@ -166,7 +186,7 @@ export function rescueCompanion(importResult: {
     level: 1,
     xp: 0,
     mood: 'happy',
-    hatchedAt: Date.now(),
+    hatchedAt,
   };
 
   writeBuddyStatus(companion);
