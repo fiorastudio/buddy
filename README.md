@@ -513,6 +513,14 @@ Your buddy shouldn't disappear when you close the terminal.
 
 If Buddy made your terminal less lonely, consider starring.
 
+## 📖 The Story & Coverage
+
+Learn more about the mission to rescue Buddy and the engineering behind the scenes.
+
+- **Hacker News**: [Discussion on the Buddy Rescue Mission](https://news.ycombinator.com/item?id=47792606)
+- **Dev.to Series**: [Field Notes from a Solo Builder: Shipping the Beloved Claude Code Buddy into the Wild (Part I)](https://dev.to/fiorastudio/field-notes-from-a-solo-builder-shipping-the-beloved-claude-code-buddy-into-the-wild-part-i-3lpa)
+
+
 ## Author
 
 **Steven Jieli Wu**
