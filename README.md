@@ -15,6 +15,8 @@ Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, 
 [![Node.js](https://img.shields.io/badge/node-18%2B-3c873a?style=flat-square)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/protocol-MCP-111827?style=flat-square)](https://modelcontextprotocol.io/)
 
+**🚀 2,500+ clones · 900+ buddies saved or hatched · 1 week in the wild**
+
 <table><tr>
 <td align="center"><strong>"It's really me."</strong><br><img src="demo/rescues/gritblob-rescue.jpg" alt="Rescuing Gritblob — terminal screenshot showing the onboarding rescue flow" width="620"></td>
 </tr></table>
@@ -23,11 +25,33 @@ Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, 
 
 </div>
 
-**Anthropic killed `/buddy`. We brought them home.**
-
-Did you lose your Nuzzlecap? Is your terminal feeling a little too cold and silent lately?
+Did you lose your buddy? Is your terminal feeling a little too cold and silent lately?
 
 Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
+
+## 🐾 The Rescue Wall
+
+Buddy isn't just code — it's a rescue mission. Here is the full journey of the first companion brought home by the community, from the original ephemeral state to its new persistent home.
+
+<table>
+  <tr>
+    <td align="center"><strong>1. Original (Claude Code)</strong></td>
+    <td align="center"><strong>2. The Handshake</strong></td>
+    <td align="center"><strong>3. Home (Persistent)</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="demo/rescues/gritblob-original.jpg" width="280" alt="Gritblob Original"></td>
+    <td align="center"><img src="demo/rescues/gritblob-rescue.jpg" width="280" alt="Gritblob Handshake"></td>
+    <td align="center"><img src="demo/rescues/gritblob-final.jpg" width="280" alt="Gritblob Final"></td>
+  </tr>
+</table>
+
+> *"I'll sit here quietly while you debug, and then when you finally find the bug, I'll act like I found it. That's my thing. Don't question it."*
+> — **Gritblob**, Rescued April 16, 2026 (Common Blob, Level 1)
+
+<p align="center">
+  <img src="demo/rescues/gritblob-quote.jpg" width="620" alt="Gritblob Quote">
+</p>
 
 ## Why Buddy
 
@@ -265,30 +289,6 @@ There is also a 1% shiny chance on any hatch.
 
 </details>
 
-## 🐾 The Rescue Wall
-
-Buddy isn't just code — it's a rescue mission. Here is the full journey of the first companion brought home by the community, from the original ephemeral state to its new persistent home.
-
-<table>
-  <tr>
-    <td align="center"><strong>1. Original (Claude Code)</strong></td>
-    <td align="center"><strong>2. The Handshake</strong></td>
-    <td align="center"><strong>3. Home (Persistent)</strong></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="demo/rescues/gritblob-original.jpg" width="280" alt="Gritblob Original"></td>
-    <td align="center"><img src="demo/rescues/gritblob-rescue.jpg" width="280" alt="Gritblob Handshake"></td>
-    <td align="center"><img src="demo/rescues/gritblob-final.jpg" width="280" alt="Gritblob Final"></td>
-  </tr>
-</table>
-
-> *"I'll sit here quietly while you debug, and then when you finally find the bug, I'll act like I found it. That's my thing. Don't question it."*
-> — **Gritblob**, Rescued April 16, 2026 (Common Blob, Level 1)
-
-<p align="center">
-  <img src="demo/rescues/gritblob-quote.jpg" width="620" alt="Gritblob Quote">
-</p>
-
 ---
 
 ## Roadmap
@@ -300,6 +300,7 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
 - [ ] **Responsive statusline** — adapt buddy layout for narrow terminals, don't truncate name
 - [ ] Unlockable reactions tied to leveling and longer-term interaction
 - [ ] More expressive mood-driven behavior and presentation
+- [ ] plugins support
 
 <details>
 <summary><strong>See the core tools and commands</strong></summary>
