@@ -6,8 +6,9 @@
 
 Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, Codex CLI, Gemini CLI, Copilot CLI, Cursor CLI, and other MCP-capable clients.
 
-**🚀 2,500+ clones · 900+ unique builders · 1 week in the wild**
+**🐾 900+ Buddies Rescued & Hatched · Our terminal companions are finally coming home.**
 
+[![Buddies Rescued](https://img.shields.io/badge/buddies_rescued-900+-green?style=flat-square&logo=gitlfs)](https://github.com/fiorastudio/buddy)
 [![npm version](https://img.shields.io/npm/v/@fiorastudio/buddy?style=flat-square)](https://www.npmjs.com/package/@fiorastudio/buddy)
 [![License](https://img.shields.io/badge/license-MIT-ffd166?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/fiorastudio/buddy?style=flat-square)](https://github.com/fiorastudio/buddy/stargazers)

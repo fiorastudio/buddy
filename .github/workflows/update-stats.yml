@@ -1,0 +1,48 @@
+name: Update Stats Monitor
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Daily at 00:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Fetch clone statistics
+        id: fetch-stats
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get unique clones from the last 14 days
+          UNIQUES=$(gh api repos/${{ github.repository }}/traffic/clones --jq '.uniques')
+          echo "uniques=$UNIQUES" >> $GITHUB_OUTPUT
+
+      - name: Update README
+        run: |
+          UNIQUES=${{ steps.fetch-stats.outputs.uniques }}
+          # Format as N+
+          RESCUED_TEXT="${UNIQUES}+"
+          
+          # Surgically update the bold stats line
+          sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
+          
+          # Surgically update the live badge
+          sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add README.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update buddies rescued stats [skip ci]"
+            git push origin master
+          fi
