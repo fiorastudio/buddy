@@ -12,45 +12,78 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: master
+          fetch-depth: 0
 
       - name: Fetch and Update Stats
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Parse the current "Buddies Rescued" number from README.md
-          # It looks like: **🐾 900+ Buddies Rescued & Hatched ...
-          CURRENT_COUNT=$(grep -oP '\*\*🐾 \K[0-9,]+(?=\+ Buddies Rescued & Hatched)' README.md | sed 's/,//g')
+          STATS_FILE=".github/stats/clone-history.json"
           
-          if [ -z "$CURRENT_COUNT" ]; then
-            echo "Error: Could not parse CURRENT_COUNT from README.md"
-            exit 1
-          fi
-          echo "Current count in README: $CURRENT_COUNT"
-
-          # 2. Fetch the 14-day rolling uniques from gh api
-          FETCHED_UNIQUES=$(gh api repos/${{ github.repository }}/traffic/clones --jq '.uniques')
-          echo "Fetched 14-day uniques: $FETCHED_UNIQUES"
-
-          # 3. Update only if the fetched number is GREATER (cumulative logic)
-          if [ "$FETCHED_UNIQUES" -gt "$CURRENT_COUNT" ]; then
-            echo "Fetched uniques ($FETCHED_UNIQUES) is greater than current ($CURRENT_COUNT). Updating..."
-            
-            NEW_COUNT_FORMATTED=$(printf "%'d" $FETCHED_UNIQUES)
-            RESCUED_TEXT="${NEW_COUNT_FORMATTED}+"
-            
-            # Update the bold stats line
-            sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
-            
-            # Update the live badge
-            sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
-            
-            # Commit and push
-            git config --local user.email "action@github.com"
-            git config --local user.name "GitHub Action"
-            git add README.md
-            git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
-            git push origin master
+          # 1. Load existing stats or initialize
+          if [ -f "$STATS_FILE" ]; then
+            TOTAL_UNIQUES=$(jq -r '.totalUniques // 0' "$STATS_FILE")
+            DAILY_COUNTS=$(jq -c '.dailyCounts // {}' "$STATS_FILE")
           else
-            echo "Fetched uniques ($FETCHED_UNIQUES) is not greater than current ($CURRENT_COUNT). Skipping update."
+            TOTAL_UNIQUES=0
+            DAILY_COUNTS="{}"
+            mkdir -p .github/stats
+          fi
+
+          # 2. Fetch traffic data from GitHub API
+          # The clones endpoint returns the last 14 days of data.
+          TRAFFIC_DATA=$(gh api repos/${{ github.repository }}/traffic/clones)
+          
+          # 3. Merge new data into dailyCounts using jq
+          # We extract the 'clones' array, and for each entry, we update the dailyCounts object.
+          # Note: clones array has objects like {"timestamp": "2024-03-27T00:00:00Z", "count": 10, "uniques": 5}
+          # We convert timestamp to YYYY-MM-DD.
+          NEW_DAILY_COUNTS=$(echo "$TRAFFIC_DATA" | jq -c --argjson existing "$DAILY_COUNTS" '
+            .clones | reduce .[] as $item ($existing; 
+              .[$item.timestamp[0:10]] = $item.uniques
+            )
+          ')
+
+          # 4. Recalculate totalUniques
+          NEW_TOTAL_UNIQUES=$(echo "$NEW_DAILY_COUNTS" | jq '[.[]] | add')
+
+          # 5. Update the JSON file
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          jq -n \
+            --arg total "$NEW_TOTAL_UNIQUES" \
+            --arg time "$TIMESTAMP" \
+            --argjson daily "$NEW_DAILY_COUNTS" \
+            '{totalUniques: ($total | tonumber), lastUpdated: $time, dailyCounts: $daily}' \
+            > "$STATS_FILE"
+
+          echo "Updated totalUniques: $NEW_TOTAL_UNIQUES"
+
+          # 6. Update README.md with the new total
+          # Update the "Buddies Rescued & Hatched" line and badge
+          FORMATTED_TOTAL=$(printf "%'d" $NEW_TOTAL_UNIQUES)
+          RESCUED_TEXT="${FORMATTED_TOTAL}+"
+
+          # Update the bold stats line
+          sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
+          
+          # Update the live badge
+          sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
+
+          # Update the tagline in the middle of README if it exists
+          # Looking for: **🚀 2,500+ clones · 900+ buddies saved or hatched · 1 week in the wild**
+          # We don't have a reliable way to get total clones from this specific API (it only gives 14 days),
+          # but we can at least update the rescued count there too if it matches a pattern.
+          sed -i "s/[0-9,]*+ buddies saved or hatched/${RESCUED_TEXT} buddies saved or hatched/" README.md
+
+          # 7. Commit and push changes
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add README.md "$STATS_FILE"
+          
+          # Only commit if there are changes
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
+            git push origin feat/stats-monitor-automation
+          else
+            echo "No changes to commit."
           fi
