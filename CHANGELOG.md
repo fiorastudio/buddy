@@ -2,6 +2,29 @@
 
 All notable changes to this project will follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-04-17
+
+### Fixed
+- **Rescue species detection:** Companion name is now scanned for species keywords (e.g., "Grit**blob**" → Blob). Previously only personality text was checked, causing many rescued buddies to get the wrong species.
+- **Rescue stats mismatch:** CC-rescued buddies now get exact original stats via Bun wyhash. Claude Code runs on Bun which uses a different hash (wyhash) than our FNV-1a — same userId produced different stats. `rollWithCCCompat()` shells out to Bun to reproduce the original hash. Falls back to FNV-1a with a warning if Bun is not installed.
+- **Stats persistence after rescue:** Added `cc_rescue` flag to DB schema. `loadCompanion` now uses the CC-compatible hash for rescued buddies on every load, not just during the initial rescue display.
+- **Top-level userID:** `parseOldBuddy()` now pulls `userID` from top-level `.claude.json` (where Claude Code stores it), not just from the companion sub-object.
+- **Security:** Replaced `execSync` with `spawnSync` for Bun hash computation to prevent command injection via crafted `.claude.json` data.
+
+### Upgrade
+Re-run the installer to get the latest version:
+```bash
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh | bash
+
+# Windows
+irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
+```
+If you previously rescued a CC buddy with wrong stats, respawn and re-rescue to get the correct stats:
+1. Say "buddy respawn" to release the current companion
+2. Re-run the installer (or `node ~/.buddy/server/dist/cli/onboard.js`)
+3. Select "Rescue [name]" — stats will now match your original Claude Code buddy
+
 ## [1.0.0] - 2026-04-16
 
 Built in a week (April 9–16). Pays homage to the original Claude Code buddy while adding our own design flair.
