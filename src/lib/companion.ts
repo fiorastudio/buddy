@@ -54,7 +54,7 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
 /**
  * Write buddy status JSON for the statusline wrapper.
  */
-export function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[] }) {
+export function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[]; petActiveUntil?: number }) {
   try {
     if (!statusDirEnsured) {
       mkdirSync(dirname(BUDDY_STATUS_PATH), { recursive: true });
@@ -80,6 +80,7 @@ export function writeBuddyStatus(companion: Companion, reaction?: { state: strin
         reaction_eye: reaction.eyeOverride || '',
         reaction_indicator: reaction.indicator || '',
         ...(reaction.bubbleLines ? { bubble_lines: reaction.bubbleLines } : {}),
+        ...(reaction.petActiveUntil ? { pet_active_until: reaction.petActiveUntil } : {}),
       } : {}),
     }));
   } catch { /* non-fatal */ }

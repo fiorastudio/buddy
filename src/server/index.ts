@@ -407,13 +407,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const reactions = petReactions[companion.species] || ['*happy wiggle*', '*appreciates the attention*', '*leans into the pet*'];
     const reaction = reactions[Math.floor(Date.now() / 1000) % reactions.length];
 
-    // Write excited reaction to status
+    // Write excited reaction + pet-hearts TTL to status
     writeBuddyStatus(companion, {
       state: 'excited',
       text: reaction,
       expires: Date.now() + 30_000,
       eyeOverride: '◉',
       indicator: '♥',
+      petActiveUntil: Date.now() + 5_000,
     });
 
     const petDisplay = [

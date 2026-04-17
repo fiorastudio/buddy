@@ -220,6 +220,30 @@ function checkStatusline(): DiagnosticCheck {
   return { id: 'config.statusline', status: 'ok', label: 'Statusline', detail: '\u2713 configured in settings.json' };
 }
 
+function checkStatuslineRefresh(): DiagnosticCheck {
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const settings = readJsonSafe(settingsPath);
+  if (!settings?.statusLine?.command?.includes('statusline-wrapper')) {
+    return { id: 'config.statusline.refresh', status: 'skip', label: 'Refresh interval', detail: 'Buddy statusline not configured' };
+  }
+  const interval = settings.statusLine.refreshInterval;
+  if (interval === undefined || interval === null) {
+    return {
+      id: 'config.statusline.refresh', status: 'warn', label: 'Refresh interval',
+      detail: '\u2717 refreshInterval not set — animation may appear static',
+      suggestion: 'Re-run install script or manually add "refreshInterval": 2 to statusLine in ~/.claude/settings.json',
+    };
+  }
+  if (typeof interval !== 'number' || !Number.isFinite(interval) || interval < 1) {
+    return {
+      id: 'config.statusline.refresh', status: 'warn', label: 'Refresh interval',
+      detail: `\u2717 refreshInterval is ${JSON.stringify(interval)} — must be a number >= 1`,
+      suggestion: 'Set "refreshInterval": 2 in statusLine config for reliable animation',
+    };
+  }
+  return { id: 'config.statusline.refresh', status: 'ok', label: 'Refresh interval', detail: `\u2713 refreshInterval: ${interval}` };
+}
+
 function checkHooks(): DiagnosticCheck {
   const settingsPath = join(homedir(), '.claude', 'settings.json');
   const settings = readJsonSafe(settingsPath);
@@ -272,6 +296,7 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkStatusFile(),
     checkMcpRegistered(),
     checkStatusline(),
+    checkStatuslineRefresh(),
     checkHooks(),
     checkPromptInjection(),
   ];

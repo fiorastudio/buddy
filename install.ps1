@@ -179,11 +179,12 @@ if (-not $hasBuddyHook) {
   $hooks.PostToolUse = @($hooks.PostToolUse) + @($hookEntry)
   $hookConfigured = $true
 }
-if ((-not $config.statusLine) -or $config.statusLine.command -ne $statuslineCommand -or $config.statusLine.type -ne 'command') {
+if ((-not $config.statusLine) -or $config.statusLine.command -ne $statuslineCommand -or $config.statusLine.type -ne 'command' -or $config.statusLine.refreshInterval -ne 2) {
   $config | Add-Member -NotePropertyName "statusLine" -NotePropertyValue ([ordered]@{
     type = "command"
     command = $statuslineCommand
     padding = 1
+    refreshInterval = 2
   }) -Force
   $statuslineConfigured = $true
 }

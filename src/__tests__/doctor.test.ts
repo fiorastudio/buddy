@@ -5,7 +5,7 @@ describe('Doctor — runDiagnostics', () => {
   it('returns an array of checks', () => {
     const checks = runDiagnostics();
     expect(Array.isArray(checks)).toBe(true);
-    expect(checks.length).toBe(14);
+    expect(checks.length).toBe(15);
   });
 
   it('every check has required fields', () => {
@@ -86,7 +86,7 @@ describe('Doctor — formatReport', () => {
   it('includes check count in header', () => {
     const checks = runDiagnostics();
     const report = formatReport(checks);
-    expect(report).toContain('14 checks:');
+    expect(report).toContain('15 checks:');
   });
 
   it('includes ISO timestamp', () => {
@@ -149,6 +149,20 @@ describe('Doctor — failure paths', () => {
     const sl = checks.find(c => c.id === 'config.statusline');
     expect(sl).toBeDefined();
     expect(['ok', 'warn', 'fail']).toContain(sl!.status);
+  });
+
+  it('config.statusline.refresh check exists and handles all states gracefully', () => {
+    const checks = runDiagnostics();
+    const refresh = checks.find(c => c.id === 'config.statusline.refresh');
+    expect(refresh).toBeDefined();
+    expect(['ok', 'warn', 'skip']).toContain(refresh!.status);
+    if (refresh!.status === 'warn') {
+      expect(refresh!.suggestion).toBeDefined();
+      expect(refresh!.suggestion).toContain('refreshInterval');
+    }
+    if (refresh!.status === 'skip') {
+      expect(refresh!.detail).toContain('not configured');
+    }
   });
 
   it('config.hooks check handles missing hooks gracefully', () => {

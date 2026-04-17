@@ -4,24 +4,15 @@ import { join } from "path";
 import { homedir } from "os";
 import { SPECIES_ANIMATIONS, SPRITE_BODIES, renderSprite } from "./lib/species.js";
 import { HAT_LINES, RARITY_ANSI, type Hat } from "./lib/types.js";
-import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA } from "./lib/ansi.js";
+import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA, stripAnsi } from "./lib/ansi.js";
 import { BUDDY_STATUS_PATH } from "./lib/constants.js";
+import { getAnimationProfile, getAnimationState, pickFrame, DEFAULT_DWELL_MS } from "./lib/animation.js";
+import { seededIndex } from "./lib/rng.js";
 
 const toUnix = (p: string) => p.replace(/\\/g, "/");
+// Legacy fallback tick interval (SPRITE_BODIES path uses animation.ts profiles instead)
 const FRAME_INTERVAL_MS = 500;
 
-// Choreographed animation sequences (save-buddy/claude-buddy pattern).
-// -1 = blink (render frame 0 with eyes replaced by '-').
-// Mostly idle (0) with natural blink timing and one species-specific action per cycle.
-const IDLE_SEQUENCE   = [0, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 2, 0, 0, 0];
-const GRUMPY_SEQUENCE = [0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0];
-const HAPPY_SEQUENCE  = [0, 1, 0, 2, 0, -1, 0, 1, 0, 2, 0, -1, 0, 1, 0];
-
-// True randomness for animation — each render picks a fresh random value.
-// Idle animations SHOULD be unpredictable, like a real creature.
-
-// Strip ANSI codes for width calculation
-const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 // Read stdin from Claude Code
 let stdinData = "";
@@ -92,41 +83,17 @@ try {
       // Force hat: 'none' in statusline — hat adds an extra line that spills past the HUD.
       // Hats are shown in the card display instead.
       const bones = { species: buddy.species, eye: buddy.eye, hat: 'none', rarity: buddy.rarity || 'common', shiny: buddy.is_shiny || false, stats: buddy.stats || {} } as any;
-      const frames = SPRITE_BODIES[buddy.species];
-      const totalFrames = frames.length;
-      const hasReaction = buddy.reaction_expires && Date.now() < buddy.reaction_expires;
 
-      // Choreographed animation — deterministic sequence creates natural rhythm.
-      // Tick advances every FRAME_INTERVAL_MS (500ms). Each mood/state has its
-      // own sequence pattern, inspired by save-buddy's 15-frame idle cycle.
-      const tick = Math.floor(Date.now() / FRAME_INTERVAL_MS);
-      let frameIndex: number;
+      // Animation profile-driven frame selection (species-aware)
+      const profile = getAnimationProfile(buddy.species);
+      const animState = getAnimationState({ mood: buddy.mood, reaction: buddy.reaction, reaction_expires: buddy.reaction_expires });
+      const frameRef = pickFrame(profile, animState, Date.now());
 
-      if (hasReaction && (buddy.reaction === 'excited' || buddy.reaction === 'impressed')) {
-        // Energetic: rapid cycle through all frames
-        frameIndex = tick % totalFrames;
-      } else if (hasReaction && buddy.reaction === 'concerned') {
-        // Worried: alternate between idle and blink
-        frameIndex = tick % 4 === 0 ? -1 : 0;
-      } else if (hasReaction) {
-        // Other reactions: cycle expressive frames (skip idle)
-        frameIndex = 1 + (tick % Math.max(1, totalFrames - 1));
-      } else if (buddy.mood === 'grumpy' || buddy.mood === 'muted') {
-        // Grumpy: mostly still, rare blink (1 per 15-frame cycle)
-        frameIndex = GRUMPY_SEQUENCE[tick % GRUMPY_SEQUENCE.length]!;
-      } else if (buddy.mood === 'happy' || buddy.mood === 'content') {
-        // Happy: more varied, frequent expressions
-        frameIndex = HAPPY_SEQUENCE[tick % HAPPY_SEQUENCE.length]!;
-      } else {
-        // Normal idle: natural rhythm with one blink and one action per cycle
-        frameIndex = IDLE_SEQUENCE[tick % IDLE_SEQUENCE.length]!;
+      let artLines = renderSprite(bones, frameRef.frame);
+      // Dynamic blink: replace eyes with '-' when FrameRef requests it
+      if (frameRef.blink && buddy.eye) {
+        artLines = artLines.map((line: string) => line.replaceAll(buddy.eye, '-'));
       }
-
-      // -1 = blink: use frame 1 (every species has frame 1 as the blink frame
-      // with eyes replaced by '-' in the sprite data itself)
-      if (frameIndex === -1) frameIndex = 1;
-
-      const artLines = renderSprite(bones, frameIndex);
       ascii = artLines.join('\n');
     }
 
@@ -193,6 +160,10 @@ try {
         const bubbleLines: string[] = buddy.bubble_lines;
         const bubbleWidth = Math.max(...bubbleLines.map((l: string) => stripAnsi(l).length), 0);
 
+        // Bubble fade: apply extra dim in final 3 seconds of TTL to signal expiry
+        const ttlRemaining = (buddy.reaction_expires || 0) - Date.now();
+        const isFading = ttlRemaining < 3000;
+
         // Colorize bubble lines — the bubble is plain text from renderSpeechBubble().
         // Left side = text bubble (borders + content), right side = sprite art after connector.
         for (const line of bubbleLines) {
@@ -205,10 +176,11 @@ try {
             const coloredRight = isName
               ? `${CYAN}${right}${RESET}`
               : `${MAGENTA}${right}${RESET}`;
-            buddyRight.push(`${DIM}${left}${RESET}${DIM}${sep}${RESET}${coloredRight}`);
+            const fadedLeft = isFading ? `${DIM}${DIM}${left}${RESET}` : `${DIM}${left}${RESET}`;
+            buddyRight.push(`${fadedLeft}${DIM}${sep}${RESET}${coloredRight}`);
           } else {
-            // Pure bubble line (border or text) — dim it
-            buddyRight.push(`${DIM}${line}${RESET}`);
+            // Pure bubble line (border or text) — dim it (double dim when fading)
+            buddyRight.push(`${DIM}${isFading ? DIM : ''}${line}${RESET}`);
           }
         }
         const indent = ' '.repeat(Math.min(bubbleWidth + 4, 38));
@@ -216,6 +188,21 @@ try {
         buddyRight.push(`${indent}${moodInfo}`);
       } else {
         // --- Normal (no bubble) layout: art right, info inline ---
+
+        // --- Pet-hearts overlay: show hearts above sprite when recently petted ---
+        const petActive = buddy.pet_active_until && Date.now() < buddy.pet_active_until;
+        if (petActive) {
+          const PET_HEARTS = [
+            '   ♥    ♥   ',
+            '  ♥  ♥   ♥  ',
+            ' ♥   ♥  ♥   ',
+          ];
+          const heartTick = Math.floor(Date.now() / DEFAULT_DWELL_MS);
+          const heartLine = PET_HEARTS[heartTick % PET_HEARTS.length]!;
+          // Pad hearts to visible sprite width (strip ANSI for accurate measurement)
+          const spriteWidth = Math.max(...asciiLines.map((l: string) => stripAnsi(l).length), 0);
+          asciiLines.unshift(heartLine.padEnd(spriteWidth));
+        }
 
         // --- Micro-expression: append tiny ASCII particle to last art line ---
         // Species-aware particles — each species gets a curated set that fits
@@ -245,9 +232,13 @@ try {
         };
         const defaultMicroParticles = ['~', '·', '*', '.', '♪', '°', '~', '·', '*', '', '', '', '.'];
         const microPool = speciesMicroParticles[buddy.species] || defaultMicroParticles;
-        const microR = Math.random();
+        // Dwell-based particle selection: stable within a ~15s window, no flicker.
+        // Uses seededIndex (FNV-1a) for determinism without visible patterns.
+        const PARTICLE_DWELL_MS = 15_000;
+        const particleBucket = String(Math.floor(Date.now() / PARTICLE_DWELL_MS));
         if (!hasReactionActive) {
-          const particle = microPool[Math.floor(microR * microPool.length)];
+          const particleIdx = seededIndex(buddy.species + ':particle', particleBucket, microPool.length);
+          const particle = microPool[particleIdx];
           if (particle && asciiLines.length > 0) {
             asciiLines[asciiLines.length - 1] = asciiLines[asciiLines.length - 1].trimEnd() + ' ' + particle;
           }
@@ -279,8 +270,11 @@ try {
         };
         const defaultAmbient = ['· watching your cursor', '· counting semicolons', '· sniffing the git log', '· dreaming of v2.0', '· vibing'];
         const ambientPool = speciesAmbient[buddy.species] || defaultAmbient;
-        const ambientR = Math.random();
-        const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[Math.floor(ambientR * ambientPool.length)]}${RESET}`;
+        // Dwell-based ambient text: stable within a ~20s window, no flicker.
+        const AMBIENT_DWELL_MS = 20_000;
+        const ambientBucket = String(Math.floor(Date.now() / AMBIENT_DWELL_MS));
+        const ambientIdx = seededIndex(buddy.species + ':' + (buddy.mood || 'idle'), ambientBucket, ambientPool.length);
+        const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[ambientIdx]}${RESET}`;
 
         const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
         for (let i = 0; i < asciiLines.length; i++) {

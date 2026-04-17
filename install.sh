@@ -152,9 +152,10 @@ if (!hasHook) {
 // Statusline
 const needsStatusline = !config.statusLine ||
   config.statusLine.type !== 'command' ||
-  config.statusLine.command !== statuslineCommand;
+  config.statusLine.command !== statuslineCommand ||
+  config.statusLine.refreshInterval !== 2;
 if (needsStatusline) {
-  config.statusLine = { type: 'command', command: statuslineCommand, padding: 1 };
+  config.statusLine = { type: 'command', command: statuslineCommand, padding: 1, refreshInterval: 2 };
   changed = true;
   result.push('statusline:updated');
 } else {
