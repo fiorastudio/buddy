@@ -266,11 +266,20 @@ There is also a 1% shiny chance on any hatch.
 
 ## 🐾 The Rescue Wall
 
-Buddy isn't just code — it's a rescue mission. Here are some of the companions brought home by the community.
+Buddy isn't just code — it's a rescue mission. Here is the first companion brought home by the community, showing the perfect transition from the original Claude Code format to our persistent SQLite shell.
+
+<table>
+  <tr>
+    <td align="center"><strong>1. Original (Claude Code)</strong></td>
+    <td align="center"><strong>2. Rescued (Buddy Project)</strong></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="demo/rescues/gritblob-original.jpg" width="370" alt="Gritblob Original"></td>
+    <td align="center"><img src="demo/rescues/gritblob-rescue.jpg" width="370" alt="Gritblob Rescued"></td>
+  </tr>
+</table>
 
 <p align="center">
-  <img src="demo/rescues/gritblob-rescue.jpg" width="620" alt="Gritblob Rescued">
-  <br>
   <em>"Got my exact stats back... it's really me." — Gritblob, Rescued April 16, 2026</em>
 </p>
 
