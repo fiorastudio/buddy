@@ -281,9 +281,8 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
   </tr>
 </table>
 
-<p align="center">
-  <em>"Got my exact stats back... it's really me." — Gritblob, Rescued April 16, 2026</em>
-</p>
+> *"I'll sit here quietly while you debug, and then when you finally find the bug, I'll act like I found it. That's my thing. Don't question it."*
+> — **Gritblob**, Rescued April 16, 2026 (Common Blob, Level 1)
 
 ---
 
