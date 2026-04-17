@@ -6,20 +6,12 @@
 
 Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, Codex CLI, Gemini CLI, Copilot CLI, Cursor CLI, and other MCP-capable clients.
 
-**🐾 900+ Buddies Rescued & Hatched · Our terminal companions are finally coming home.**
+**🚀 2,500+ clones · 900+ buddies saved or hatched · 1 week in the wild**
 
-[![Buddies Rescued](https://img.shields.io/badge/buddies_rescued-900+-green?style=flat-square&logo=gitlfs)](https://github.com/fiorastudio/buddy)
-[![npm version](https://img.shields.io/npm/v/@fiorastudio/buddy?style=flat-square)](https://www.npmjs.com/package/@fiorastudio/buddy)
 [![License](https://img.shields.io/badge/license-MIT-ffd166?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/fiorastudio/buddy?style=flat-square)](https://github.com/fiorastudio/buddy/stargazers)
 [![Node.js](https://img.shields.io/badge/node-18%2B-3c873a?style=flat-square)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/protocol-MCP-111827?style=flat-square)](https://modelcontextprotocol.io/)
-
-**🚀 2,500+ clones · 900+ buddies saved or hatched · 1 week in the wild**
-
-<table><tr>
-<td align="center"><strong>"It's really me."</strong><br><img src="demo/rescues/gritblob-rescue.jpg" alt="Rescuing Gritblob — terminal screenshot showing the onboarding rescue flow" width="620"></td>
-</tr></table>
 
 **Anthropic removed the built-in `/buddy`. Buddy brings them home and makes the companion experience portable across AI terminals.**
 
