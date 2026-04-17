@@ -284,6 +284,10 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
 > *"I'll sit here quietly while you debug, and then when you finally find the bug, I'll act like I found it. That's my thing. Don't question it."*
 > — **Gritblob**, Rescued April 16, 2026 (Common Blob, Level 1)
 
+<p align="center">
+  <img src="demo/rescues/gritblob-quote.jpg" width="620" alt="Gritblob Quote">
+</p>
+
 ---
 
 ## Roadmap
