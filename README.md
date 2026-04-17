@@ -266,16 +266,18 @@ There is also a 1% shiny chance on any hatch.
 
 ## 🐾 The Rescue Wall
 
-Buddy isn't just code — it's a rescue mission. Here is the first companion brought home by the community, showing the perfect transition from the original Claude Code format to our persistent SQLite shell.
+Buddy isn't just code — it's a rescue mission. Here is the full journey of the first companion brought home by the community, from the original ephemeral state to its new persistent home.
 
 <table>
   <tr>
     <td align="center"><strong>1. Original (Claude Code)</strong></td>
-    <td align="center"><strong>2. Rescued (Buddy Project)</strong></td>
+    <td align="center"><strong>2. The Handshake</strong></td>
+    <td align="center"><strong>3. Home (Persistent)</strong></td>
   </tr>
   <tr>
-    <td align="center"><img src="demo/rescues/gritblob-original.jpg" width="370" alt="Gritblob Original"></td>
-    <td align="center"><img src="demo/rescues/gritblob-rescue.jpg" width="370" alt="Gritblob Rescued"></td>
+    <td align="center"><img src="demo/rescues/gritblob-original.jpg" width="280" alt="Gritblob Original"></td>
+    <td align="center"><img src="demo/rescues/gritblob-rescue.jpg" width="280" alt="Gritblob Handshake"></td>
+    <td align="center"><img src="demo/rescues/gritblob-final.jpg" width="280" alt="Gritblob Final"></td>
   </tr>
 </table>
 
