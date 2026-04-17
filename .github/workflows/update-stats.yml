@@ -14,35 +14,43 @@ jobs:
         with:
           ref: master
 
-      - name: Fetch clone statistics
-        id: fetch-stats
+      - name: Fetch and Update Stats
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get unique clones from the last 14 days
-          UNIQUES=$(gh api repos/${{ github.repository }}/traffic/clones --jq '.uniques')
-          echo "uniques=$UNIQUES" >> $GITHUB_OUTPUT
-
-      - name: Update README
-        run: |
-          UNIQUES=${{ steps.fetch-stats.outputs.uniques }}
-          # Format as N+
-          RESCUED_TEXT="${UNIQUES}+"
+          # 1. Parse the current "Buddies Rescued" number from README.md
+          # It looks like: **🐾 900+ Buddies Rescued & Hatched ...
+          CURRENT_COUNT=$(grep -oP '\*\*🐾 \K[0-9,]+(?=\+ Buddies Rescued & Hatched)' README.md | sed 's/,//g')
           
-          # Surgically update the bold stats line
-          sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
-          
-          # Surgically update the live badge
-          sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
+          if [ -z "$CURRENT_COUNT" ]; then
+            echo "Error: Could not parse CURRENT_COUNT from README.md"
+            exit 1
+          fi
+          echo "Current count in README: $CURRENT_COUNT"
 
-      - name: Commit and push changes
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add README.md
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore: update buddies rescued stats [skip ci]"
+          # 2. Fetch the 14-day rolling uniques from gh api
+          FETCHED_UNIQUES=$(gh api repos/${{ github.repository }}/traffic/clones --jq '.uniques')
+          echo "Fetched 14-day uniques: $FETCHED_UNIQUES"
+
+          # 3. Update only if the fetched number is GREATER (cumulative logic)
+          if [ "$FETCHED_UNIQUES" -gt "$CURRENT_COUNT" ]; then
+            echo "Fetched uniques ($FETCHED_UNIQUES) is greater than current ($CURRENT_COUNT). Updating..."
+            
+            NEW_COUNT_FORMATTED=$(printf "%'d" $FETCHED_UNIQUES)
+            RESCUED_TEXT="${NEW_COUNT_FORMATTED}+"
+            
+            # Update the bold stats line
+            sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
+            
+            # Update the live badge
+            sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
+            
+            # Commit and push
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add README.md
+            git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
             git push origin master
+          else
+            echo "Fetched uniques ($FETCHED_UNIQUES) is not greater than current ($CURRENT_COUNT). Skipping update."
           fi
