@@ -49,7 +49,7 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
 
 - **Persistent by default.** Your companion lives in local SQLite, so it survives terminal restarts and client updates.
 - **Works across clients.** Buddy is an MCP server, not a one-client hack.
-- **Actually alive.** Hatch species, gain XP, store memories, chime in after tasks, and build a running relationship over time.
+- **Feels alive.** Hatch species, gain XP, store memories, chime in after tasks, and build a running relationship over time.
 - **Easy to install.** One command auto-configures supported clients when it can.
 
 ## Quick Start
