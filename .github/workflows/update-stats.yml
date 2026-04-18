@@ -20,7 +20,10 @@ jobs:
       - name: Fetch and Update Stats
         env:
           GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          DEBUG_SECRET: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then echo "GH_TOKEN IS EMPTY"; fi
+          if [ -z "$DEBUG_SECRET" ]; then echo "DEBUG_SECRET IS EMPTY"; fi
           STATS_FILE=".github/stats/clone-history.json"
           
           # 1. Load existing stats or initialize
