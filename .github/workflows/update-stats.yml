@@ -76,8 +76,6 @@ jobs:
           
           if ! git diff --cached --quiet; then
             git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
-            # If standard push fails (protected branch), we exit gracefully.
-            # Only a PAT can bypass protection if configured to allow.
             git push origin HEAD:master || echo "Push failed (protected branch). Manual intervention or PAT needed."
           else
             echo "No changes to commit."
