@@ -76,7 +76,10 @@ jobs:
           
           if ! git diff --cached --quiet; then
             git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
-            git push origin HEAD:master || echo "Push failed (protected branch). Manual intervention or PAT needed."
+            BRANCH_NAME="stats-update-$(date +%s)"
+            git checkout -b "$BRANCH_NAME"
+            git push origin "$BRANCH_NAME"
+            gh pr create --title "📈 Update repo stats" --body "Automated stats update by GitHub Action." --base master --head "$BRANCH_NAME"
           else
             echo "No changes to commit."
           fi
