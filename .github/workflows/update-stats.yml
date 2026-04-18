@@ -18,7 +18,7 @@ jobs:
 
       - name: Fetch and Update Stats
         env:
-          GH_TOKEN: ${{ secrets.GH_ACTION_TRAFFIC_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_ACTION_TRAFFIC_TOKEN || github.token }}
         run: |
           STATS_FILE=".github/stats/clone-history.json"
           
