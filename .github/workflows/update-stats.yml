@@ -19,8 +19,10 @@ jobs:
       - name: Fetch and Update Stats
         env:
           GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          MY_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
           # Use PERSONAL_ACCESS_TOKEN for traffic
+          if [ -z "$MY_TOKEN" ]; then echo "MY_TOKEN IS EMPTY"; else echo "MY_TOKEN IS SET"; fi
           STATS_FILE=".github/stats/clone-history.json"
           
           # 1. Load existing stats or initialize
