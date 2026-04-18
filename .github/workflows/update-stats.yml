@@ -18,11 +18,9 @@ jobs:
 
       - name: Fetch and Update Stats
         env:
-          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-          MY_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_ACTION_TRAFFIC_TOKEN || github.token }}
         run: |
-          # Use PERSONAL_ACCESS_TOKEN for traffic
-          if [ -z "$MY_TOKEN" ]; then echo "MY_TOKEN IS EMPTY"; else echo "MY_TOKEN IS SET"; fi
+          # Use GH_ACTION_TRAFFIC_TOKEN if available, otherwise github.token
           STATS_FILE=".github/stats/clone-history.json"
           
           # 1. Load existing stats or initialize
@@ -91,7 +89,6 @@ jobs:
           # Only commit if there are changes
           if ! git diff --cached --quiet; then
             git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
-            # Use the GITHUB_TOKEN for pushing
             git push origin HEAD:master
           else
             echo "No changes to commit."
