@@ -22,10 +22,10 @@ jobs:
           
           # 1. Load existing stats or initialize
           if [ -f "$STATS_FILE" ]; then
-            TOTAL_UNIQUES=$(jq -r '.totalUniques // 0' "$STATS_FILE")
+            BASELINE_UNIQUES=$(jq -r '.baselineUniques // 0' "$STATS_FILE")
             DAILY_COUNTS=$(jq -c '.dailyCounts // {}' "$STATS_FILE")
           else
-            TOTAL_UNIQUES=0
+            BASELINE_UNIQUES=0
             DAILY_COUNTS="{}"
             mkdir -p .github/stats
           fi
@@ -44,16 +44,19 @@ jobs:
             )
           ')
 
-          # 4. Recalculate totalUniques
-          NEW_TOTAL_UNIQUES=$(echo "$NEW_DAILY_COUNTS" | jq '[.[]] | add')
+          # 4. Recalculate totalUniques (Baseline + Sum of Daily Counts)
+          # Use // 0 to handle cases where DAILY_COUNTS might be empty/null to avoid jq crash.
+          DAILY_SUM=$(echo "$NEW_DAILY_COUNTS" | jq '[.[]] | add // 0')
+          NEW_TOTAL_UNIQUES=$((BASELINE_UNIQUES + DAILY_SUM))
 
           # 5. Update the JSON file
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           jq -n \
+            --arg baseline "$BASELINE_UNIQUES" \
             --arg total "$NEW_TOTAL_UNIQUES" \
             --arg time "$TIMESTAMP" \
             --argjson daily "$NEW_DAILY_COUNTS" \
-            '{totalUniques: ($total | tonumber), lastUpdated: $time, dailyCounts: $daily}' \
+            '{baselineUniques: ($baseline | tonumber), totalUniques: ($total | tonumber), lastUpdated: $time, dailyCounts: $daily}' \
             > "$STATS_FILE"
 
           echo "Updated totalUniques: $NEW_TOTAL_UNIQUES"
@@ -83,7 +86,8 @@ jobs:
           # Only commit if there are changes
           if ! git diff --cached --quiet; then
             git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
-            git push origin feat/stats-monitor-automation
+            # Use the default branch for pushing or the explicit branch if preferred
+            git push origin HEAD:${{ github.event.repository.default_branch }} || git push origin HEAD:master
           else
             echo "No changes to commit."
           fi
