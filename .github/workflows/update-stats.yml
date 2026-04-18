@@ -18,9 +18,7 @@ jobs:
 
       - name: Fetch and Update Stats
         env:
-          # Use GITHUB_TOKEN directly for simplicity in the final version
-          # and because we can't reliably get a PAT to work via automation.
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
         run: |
           STATS_FILE=".github/stats/clone-history.json"
           
@@ -35,11 +33,8 @@ jobs:
           fi
 
           # 2. Fetch traffic data from GitHub API
-          # Note: Standard GITHUB_TOKEN often doesn't have access to Traffic API.
-          # We'll allow this step to fail gracefully if the token doesn't have permission.
           if ! TRAFFIC_DATA=$(gh api repos/fiorastudio/buddy/traffic/clones 2>/tmp/api_error); then
             echo "Warning: Error fetching traffic data (likely permissions): $(cat /tmp/api_error)"
-            # Use empty clones list so we just preserve the baseline
             TRAFFIC_DATA='{"clones":[]}'
           fi
           
@@ -81,7 +76,9 @@ jobs:
           
           if ! git diff --cached --quiet; then
             git commit -m "chore: update buddies rescued stats to $RESCUED_TEXT [skip ci]"
-            git push origin HEAD:master
+            # If standard push fails (protected branch), we exit gracefully.
+            # Only a PAT can bypass protection if configured to allow.
+            git push origin HEAD:master || echo "Push failed (protected branch). Manual intervention or PAT needed."
           else
             echo "No changes to commit."
           fi
