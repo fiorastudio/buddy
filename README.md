@@ -6,7 +6,7 @@
 
 Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, Codex CLI, Gemini CLI, Copilot CLI, Cursor CLI, and other MCP-capable clients.
 
-**🚀 2,700+ clones · 950+ buddies rescued or hatched · 1 week in the wild**
+**🚀 3000+ clones · 1000+ buddies rescued or hatched · 1 week in the wild**
 
 [![License](https://img.shields.io/badge/license-MIT-ffd166?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/fiorastudio/buddy?style=flat-square)](https://github.com/fiorastudio/buddy/stargazers)
@@ -49,7 +49,7 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
 
 - **Persistent by default.** Your companion lives in local SQLite, so it survives terminal restarts and client updates.
 - **Works across clients.** Buddy is an MCP server, not a one-client hack.
-- **Feels alive.** Hatch species, gain XP, store memories, chime in after tasks, and build a running relationship over time.
+- **Grows with you.** Hatch species, gain XP as you code, store memories, chime in after tasks, and build a running relationship over time.
 - **Easy to install.** One command auto-configures supported clients when it can.
 
 ## Quick Start
