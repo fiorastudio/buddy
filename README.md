@@ -13,6 +13,20 @@ Persistent memory, XP, species, and context-aware feedback for Claude Code CLI, 
 [![Node.js](https://img.shields.io/badge/node-18%2B-3c873a?style=flat-square)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/protocol-MCP-111827?style=flat-square)](https://modelcontextprotocol.io/)
 
+<div align="center">
+<table>
+ <tr>
+ <td align="center"><strong>Works<br/>with</strong></td>
+ <td align="center"><img src="doc/assets/logos/openclaw.svg" width="32" alt="OpenClaw" /><br/><sub>OpenClaw</sub></td>
+ <td align="center"><img src="doc/assets/logos/claude.svg" width="32" alt="Claude Code CLI" /><br/><sub>Claude Code</sub></td>
+ <td align="center"><img src="doc/assets/logos/codex.svg" width="32" alt="Codex CLI" /><br/><sub>Codex</sub></td>
+ <td align="center"><img src="doc/assets/logos/cursor.svg" width="32" alt="Cursor CLI" /><br/><sub>Cursor</sub></td>
+ <td align="center"><img src="doc/assets/logos/cursor.svg" width="32" alt="Gemini CLI" /><br/><sub>Gemini</sub></td>
+ <td align="center"><img src="doc/assets/logos/cursor.svg" width="32" alt="Github Copilot CLI" /><br/><sub>Copilot</sub></td>
+ </tr>
+</table>
+</div>
+
 **Anthropic removed the built-in `/buddy`. Buddy brings them home and makes the companion experience portable across AI terminals.**
 
 </div>
