@@ -28,15 +28,18 @@ Persistent memory, XP evolutions, 21 species, and context-aware feedback for Cla
 </table>
 </div>
 
-**Anthropic removed the built-in `/buddy`. Buddy brings them home and makes the companion experience portable across AI terminals.**
+**Anthropic removed the built-in `/buddy`. Buddy brings them home and makes the companion experience portable across AI**
 
 </div>
+<div align="center">
+<a href="https://www.producthunt.com/products/buddy-tamagotchi?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-buddy-tamagotchi" target="_blank" rel="noopener noreferrer"><img alt="Buddy Tamagotchi - A virtual pet buddy for your AI — hatch, level up together | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1129100&amp;theme=light&amp;t=1776788389001"></a>
+</div>
+
 
 Did you lose your buddy? Is your terminal feeling a little too cold and silent lately?
 
 Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
 
-<a href="https://www.producthunt.com/products/buddy-tamagotchi?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-buddy-tamagotchi" target="_blank" rel="noopener noreferrer"><img alt="Buddy Tamagotchi - A virtual pet buddy for your AI — hatch, level up together | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1129100&amp;theme=light&amp;t=1776788389001"></a>
 
 ## 🐾 The Rescue Wall
 
