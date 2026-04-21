@@ -316,7 +316,8 @@ There is also a 1% shiny chance on any hatch.
 - [ ] **Pokemon-style evolution system**: Evolve from turtle to tortoise at level 25
 - [ ] **Ambient Daemon Mode**: a small TUI running in its own tmux pane, polling its own SQLite state, animating the sprite, optionally calling a cheap model (Haiku/local).
 - [ ] **Sample Playbook for [ReachyMini](https://huggingface.co/spaces/pollen-robotics/Reachy_Mini) robot integration** so your buddy can have a physical body and come to life!
-
+- [ ] **Slash Command Support**: trigger buddy_pet via /buddy_pet
+- [ ] **Compact output mode for better messaging platform support (Whatsapp/Slack)**: Optimize the output for messaging platforms.
 
 <details>
 <summary><strong>See the core tools and commands</strong></summary>
