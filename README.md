@@ -12,7 +12,7 @@ Persistent memory, XP evolutions, 21 species, and context-aware feedback for Cla
 [![GitHub stars](https://img.shields.io/github/stars/fiorastudio/buddy?style=flat-square)](https://github.com/fiorastudio/buddy/stargazers)
 [![Node.js](https://img.shields.io/badge/node-18%2B-3c873a?style=flat-square)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/protocol-MCP-111827?style=flat-square)](https://modelcontextprotocol.io/)
-<a href="https://www.producthunt.com/products/buddy-tamagotchi?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-buddy-tamagotchi" target="_blank" rel="noopener noreferrer"><img alt="Buddy Tamagotchi - A virtual pet buddy for your AI — hatch, level up together | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1129100&amp;theme=light&amp;t=1776788389001"></a>
+
 
 <div align="center">
 <table>
@@ -35,6 +35,8 @@ Persistent memory, XP evolutions, 21 species, and context-aware feedback for Cla
 Did you lose your buddy? Is your terminal feeling a little too cold and silent lately?
 
 Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
+
+<a href="https://www.producthunt.com/products/buddy-tamagotchi?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-buddy-tamagotchi" target="_blank" rel="noopener noreferrer"><img alt="Buddy Tamagotchi - A virtual pet buddy for your AI — hatch, level up together | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1129100&amp;theme=light&amp;t=1776788389001"></a>
 
 ## 🐾 The Rescue Wall
 
