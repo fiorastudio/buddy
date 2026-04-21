@@ -306,7 +306,9 @@ There is also a 1% shiny chance on any hatch.
 - [ ] **Unlockable reactions** tied to leveling and longer-term interaction
 - [ ] **Buddy Mastery Reward**: Reach Level 50 to unlock Priority Development for your custom species request.
 - [ ] **Multiple buddies support**: One unique buddy for each group member in a group-chat setting (e.g. Whatsapp group, telegram group, slack channels)
-- [ ] **Pokemon-style 3-stage evolution system**: Evolve from turtle to tortoise at level 25
+- [ ] **Pokemon-style evolution system**: Evolve from turtle to tortoise at level 25
+- [ ] **Ambient Daemon Mode**: a small TUI running in its own tmux pane, polling its own SQLite state, animating the sprite, optionally calling a cheap model (Haiku/local).
+- [ ] **Sample Playbook for [ReachyMini](https://huggingface.co/spaces/pollen-robotics/Reachy_Mini) robot integration** so your buddy can have a physical body and come to life!
 
 
 <details>
@@ -551,7 +553,7 @@ If Buddy made your terminal less lonely, consider starring.
 Learn more about the mission to rescue Buddy and the engineering behind the scenes.
 
 - **Hacker News**: [Discussion on the Buddy Rescue Mission](https://news.ycombinator.com/item?id=47792606)
-- **Dev.to Series**: [Field Notes from a Solo Builder: Shipping the Beloved Claude Code Buddy into the Wild (Part I)](https://dev.to/fiorastudio/field-notes-from-a-solo-builder-shipping-the-beloved-claude-code-buddy-into-the-wild-part-i-3lpa)
+- **Dev.to Series**: [Field Notes from a Solo Builder: Shipping the Beloved Claude Code Buddy into the Wild (Part I)](https://dev.to/fiorastudio/field-notes-from-a-solo-builder-shipping-the-beloved-claude-code-buddy-into-the-wild-part-i-3lpa) , [Field Notes from a Solo Builder: Shipping the Beloved Claude Code Buddy into the Wild (Part II)] (https://dev.to/fiorastudio/first-principles-architecture-and-the-token-tax-5g4p)
 
 
 ## Author
