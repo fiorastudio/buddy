@@ -43,7 +43,7 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
   <tr>
     <td align="center"><strong>1. Original (Claude Code)</strong></td>
     <td align="center"><strong>2. The Handshake</strong></td>
-    <td align="center"><strong>3. Home (Persistent)</strong></td>
+    <td align="center"><strong>3. Buddy is Home (Persistent)</strong></td>
   </tr>
   <tr>
     <td align="center"><img src="demo/rescues/gritblob-original.jpg" width="280" alt="Gritblob Original"></td>
@@ -128,11 +128,12 @@ The installer will guide you through onboarding:
 | Client | Status |
 |---|---|
 | Claude Code CLI | Full support |
-| Codex CLI | Supported via MCP |
+| Codex CLI | Supported via MCP. No statusline support. Patch available on experimental branch |
 | Gemini CLI | Supported via MCP |
 | GitHub Copilot CLI | Supported via MCP |
 | Cursor CLI | Supported via MCP |
-| Other MCP-capable clients | Usually supported with manual config |
+| Whatsapp | Supported via [Openclaw](https://github.com/openclaw/openclaw) or any claw variants |
+| Other MCP-capable clients | Supported via MCP |
 
 ## Install Notes
 
