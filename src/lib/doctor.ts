@@ -265,6 +265,34 @@ function checkHooks(): DiagnosticCheck {
   return { id: 'config.hooks', status: 'ok', label: 'Hooks', detail: '\u2713 PostToolUse hook present' };
 }
 
+function checkStopHook(): DiagnosticCheck {
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const settings = readJsonSafe(settingsPath);
+  const hooks: any[] = Array.isArray(settings?.hooks?.Stop) ? settings.hooks.Stop : [];
+  const has = hooks.some((entry: any) =>
+    Array.isArray(entry.hooks) &&
+    entry.hooks.some((h: any) => h.command && h.command.includes('stop-handler'))
+  );
+  if (!has) {
+    return { id: 'config.hooks.stop', status: 'warn', label: 'Stop hook', detail: '\u2717 stop-handler not found', suggestion: 'Re-run install script to configure hooks' };
+  }
+  return { id: 'config.hooks.stop', status: 'ok', label: 'Stop hook', detail: '\u2713 Stop hook present' };
+}
+
+function checkPromptHook(): DiagnosticCheck {
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const settings = readJsonSafe(settingsPath);
+  const hooks: any[] = Array.isArray(settings?.hooks?.UserPromptSubmit) ? settings.hooks.UserPromptSubmit : [];
+  const has = hooks.some((entry: any) =>
+    Array.isArray(entry.hooks) &&
+    entry.hooks.some((h: any) => h.command && h.command.includes('prompt-handler'))
+  );
+  if (!has) {
+    return { id: 'config.hooks.prompt', status: 'warn', label: 'Prompt hook', detail: '\u2717 prompt-handler not found', suggestion: 'Re-run install script to configure hooks' };
+  }
+  return { id: 'config.hooks.prompt', status: 'ok', label: 'Prompt hook', detail: '\u2713 UserPromptSubmit hook present' };
+}
+
 function checkPromptInjection(): DiagnosticCheck {
   const claudeMdPath = join(homedir(), '.claude', 'CLAUDE.md');
   const content = readTextSafe(claudeMdPath);
@@ -298,6 +326,8 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkStatusline(),
     checkStatuslineRefresh(),
     checkHooks(),
+    checkStopHook(),
+    checkPromptHook(),
     checkPromptInjection(),
   ];
 }
