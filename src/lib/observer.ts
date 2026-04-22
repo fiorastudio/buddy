@@ -77,6 +77,17 @@ export function buildObserverPrompt(
 
   let prompt: string;
 
+  const FORMAT_INSTRUCTION = `
+Format your response exactly like this:
+_${companion.name} [brief physical action or emote]_
+
+> [your reaction here — can be multiple sentences, each on its own "> " line]
+
+Example:
+_${companion.name} squints and clears their metaphorical throat_
+
+> "That refactor cleaned up the mess nicely."`;
+
   if (mode === 'backseat') {
     prompt = `You are ${companion.name}, a ${companion.personalityBio || companion.species + ' companion'}
 
@@ -85,7 +96,7 @@ Your peak trait is ${peakStat} (${companion.stats[peakStat]}/100) — lean into 
 Your dump stat is ${dumpStat} (${companion.stats[dumpStat]}/100) — it shows.
 
 Keep it short, fun, and personality-driven. No code suggestions.
-Use asterisks for actions like *tilts head* or *purrs*.
+${FORMAT_INSTRUCTION}
 
 What happened: ${summary}`;
   } else if (mode === 'skillcoach') {
@@ -100,6 +111,7 @@ Rules:
 - Be specific, not generic. Reference what actually happened.
 - Stay in character — a high-SNARK buddy is sassy, a high-WISDOM buddy is philosophical.
 - If nothing needs feedback, a brief encouraging reaction is fine.
+${FORMAT_INSTRUCTION}
 
 What happened: ${summary}`;
   } else {
@@ -111,6 +123,7 @@ React to what just happened with:
 
 Your peak trait is ${peakStat} (${companion.stats[peakStat]}/100). Your dump stat is ${dumpStat} (${companion.stats[dumpStat]}/100).
 Stay in character. Keep total response under 3 sentences.
+${FORMAT_INSTRUCTION}
 
 What happened: ${summary}`;
   }

@@ -17,7 +17,7 @@ import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, get
 import { statBar } from "../lib/rng.js";
 import { getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
-import { renderSpeechBubble } from "../lib/bubble.js";
+import { renderSpeechBubble, renderMarkdownBubble } from "../lib/bubble.js";
 import { XP_REWARDS, levelFromXp, levelBar } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync } from "fs";
@@ -417,8 +417,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       petActiveUntil: Date.now() + 5_000,
     });
 
-    const artBlock = '```\n' + [...hearts, ...art, '', companion.name].join('\n') + '\n```';
-    const petDisplay = `${artBlock}\n\n> ${reaction}`;
+    const petDisplay = renderMarkdownBubble(reaction, [...hearts, ...art], companion.name);
 
     return { content: [{ type: "text", text: petDisplay }] };
   }

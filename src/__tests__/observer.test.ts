@@ -8,7 +8,7 @@ import {
   REACTION_STATES,
   type ReactionState,
 } from '../lib/observer.js';
-import { renderSpeechBubble } from '../lib/bubble.js';
+import { renderSpeechBubble, renderMarkdownBubble } from '../lib/bubble.js';
 import type { Companion } from '../lib/types.js';
 
 // ---------------------------------------------------------------------------
@@ -336,5 +336,60 @@ describe('renderSpeechBubble', () => {
       const innerText = bubblePart.slice(2, bubbleWidth - 2);
       expect(innerText.trimEnd().length).toBeLessThanOrEqual(innerWidth);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Markdown Bubble
+// ---------------------------------------------------------------------------
+
+describe('renderMarkdownBubble', () => {
+  it('produces non-empty output', () => {
+    const out = renderMarkdownBubble('Hello!', sampleArt, 'TestBuddy');
+    expect(out.length).toBeGreaterThan(0);
+  });
+
+  it('wraps art in a code block', () => {
+    const out = renderMarkdownBubble('Hello!', sampleArt, 'TestBuddy');
+    expect(out).toMatch(/^```\n/);
+    expect(out).toContain('\n```');
+  });
+
+  it('includes buddy name inside the code block', () => {
+    const out = renderMarkdownBubble('Hello!', sampleArt, 'TestBuddy');
+    const codeBlock = out.split('```')[1];
+    expect(codeBlock).toContain('TestBuddy');
+  });
+
+  it('includes art lines inside the code block', () => {
+    const out = renderMarkdownBubble('Hello!', sampleArt, 'TestBuddy');
+    const codeBlock = out.split('```')[1];
+    for (const artLine of sampleArt) {
+      expect(codeBlock).toContain(artLine);
+    }
+  });
+
+  it('renders text as blockquote lines', () => {
+    const out = renderMarkdownBubble('Hello world!', sampleArt, 'TestBuddy');
+    expect(out).toContain('> Hello world!');
+  });
+
+  it('renders multi-line text as separate blockquote lines', () => {
+    const out = renderMarkdownBubble('Line one\nLine two', sampleArt, 'TestBuddy');
+    expect(out).toContain('> Line one');
+    expect(out).toContain('> Line two');
+  });
+
+  it('preserves blank lines as empty blockquote continuations', () => {
+    const out = renderMarkdownBubble('First\n\nSecond', sampleArt, 'TestBuddy');
+    const lines = out.split('\n');
+    const quoteLines = lines.filter(l => l.startsWith('>'));
+    expect(quoteLines).toEqual(['> First', '>', '> Second']);
+  });
+
+  it('handles empty text', () => {
+    const out = renderMarkdownBubble('', sampleArt, 'TestBuddy');
+    expect(out).toContain('```');
+    expect(out).toContain('TestBuddy');
   });
 });

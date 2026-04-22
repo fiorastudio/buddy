@@ -29,6 +29,18 @@ function wrapText(text: string, width: number): string[] {
   return lines;
 }
 
+export function renderMarkdownBubble(
+  text: string,
+  artLines: string[],
+  buddyName: string,
+): string {
+  const artBlock = '```\n' + [...artLines, buddyName].join('\n') + '\n```';
+  const quotedText = text.split('\n')
+    .map(l => l.trim() ? `> ${l}` : '>')
+    .join('\n');
+  return `${artBlock}\n\n${quotedText}`;
+}
+
 export function renderSpeechBubble(
   text: string,
   artLines: string[],
