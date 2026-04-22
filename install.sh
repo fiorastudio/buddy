@@ -73,6 +73,8 @@ configure_claude_code() {
   local settings_file="$config_dir/settings.json"
   local user_file="$HOME/.claude.json"
   local hook_path="$INSTALL_DIR/dist/hooks/post-tool-handler.js"
+  local stop_hook_path="$INSTALL_DIR/dist/hooks/stop-handler.js"
+  local prompt_hook_path="$INSTALL_DIR/dist/hooks/prompt-handler.js"
   local statusline_command="node $INSTALL_DIR/dist/statusline-wrapper.js"
 
   mkdir -p "$config_dir"
@@ -120,25 +122,28 @@ EOJS
   # Configure hook + statusline in a single settings.json write
   if command -v node &> /dev/null; then
     local settings_result
-    settings_result=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="node $hook_path" STATUSLINE_COMMAND="$statusline_command" node <<'EOJS'
+    settings_result=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="node $hook_path" STOP_HOOK_COMMAND="node $stop_hook_path" PROMPT_HOOK_COMMAND="node $prompt_hook_path" STATUSLINE_COMMAND="$statusline_command" node <<'EOJS'
 const fs = require('fs');
 const settingsPath = process.env.CLAUDE_SETTINGS;
 const hookCommand = process.env.HOOK_COMMAND;
+const stopHookCommand = process.env.STOP_HOOK_COMMAND;
+const promptHookCommand = process.env.PROMPT_HOOK_COMMAND;
 const statuslineCommand = process.env.STATUSLINE_COMMAND;
 let config = {};
 try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
 let changed = false;
 const result = [];
 
-// Hook
 if (!config.hooks) config.hooks = {};
+
+// PostToolUse — error detection (Bash only)
 if (!Array.isArray(config.hooks.PostToolUse)) config.hooks.PostToolUse = [];
-const hasHook = config.hooks.PostToolUse.some(entry =>
+const hasPostHook = config.hooks.PostToolUse.some(entry =>
   entry.matcher === 'Bash' &&
   Array.isArray(entry.hooks) &&
   entry.hooks.some(h => h.command === hookCommand)
 );
-if (!hasHook) {
+if (!hasPostHook) {
   config.hooks.PostToolUse.push({
     matcher: 'Bash',
     hooks: [{ type: 'command', command: hookCommand, async: true, timeout: 3 }]
@@ -147,6 +152,38 @@ if (!hasHook) {
   result.push('hook:updated');
 } else {
   result.push('hook:noop');
+}
+
+// Stop — task-completion reactions
+if (!Array.isArray(config.hooks.Stop)) config.hooks.Stop = [];
+const hasStopHook = config.hooks.Stop.some(entry =>
+  Array.isArray(entry.hooks) &&
+  entry.hooks.some(h => h.command === stopHookCommand)
+);
+if (!hasStopHook) {
+  config.hooks.Stop.push({
+    hooks: [{ type: 'command', command: stopHookCommand, async: true, timeout: 5 }]
+  });
+  changed = true;
+  result.push('stop:updated');
+} else {
+  result.push('stop:noop');
+}
+
+// UserPromptSubmit — name + mood reactions
+if (!Array.isArray(config.hooks.UserPromptSubmit)) config.hooks.UserPromptSubmit = [];
+const hasPromptHook = config.hooks.UserPromptSubmit.some(entry =>
+  Array.isArray(entry.hooks) &&
+  entry.hooks.some(h => h.command === promptHookCommand)
+);
+if (!hasPromptHook) {
+  config.hooks.UserPromptSubmit.push({
+    hooks: [{ type: 'command', command: promptHookCommand, async: true, timeout: 3 }]
+  });
+  changed = true;
+  result.push('prompt:updated');
+} else {
+  result.push('prompt:noop');
 }
 
 // Statusline
@@ -171,6 +208,14 @@ EOJS
     case "$settings_result" in
       *hook:updated*) echo -e "  ${GREEN}✓${NC} PostToolUse hook configured" ;;
       *)              echo -e "  ${GREEN}✓${NC} PostToolUse hook already configured" ;;
+    esac
+    case "$settings_result" in
+      *stop:updated*) echo -e "  ${GREEN}✓${NC} Stop hook configured" ;;
+      *)              echo -e "  ${GREEN}✓${NC} Stop hook already configured" ;;
+    esac
+    case "$settings_result" in
+      *prompt:updated*) echo -e "  ${GREEN}✓${NC} UserPromptSubmit hook configured" ;;
+      *)                echo -e "  ${GREEN}✓${NC} UserPromptSubmit hook already configured" ;;
     esac
     case "$settings_result" in
       *statusline:updated*) echo -e "  ${GREEN}✓${NC} Claude Code statusline configured" ;;

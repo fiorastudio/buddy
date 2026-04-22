@@ -5,7 +5,7 @@ describe('Doctor — runDiagnostics', () => {
   it('returns an array of checks', () => {
     const checks = runDiagnostics();
     expect(Array.isArray(checks)).toBe(true);
-    expect(checks.length).toBe(15);
+    expect(checks.length).toBe(17);
   });
 
   it('every check has required fields', () => {
@@ -86,7 +86,7 @@ describe('Doctor — formatReport', () => {
   it('includes check count in header', () => {
     const checks = runDiagnostics();
     const report = formatReport(checks);
-    expect(report).toContain('15 checks:');
+    expect(report).toContain('17 checks:');
   });
 
   it('includes ISO timestamp', () => {
