@@ -5,15 +5,29 @@ All notable changes to this project will follow [Semantic Versioning](https://se
 ## [1.0.4] - 2026-04-22
 
 ### Added
+- **Stop and UserPromptSubmit hooks** (PR #85): Two new hook handlers for robust automatic statusline reactions without relying on CLAUDE.md prompt injection. `stop-handler` detects task-completion signals in assistant output via regex (zero token cost). `prompt-handler` detects buddy name mentions, frustration keywords, and excitement signals in user input. Both are async with short timeouts and race-protected writes.
+- **341 new tests** for hook handlers (stop-handler: 165 lines, prompt-handler: 176 lines) covering regex patterns, race protection, field fallbacks, and graceful failure.
+- **Doctor diagnostics** now check for all three hook types (PostToolUse, Stop, UserPromptSubmit).
+
+### Upgrade
+Re-run the installer to get the new hooks registered:
+```bash
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh | bash
+
+# Windows
+irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
+```
+
+## [1.0.3] - 2026-04-22
+
+### Added
 - **Verbatim card display:** `buddy_hatch`, `buddy_status`, and `buddy_pet` now include DISPLAY VERBATIM directives so LLMs render ASCII art in code blocks instead of summarizing or truncating it.
 - **`renderMarkdownBubble`:** New rendering function for consistent markdown-formatted buddy output (code block for art + blockquote for reactions). Wired into `buddy_pet`; replaces inline markdown duplication.
 - **Observer FORMAT_INSTRUCTION:** All observer modes (backseat, skillcoach, both) now include a structured format prompt so LLM reactions use consistent emote + blockquote formatting.
 - **8 new tests** for `renderMarkdownBubble` covering code block structure, blockquote formatting, blank-line preservation, and edge cases.
-- **Stop and UserPromptSubmit hooks** (PR #85): Two new hook handlers for robust automatic statusline reactions without relying on CLAUDE.md prompt injection. `stop-handler` detects task-completion signals in assistant output via regex (zero token cost). `prompt-handler` detects buddy name mentions, frustration keywords, and excitement signals in user input. Both are async with short timeouts and race-protected writes.
 - **Buddies Rescued stats monitor:** Automated GitHub Actions workflow tracking clone/rescue statistics with daily updates.
 - **Rescue wall and community stats** in README.
-- **341 new tests** for hook handlers (stop-handler: 165 lines, prompt-handler: 176 lines) covering regex patterns, race protection, field fallbacks, and graceful failure.
-- **Doctor diagnostics** now check for all three hook types (PostToolUse, Stop, UserPromptSubmit).
 
 ### Fixed
 - **Rescue seed priority** (PR #84 by [@longestpath](https://github.com/longestpath)): `rescueCompanion` now prefers `accountUuid` over `userId` as the CC-compatible seed. When both fields are present in `~/.claude.json`, the previous ordering produced different stats than the original CC hatch. Also broadened `hasCCUserId` to include `accountUuid`-only records so `cc_rescue=1` is set correctly.
