@@ -306,7 +306,7 @@ There is also a 1% shiny chance on any hatch.
 
 ## Roadmap
 
-- [ ] **Slimemold integration** - Anti-Sycophancy Reasoning Auditor
+- [ ] **Max Mode with Slimemold integration** - Anti-Sycophancy Reasoning Auditor. personality + code + SlimeMold reasoning audit
 - [ ] **Dream/memory system** — buddy_dream consolidation logic, pattern recognition from stored memories, memory-informed reactions
 - [ ] **Unlockable reactions** tied to leveling and longer-term interaction
 - [ ] **Multilangauge Support**: 中文, espanol
@@ -341,12 +341,6 @@ These stay tucked away by default, but Buddy exposes a real MCP surface for comp
 | `buddy_unmute` | Resume reactions |
 | `buddy_respawn` | Reset and start over |
 | `buddy_mode` | Change interaction modes. `buddy mode backseat` - Personality Only. `buddy mode skillcoach` - Code Feedback Only. `buddy mode both` - Code Feedback with Personality (default)|
-
-* backseat — personality only (unchanged)
-* skillcoach — code feedback only (unchanged)
-* both — personality + code (unchanged, default)
-* max — everything: personality + code + SlimeMold reasoning audit
-
 
 The most important loop is:
 
