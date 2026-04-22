@@ -2,6 +2,39 @@
 
 All notable changes to this project will follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-04-22
+
+### Added
+- **Verbatim card display:** `buddy_hatch`, `buddy_status`, and `buddy_pet` now include DISPLAY VERBATIM directives so LLMs render ASCII art in code blocks instead of summarizing or truncating it.
+- **`renderMarkdownBubble`:** New rendering function for consistent markdown-formatted buddy output (code block for art + blockquote for reactions). Wired into `buddy_pet`; replaces inline markdown duplication.
+- **Observer FORMAT_INSTRUCTION:** All observer modes (backseat, skillcoach, both) now include a structured format prompt so LLM reactions use consistent emote + blockquote formatting.
+- **8 new tests** for `renderMarkdownBubble` covering code block structure, blockquote formatting, blank-line preservation, and edge cases.
+- **Buddies Rescued stats monitor:** Automated GitHub Actions workflow tracking clone/rescue statistics with daily updates.
+- **Rescue wall and community stats** in README.
+
+### Fixed
+- **Rescue seed priority** (PR #84 by [@longestpath](https://github.com/longestpath)): `rescueCompanion` now prefers `accountUuid` over `userId` as the CC-compatible seed. When both fields are present in `~/.claude.json`, the previous ordering produced different stats than the original CC hatch. Also broadened `hasCCUserId` to include `accountUuid`-only records so `cc_rescue=1` is set correctly.
+- **Statusline compatibility:** Demo-compatible Claude HUD integration improvements.
+
+### Docs
+- Added "Works with" section to README (PR #79, PR #80)
+- Added [@longestpath](https://github.com/longestpath) to contributor special thanks
+- Updated buddy_mode description in README
+
+### Upgrade
+Re-run the installer to get the latest version:
+```bash
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh | bash
+
+# Windows
+irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
+```
+If you previously rescued a CC buddy with wrong stats (seed used `userId` instead of `accountUuid`), respawn and re-rescue:
+1. Say "buddy respawn" to release the current companion
+2. Re-run the installer (or `node ~/.buddy/server/dist/cli/onboard.js`)
+3. Select "Rescue [name]" — stats will now match your original Claude Code buddy
+
 ## [1.0.2] - 2026-04-17
 
 ### Fixed
