@@ -17,7 +17,7 @@ import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, get
 import { statBar } from "../lib/rng.js";
 import { getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
-import { renderSpeechBubble } from "../lib/bubble.js";
+import { renderSpeechBubble, renderMarkdownBubble } from "../lib/bubble.js";
 import { XP_REWARDS, levelFromXp, levelBar } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync } from "fs";
@@ -98,7 +98,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "buddy_hatch",
-        description: "Hatch a new Buddy companion.",
+        description: "Hatch a new Buddy companion. IMPORTANT: Display the entire hatch animation and stat card verbatim in a code block. Do not summarize or omit any part of it.",
         inputSchema: {
           type: "object",
           properties: {
@@ -114,7 +114,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_status",
-        description: "Get the current status of your Buddy companion. Call this at the start of a conversation to check on your buddy and learn its personality.",
+        description: "Get the current status of your Buddy companion. Call this at the start of a conversation to check on your buddy and learn its personality. IMPORTANT: Display the full stat card verbatim in a code block. Do not summarize.",
         inputSchema: {
           type: "object",
           properties: {
@@ -233,7 +233,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     return {
       content: [
-        { type: "text", text: hatchAnimation(companion) },
+        { type: "text", text: "DISPLAY VERBATIM: Show the entire hatch animation and stat card below in a code block. Do not summarize.\n\n" + hatchAnimation(companion) },
         { type: "text", text: reaction },
       ],
     };
@@ -257,7 +257,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     writeBuddyStatus(companion);
 
-    return { content: [{ type: "text", text: statusCard }] };
+    return { content: [{ type: "text", text: "DISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n" + statusCard }] };
   }
 
   if (name === "buddy_remember") {
@@ -417,12 +417,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       petActiveUntil: Date.now() + 5_000,
     });
 
-    const petDisplay = [
-      ...hearts,
-      ...art,
-      '',
-      `${companion.name}: ${reaction}`,
-    ].join('\n');
+    const petDisplay = renderMarkdownBubble(reaction, [...hearts, ...art], companion.name);
 
     return { content: [{ type: "text", text: petDisplay }] };
   }
