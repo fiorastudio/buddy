@@ -205,6 +205,27 @@ describe('rescueCompanion', () => {
     expect(row.user_id).toBe('override-win');
   });
 
+  it('prefers accountUuid over importResult.userId when both are present', () => {
+    rescueCompanion({
+      name: 'Dual',
+      species: 'Axolotl',
+      accountUuid: 'account-wins',
+      userId: 'userid-loses',
+    });
+    const row = db.prepare('SELECT user_id FROM companions LIMIT 1').get() as any;
+    expect(row.user_id).toBe('account-wins');
+  });
+
+  it('sets cc_rescue when only accountUuid is present', () => {
+    rescueCompanion({
+      name: 'UuidOnly',
+      species: 'Ghost',
+      accountUuid: 'uuid-cc-origin',
+    });
+    const row = db.prepare('SELECT cc_rescue FROM companions LIMIT 1').get() as any;
+    expect(row.cc_rescue).toBe(1);
+  });
+
   it('rescues a buddy with no species (rolls one from bones)', () => {
     const { companion } = rescueCompanion({ name: 'Speciesless' });
     expect(SPECIES_LIST).toContain(companion.species);

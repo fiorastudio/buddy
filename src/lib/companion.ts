@@ -150,14 +150,14 @@ export function rescueCompanion(importResult: {
   user_id?: string;
 }, opts: { userId?: string } = {}): { companion: Companion; id: string } {
   const userId = opts.userId
+    || importResult.accountUuid
     || importResult.userId
     || importResult.user_id
-    || importResult.accountUuid
     || `imported-${importResult.name}`;
 
-  // Use CC-compatible roll to reproduce exact stats/rarity/eye from the
-  // original Claude Code buddy. Falls back to our roll() if no CC userId.
-  const hasCCUserId = !!(importResult.userId || importResult.user_id);
+  const hasCCUserId = !!(
+    importResult.accountUuid || importResult.userId || importResult.user_id
+  );
   const ccResult = hasCCUserId ? rollWithCCCompat(userId) : null;
   const bones = ccResult ? ccResult.bones : roll(userId, SPECIES_LIST).bones;
 
