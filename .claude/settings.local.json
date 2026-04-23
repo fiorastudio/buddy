@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__buddy__buddy_status",
+      "mcp__buddy__buddy_observe",
+      "mcp__buddy__buddy_respawn",
+      "mcp__buddy__buddy_pet",
+      "mcp__buddy__buddy_mode"
+    ]
+  }
+}

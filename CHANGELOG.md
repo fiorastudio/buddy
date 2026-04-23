@@ -2,6 +2,52 @@
 
 All notable changes to this project will follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] - 2026-04-23
+
+### Added
+- **Max mode** (PR #87 by [@justinstimatze](https://github.com/justinstimatze)) — an opt-in anti-sycophancy layer. AI coding assistants are yes-men; max mode is the one feature that pushes back — gently, in your buddy's voice.
+
+  Max mode watches your coding sessions and spots 6 patterns:
+
+  **Dark nudges** (risky assumptions):
+  - 🧱 **Load-Bearing Vibes** — you're building on top of a guess nobody checked
+  - 🔗 **Unchallenged Chain** — 4+ reasoning steps with zero pushback
+  - 🪞 **Echo Chamber** — you and the AI are just agreeing with each other
+
+  **Bright nudges** (quiet wins):
+  - ✅ **Well-Sourced Load Bearer** — you built on solid, verified ground
+  - 💪 **Productive Stress Test** — someone pushed back and the idea survived
+  - 🌱 **Grounded Premise Adopted** — you started with a real fact and it became foundational
+
+  Enable with `buddy_mode max=true`. ~500-1000 extra tokens per observe. Default calls unaffected.
+
+  Ported from [slimemold](https://github.com/justinstimatze/slimemold) (Apache-2.0) by the original author, contributed under MIT.
+
+- **`buddy_mode`** now takes orthogonal `voice` + `max` fields. Legacy `mode` field kept with a deprecation note.
+- **`buddy_forget`** — purge stored reasoning data (`session` or `all`).
+- **`buddy_reasoning_status`** — inspect stored claims, sessions, finding history.
+- **4 new doctor checks** for the reasoning layer (max mode status, storage health, workspace resolution, quality monitor).
+- **Stressed voice per species** — second voice kernel used when max mode surfaces a finding.
+- **665 tests** (from 509 baseline). New coverage for detectors, pipeline, sanitizer, graph cache, workspace isolation, tone linting, and performance benchmarks.
+
+### Privacy
+Max mode stores claim snippets (240 chars each, plaintext) in `~/.buddy/buddy.db`. Nothing leaves your machine. Sessions auto-prune after 30 days. Purge manually with `buddy_forget`.
+
+### Safety
+- Max mode is strictly additive — pipeline failures fall through to a normal reaction
+- Claim text sanitized for prompt injection (chat-template markers, fenced code, role tags, unicode lookalikes)
+- `PRAGMA foreign_keys = ON` now enforced on the shared connection for proper CASCADE behavior
+
+### Upgrade
+Re-run the installer:
+```bash
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh | bash
+
+# Windows
+irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
+```
+
 ## [1.0.4] - 2026-04-22
 
 ### Added
@@ -51,7 +97,6 @@ If you previously rescued a CC buddy with wrong stats (seed used `userId` instea
 1. Say "buddy respawn" to release the current companion
 2. Re-run the installer (or `node ~/.buddy/server/dist/cli/onboard.js`)
 3. Select "Rescue [name]" — stats will now match your original Claude Code buddy
-
 ## [1.0.2] - 2026-04-17
 
 ### Fixed

@@ -27,6 +27,19 @@ import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/compani
 import { renderCard, hatchAnimation } from "../lib/card.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
 import { runDiagnostics, formatReport } from "../lib/doctor.js";
+import {
+  deriveSessionId,
+  formatModeResponse,
+  getStressedVoice,
+  isValidSessionId,
+  planModeChange,
+  pruneOldSessions,
+  purge,
+  resolveProjectRoot,
+  runMaxModePipeline,
+  telemetry,
+  type PurgeScope,
+} from "../lib/reasoning/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -155,22 +168,51 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_observe",
-        description: "IMPORTANT: Call this tool automatically after completing any coding task (writing code, fixing a bug, refactoring, running tests, deploying). Pass a 1-sentence summary of what was done. Returns your buddy's in-character reaction with a speech bubble and XP rewards. The user expects this to happen after every task — do not skip it.",
+        description: "Call after every coding task with a 1-sentence summary. Returns your buddy's in-character reaction + XP. In max mode, also pass claims/edges/cwd (schemas below); the observer prompt restates extraction guidance each turn.",
         inputSchema: {
           type: "object",
           properties: {
             summary: {
               type: "string",
-              description: "Brief description of what just happened (e.g., 'wrote a CSV parser', 'fixed a null pointer bug', 'refactored the auth module')"
+              description: "Brief description of what just happened (e.g. 'wrote a CSV parser', 'fixed a null pointer bug')."
             },
             mode: {
               type: "string",
               enum: ["backseat", "skillcoach", "both"],
-              description: "Observer mode. 'backseat' = personality flavor reactions, 'skillcoach' = actual code feedback, 'both' = combined. Default: both."
+              description: "Voice mode. Default: companion's stored setting (usually 'both')."
             },
-            user_id: {
+            user_id: { type: "string", description: "Optional user id for deterministic bones." },
+            claims: {
+              type: "array",
+              description: "Max-mode only. 1-4 substantive assertions from the turn that just ended. Skip trivia/restatements.",
+              items: {
+                type: "object",
+                properties: {
+                  text: { type: "string", description: "≤240 chars, single sentence." },
+                  basis: { type: "string", enum: ["research","empirical","deduction","analogy","definition","llm_output","assumption","vibes"], description: "Epistemic source: research=cited, empirical=measured, deduction=derived, analogy=X-is-like-Y, definition=naming, llm_output=model-ungrounded, assumption=stated-without-justification, vibes=unsourced-hunch." },
+                  speaker: { type: "string", enum: ["user","assistant"] },
+                  confidence: { type: "string", enum: ["low","medium","high"] },
+                  external_id: { type: "string", description: "Unique within this payload, e.g. 'c1'." },
+                },
+                required: ["text","basis","speaker","confidence","external_id"],
+              },
+            },
+            edges: {
+              type: "array",
+              description: "Max-mode only. Claim relationships. `from`/`to` reference external_ids in this payload OR 8-char UUID prefixes from 'Recent claims' in the observer prompt.",
+              items: {
+                type: "object",
+                properties: {
+                  from: { type: "string" },
+                  to: { type: "string" },
+                  type: { type: "string", enum: ["supports","depends_on","contradicts","questions"] },
+                },
+                required: ["from","to","type"],
+              },
+            },
+            cwd: {
               type: "string",
-              description: "Optional user ID for regenerating companion bones."
+              description: "Strongly recommended in max mode. Absolute path of the project root — namespaces the reasoning graph per workspace. Without it, all projects collapse into one graph when the server wasn't launched from a project dir."
             },
           },
           required: ["summary"],
@@ -193,17 +235,53 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_mode",
-        description: "Set the observer mode for your buddy. Controls how it reacts after tasks: 'backseat' for personality-only reactions, 'skillcoach' for code feedback, or 'both' for combined. Shows current mode if called with no arguments.",
+        description: "Set buddy's voice mode and/or max mode. Voice mode controls tone: 'backseat' (personality only), 'skillcoach' (code feedback), or 'both'. Max mode (boolean) turns on structural reasoning analysis — buddy notices when claims are load-bearing, unchallenged, or well-sourced, and weaves the observation into its in-character reaction. Both fields are orthogonal. Call with no arguments to see current settings.",
         inputSchema: {
           type: "object",
           properties: {
+            voice: {
+              type: "string",
+              enum: ["backseat", "skillcoach", "both"],
+              description: "The voice mode to set. Omit to leave unchanged."
+            },
+            max: {
+              type: "boolean",
+              description: "Turn max mode on or off. When on, buddy extracts claims from conversation and surfaces structural findings in character. Omit to leave unchanged."
+            },
             mode: {
               type: "string",
               enum: ["backseat", "skillcoach", "both"],
-              description: "The observer mode to set. Omit to see current mode."
+              description: "Deprecated alias for 'voice'. Prefer 'voice' for new calls."
             }
           },
         },
+      },
+      {
+        name: "buddy_forget",
+        description: "Purge stored reasoning data (claims, edges, findings log). Scope 'session' clears one workspace/day graph; 'all' clears everything. Only affects the reasoning layer — companion, XP, and memories are untouched.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            scope: {
+              type: "string",
+              enum: ["session", "all"],
+              description: "'session' (default) = one workspace/day only. 'all' = all stored claims across all workspaces."
+            },
+            session_id: {
+              type: "string",
+              description: "Optional explicit session id (format: <cwd-hash>-<YYYYMMDD>). Use with scope='session' to purge a workspace you're not currently in. Get ids from buddy_reasoning_status."
+            },
+            cwd: {
+              type: "string",
+              description: "Optional working-directory hint for scope='session'. Ignored if session_id is supplied."
+            },
+          },
+        },
+      },
+      {
+        name: "buddy_reasoning_status",
+        description: "Inspect what max mode has stored: claim count, findings history, graph size per session. Useful for users who want to audit what's in buddy.db or debug max-mode behavior.",
+        inputSchema: { type: "object", properties: {} },
       },
       {
         name: "buddy_doctor",
@@ -298,6 +376,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     db.prepare("DELETE FROM evolution_history WHERE companion_id = ?").run(companion.id);
     db.prepare("DELETE FROM xp_events WHERE companion_id = ?").run(companion.id);
     db.prepare("DELETE FROM memories WHERE companion_id = ?").run(companion.id);
+    // Reasoning-layer companion-scoped state (findings log + observe seq).
+    // Workspace-scoped state (reasoning_claims / reasoning_edges) is preserved —
+    // a new companion in the same workspace inherits the accumulated graph.
+    db.prepare("DELETE FROM reasoning_findings_log WHERE companion_id = ?").run(companion.id);
+    db.prepare("DELETE FROM reasoning_observe_seq WHERE companion_id = ?").run(companion.id);
     db.prepare("DELETE FROM companions WHERE id = ?").run(companion.id);
 
     // Remove status file
@@ -312,8 +395,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_observe") {
-    const { summary, mode: modeArg, user_id } = args as {
-      summary: string; mode?: 'backseat' | 'skillcoach' | 'both'; user_id?: string;
+    const { summary, mode: modeArg, user_id, claims, edges, cwd } = args as {
+      summary: string;
+      mode?: 'backseat' | 'skillcoach' | 'both';
+      user_id?: string;
+      claims?: unknown;
+      edges?: unknown;
+      cwd?: string;
     };
 
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
@@ -324,7 +412,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { companion, xpResult } = awardXpAndRefresh(row, 'observe', user_id);
     // Priority: explicit arg > DB setting > default 'both'
     const mode: 'backseat' | 'skillcoach' | 'both' = modeArg || row.observer_mode || 'both';
-    const result = buildObserverPrompt(companion, mode, summary);
+
+    // Max-mode pipeline — strictly additive. Any failure drops to normal flow.
+    const maxModeOn = (row.max_mode ?? 0) === 1;
+    telemetry.incObserve(maxModeOn);
+
+    let maxInjection: Parameters<typeof buildObserverPrompt>[3] = undefined;
+    let maxModeSessionId: string | null = null;
+    let maxModeWorkspace: string | null = null;
+    let maxModeWorkspaceSource: string | null = null;
+    if (maxModeOn) {
+      try {
+        // Pass the caller's hint as-is (undefined if absent). The pipeline's
+        // resolveProjectRoot tries env vars and project-marker walk-up
+        // before falling back to process.cwd(). Passing process.cwd() here
+        // would short-circuit that search.
+        const out = runMaxModePipeline(db, {
+          companionId: row.id,
+          cwd: typeof cwd === 'string' && cwd ? cwd : undefined,
+          claims,
+          edges,
+        });
+        maxInjection = {
+          finding: out.finding,
+          stressedVoice: out.finding ? getStressedVoice(companion.species) : null,
+          extractionInstruction: out.extractionInstruction,
+        };
+        maxModeSessionId = out.sessionId;
+        maxModeWorkspace = out.resolvedRoot.path;
+        maxModeWorkspaceSource = out.resolvedRoot.source;
+      } catch (err) {
+        // Never let max-mode failures break observe. Fall through to a
+        // normal (finding-less) reaction. Record the failure for the
+        // doctor, and log under BUDDY_DEBUG so we have a thread to pull
+        // on if this path starts firing in real usage.
+        telemetry.recordPipelineFailure();
+        if (process.env.BUDDY_DEBUG) {
+          console.error('[buddy] max-mode pipeline failed:', err);
+        }
+        maxInjection = undefined;
+      }
+    }
+
+    const result = buildObserverPrompt(companion, mode, summary, maxInjection);
 
     // Render speech bubble with template fallback for immediate visual feedback
     const art = renderSprite(companion);
@@ -356,6 +486,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             summary: result.summary,
             reaction: result.reaction,
             templateFallback: result.templateFallback,
+            ...(result.finding ? { finding: { type: result.finding.type, claim: result.finding.claim_text } } : {}),
+            ...(maxModeOn ? { maxMode: true } : {}),
+            ...(maxModeSessionId ? { sessionId: maxModeSessionId } : {}),
+            ...(maxModeWorkspace ? { workspace: maxModeWorkspace, workspaceSource: maxModeWorkspaceSource } : {}),
             ...(xpResult.leveledUp ? { levelUp: `${companion.name} leveled up to ${xpResult.newLevel}!` } : {}),
             xpGained: XP_REWARDS['observe'],
             levelInfo: levelBar(xpResult.newXp),
@@ -450,32 +584,115 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_mode") {
-    const { mode: newMode } = args as { mode?: string };
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion yet! Use buddy_hatch first." }] };
     }
 
-    if (!newMode) {
-      const current = row.observer_mode || 'both';
-      return { content: [{ type: "text", text: `Current observer mode: ${current}\n\nModes: backseat (personality only) · skillcoach (code feedback) · both (combined)` }] };
+    const plan = planModeChange(args as any);
+
+    if (plan.kind === 'update') {
+      if (plan.newVoice !== undefined) {
+        db.prepare("UPDATE companions SET observer_mode = ? WHERE id = ?").run(plan.newVoice, row.id);
+        row.observer_mode = plan.newVoice;
+      }
+      if (plan.newMax !== undefined) {
+        db.prepare("UPDATE companions SET max_mode = ? WHERE id = ?").run(plan.newMax, row.id);
+        row.max_mode = plan.newMax;
+      }
+      const companion = loadCompanion(row)!;
+      writeBuddyStatus(companion);
     }
 
-    const validModes = ['backseat', 'skillcoach', 'both'];
-    if (!validModes.includes(newMode)) {
-      return { content: [{ type: "text", text: `Invalid mode "${newMode}". Choose: backseat, skillcoach, or both.` }] };
+    const text = formatModeResponse(plan, {
+      observer_mode: row.observer_mode ?? null,
+      max_mode: ((row.max_mode ?? 0) === 1 ? 1 : 0),
+    });
+    return { content: [{ type: "text", text }] };
+  }
+
+  if (name === "buddy_forget") {
+    const { scope, cwd, session_id } = args as { scope?: PurgeScope; cwd?: string; session_id?: string };
+    const effectiveScope: PurgeScope = scope === 'all' ? 'all' : 'session';
+
+    // Validate session_id shape when supplied — a garbage id would silently
+    // delete nothing, which is confusing. Surface the error instead.
+    if (typeof session_id === 'string' && session_id && !isValidSessionId(session_id)) {
+      return {
+        content: [{
+          type: "text",
+          text: `Invalid session_id "${session_id}". Expected format: <16-hex>-<YYYYMMDD>. Run buddy_reasoning_status to list valid ids.`,
+        }],
+      };
     }
 
-    db.prepare("UPDATE companions SET observer_mode = ? WHERE id = ?").run(newMode, row.id);
-    const companion = loadCompanion({ ...row, observer_mode: newMode })!;
-    writeBuddyStatus(companion);
-
-    const descriptions: Record<string, string> = {
-      backseat: 'personality-only reactions — fun, no code suggestions',
-      skillcoach: 'code feedback — specific, actionable observations',
-      both: 'combined — personality reaction + code observation',
+    const sessionId = effectiveScope === 'session'
+      ? (typeof session_id === 'string' && session_id
+          ? session_id
+          : deriveSessionId(resolveProjectRoot(typeof cwd === 'string' ? cwd : undefined).path))
+      : undefined;
+    const res = purge(db, effectiveScope, sessionId);
+    const scopeLabel = effectiveScope === 'all'
+      ? 'all workspaces'
+      : (typeof session_id === 'string' && session_id ? `session ${session_id}` : 'current workspace/day');
+    return {
+      content: [{
+        type: "text",
+        text: `Forgot ${res.claims} claim(s), ${res.edges} edge(s), ${res.findings} finding(s) from ${scopeLabel}.`
+      }]
     };
-    return { content: [{ type: "text", text: `Observer mode set to ${newMode}: ${descriptions[newMode] || newMode}` }] };
+  }
+
+  if (name === "buddy_reasoning_status") {
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const totalClaims = (db.prepare("SELECT count(*) as n FROM reasoning_claims").get() as any)?.n ?? 0;
+    const totalEdges = (db.prepare("SELECT count(*) as n FROM reasoning_edges").get() as any)?.n ?? 0;
+    const totalFindings = (db.prepare("SELECT count(*) as n FROM reasoning_findings_log").get() as any)?.n ?? 0;
+    const sessionRows = db.prepare(
+      `SELECT session_id, count(*) as n, min(created_at) as oldest, max(created_at) as newest
+       FROM reasoning_claims GROUP BY session_id ORDER BY newest DESC LIMIT 10`
+    ).all() as Array<{ session_id: string; n: number; oldest: number; newest: number }>;
+
+    const stats = telemetry.snapshot();
+    const maxOn = row && (row.max_mode ?? 0) === 1 ? 'on' : 'off';
+    const currentRoot = resolveProjectRoot(undefined);
+
+    const lines: string[] = [];
+    lines.push(`Reasoning layer (max mode: ${maxOn})`);
+    lines.push(`  workspace (this process): ${currentRoot.path} [${currentRoot.source}${currentRoot.envVar ? ':' + currentRoot.envVar : currentRoot.markerFound ? ':' + currentRoot.markerFound : ''}]`);
+    lines.push(`  stored:   ${totalClaims} claim(s), ${totalEdges} edge(s), ${totalFindings} finding(s)`);
+    if (sessionRows.length > 0) {
+      lines.push(`  sessions (most recent):`);
+      for (const s of sessionRows) {
+        const oldestDate = new Date(s.oldest).toISOString().slice(0, 10);
+        lines.push(`    ${s.session_id} — ${s.n} claim(s), since ${oldestDate}`);
+      }
+    } else {
+      lines.push(`  sessions: none`);
+    }
+    lines.push('');
+    lines.push(`Runtime (since process start)`);
+    lines.push(`  observes:         ${stats.observes_total} total, ${stats.observes_max_mode} with max mode on`);
+    lines.push(`  claims received:  ${stats.claims_received_total} (written ${stats.claims_written}, dropped ${stats.claims_dropped})`);
+    lines.push(`  edges received:   ${stats.edges_received_total} (written ${stats.edges_written}, dropped ${stats.edges_dropped})`);
+    lines.push(`  findings:         ${stats.findings_surfaced_total} surfaced`);
+    if (stats.findings_surfaced_total > 0) {
+      for (const [type, count] of Object.entries(stats.findings_by_type)) {
+        if (count > 0) lines.push(`    ${type}: ${count}`);
+      }
+    }
+    if (stats.detector_latency_ms_count > 0) {
+      const avg = Math.round(stats.detector_latency_ms_sum / stats.detector_latency_ms_count);
+      lines.push(`  detector latency: avg ${avg}ms, max ${stats.detector_latency_ms_max}ms, budget exceeded ${stats.budget_exceeded_total} time(s)`);
+    }
+    if (stats.pipeline_failures_total > 0) {
+      lines.push(`  pipeline failures: ${stats.pipeline_failures_total} (set BUDDY_DEBUG=1 for stderr traces)`);
+    }
+    lines.push('');
+    lines.push(`Stored in: ~/.buddy/buddy.db (plaintext SQLite, never leaves your machine).`);
+    lines.push(`Purge with buddy_forget (scope: session | all).`);
+
+    return { content: [{ type: "text", text: lines.join('\n') }] };
   }
 
   if (name === "buddy_doctor") {
@@ -577,6 +794,9 @@ async function main() {
     const companion = loadCompanion(existing);
     if (companion) writeBuddyStatus(companion);
   }
+
+  // Prune reasoning sessions older than retention window. Best-effort.
+  try { pruneOldSessions(db); } catch { /* non-fatal */ }
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

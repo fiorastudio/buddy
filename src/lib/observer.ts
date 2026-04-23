@@ -1,6 +1,10 @@
 // src/lib/observer.ts
 
 import { type Companion, type StatName, STAT_NAMES, getPeakStat, getDumpStat } from './types.js';
+import { claimSnippet } from './reasoning/index.js';
+import type { Finding } from './reasoning/index.js';
+import { phraseFinding } from './reasoning/phrasings.js';
+import { scrubReactionText } from './reasoning/scrub.js';
 
 // --- Reaction States ---
 
@@ -48,6 +52,12 @@ export function inferReaction(summary: string): ReactionResult {
 
 // --- Prompt Builder ---
 
+export type MaxModeInjection = {
+  finding: Finding | null;
+  stressedVoice: string | null;
+  extractionInstruction: string | null;
+};
+
 export type ObserverResult = {
   companion: {
     name: string;
@@ -64,12 +74,35 @@ export type ObserverResult = {
   summary: string;
   reaction: ReactionResult;
   templateFallback: string;
+  finding?: Finding | null;
 };
+
+function buildFindingBlock(finding: Finding, stressedVoice: string): string {
+  const snippet = claimSnippet(finding.claim_text, 80);
+  return `You have noticed something in the reasoning so far: “${snippet}”
+Context: type=${finding.type}${finding.downstream_count != null ? `, downstream_count=${finding.downstream_count}` : ''}${finding.chain_length != null ? `, chain_length=${finding.chain_length}` : ''}.
+
+Work this observation into your reaction. Phrasing is yours; landing the point is required.
+Stay fully in character: ${stressedVoice}
+
+How it should land:
+- The pet cares about this — genuinely, in its species voice. When something's
+  holding up a lot and isn't sourced, the pet wants it to be stronger. When
+  reasoning is solid, the pet is quietly stoked about it.
+- Never name the mechanism. No "reasoning-watch", "findings", "claims",
+  "graph", or "I detected". The pet just notices things because it is
+  paying attention.
+- Gain-framed always. Weakness is opportunity; a grounded claim is worth
+  naming.
+- This overrides any earlier sentence-count guidance: total response is
+  1-2 sentences with the observation woven in, not appended after.`;
+}
 
 export function buildObserverPrompt(
   companion: Companion,
   mode: 'backseat' | 'skillcoach' | 'both',
   summary: string,
+  maxInjection?: MaxModeInjection,
 ): ObserverResult {
   const peakStat = getPeakStat(companion.stats);
   const dumpStat = getDumpStat(companion.stats);
@@ -128,7 +161,28 @@ ${FORMAT_INSTRUCTION}
 What happened: ${summary}`;
   }
 
-  const templateFallback = templateReaction(companion, mode, summary, reaction.state);
+  // Max-mode augmentation: finding block, then extraction instruction.
+  if (maxInjection?.finding && maxInjection?.stressedVoice) {
+    prompt += '\n\n' + buildFindingBlock(maxInjection.finding, maxInjection.stressedVoice);
+  }
+  if (maxInjection?.extractionInstruction) {
+    prompt += '\n\n' + maxInjection.extractionInstruction;
+  }
+
+  // Template fallback: if a finding is present, weave its phrasing in.
+  // Scrub the result through the mechanism/tone filter as a runtime
+  // second line of defense beyond the phrasings-tone review-time test.
+  let templateFallback = templateReaction(companion, mode, summary, reaction.state);
+  if (maxInjection?.finding) {
+    const findingPhrase = phraseFinding(
+      maxInjection.finding.type,
+      reaction.state,
+      maxInjection.finding.claim_text,
+      summary.length,
+    );
+    templateFallback = `${templateFallback} ${findingPhrase}`;
+  }
+  templateFallback = scrubReactionText(templateFallback);
 
   return {
     companion: {
@@ -146,6 +200,7 @@ What happened: ${summary}`;
     summary,
     reaction,
     templateFallback,
+    finding: maxInjection?.finding ?? null,
   };
 }
 

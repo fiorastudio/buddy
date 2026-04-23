@@ -5,7 +5,7 @@ describe('Doctor — runDiagnostics', () => {
   it('returns an array of checks', () => {
     const checks = runDiagnostics();
     expect(Array.isArray(checks)).toBe(true);
-    expect(checks.length).toBe(17);
+    expect(checks.length).toBe(21);
   });
 
   it('every check has required fields', () => {
@@ -80,13 +80,14 @@ describe('Doctor — formatReport', () => {
     expect(report).toContain('DATABASE');
     expect(report).toContain('STATUS FILE');
     expect(report).toContain('CLAUDE CODE INTEGRATION');
+    expect(report).toContain('REASONING LAYER');
     expect(report).toContain('SUMMARY');
   });
 
   it('includes check count in header', () => {
     const checks = runDiagnostics();
     const report = formatReport(checks);
-    expect(report).toContain('17 checks:');
+    expect(report).toContain('21 checks:');
   });
 
   it('includes ISO timestamp', () => {
