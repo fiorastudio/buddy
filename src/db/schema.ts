@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
+import { initReasoningSchema } from '../lib/reasoning/schema.js';
 
 // BUDDY_DB_PATH env var allows tests to use an isolated DB
 // instead of the production ~/.buddy/buddy.db
@@ -77,4 +78,7 @@ export function initDb() {
   try {
     db.exec(`ALTER TABLE companions ADD COLUMN cc_rescue INTEGER DEFAULT 0`);
   } catch { /* column already exists */ }
+
+  // Reasoning-layer migration (claims/edges tables + max_mode column).
+  initReasoningSchema(db);
 }

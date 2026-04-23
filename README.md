@@ -340,7 +340,9 @@ These stay tucked away by default, but Buddy exposes a real MCP surface for comp
 | `buddy_mute` | Pause reactions |
 | `buddy_unmute` | Resume reactions |
 | `buddy_respawn` | Reset and start over |
-| `buddy_mode` | Change interaction modes. `buddy mode backseat` - Personality Only. `buddy mode skillcoach` - Code Feedback Only. `buddy mode both` - Code Feedback with Personality (default)|
+| `buddy_mode` | Change interaction modes. Voice: `backseat` (personality only), `skillcoach` (code feedback), `both` (default). Max: `buddy_mode max=true` turns on structural reasoning — buddy notices when claims are load-bearing or well-sourced, and weaves the observation into its in-character reaction. |
+| `buddy_forget` | Purge stored reasoning data. Scope `session` (default, current workspace/day) or `all`. |
+| `buddy_reasoning_status` | Inspect what max mode has stored — claim count, session breakdown, finding history. |
 
 The most important loop is:
 
@@ -498,13 +500,42 @@ Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage
 - Template reactions fire on keyword matches with zero token cost
 - The observer only runs when you call `buddy_observe` — nothing runs in the background
 
+### What's "max mode"?
+
+Max mode is an optional upgrade: buddy notices structural patterns in the
+reasoning during a session — assumptions that are quietly holding up multiple
+decisions, long chains nobody has stress-tested, grounded premises the
+assistant is building on — and weaves the observation into its in-character
+reaction. A high-WISDOM mushroom will name the pattern earnestly; a high-SNARK
+rabbit will tease you about it. Same observation, different species voice.
+
+Turn it on with `buddy_mode max=true`. Turn it off with `buddy_mode max=false`.
+The reasoning layer is a light port of
+[slimemold](https://github.com/justinstimatze/slimemold) — the standalone
+project has the full system with state, conditional gates, and evaluation
+against reasoning benchmarks; buddy ships the foundational detectors.
+
+Max mode stores extracted claim snippets (≤240 chars each) locally in
+`~/.buddy/buddy.db` as plaintext SQLite. Snippets never leave your machine —
+buddy has no network code. Run `buddy_forget` to purge claims (scope `session`
+for the current workspace/day, or `all` for everything). Run
+`buddy_reasoning_status` to see what's stored. Max mode relies on the host
+LLM to extract claims each turn; it works best on Claude hosts (Claude Code,
+Claude Desktop) and may be inert on hosts that don't honor the extraction
+prompt — `buddy_doctor` surfaces a warning if that's happening.
+
+**Token cost:** max mode adds ~500-1000 tokens to every `buddy_observe`
+prompt (extraction schema + recent-claims list + finding block when one
+fires). Default `buddy_observe` calls are unaffected. Turn max off with
+`buddy_mode max=false` to return to the base-mode token footprint.
+
 ### Does Buddy read my whole codebase?
 
 No. Buddy mainly reacts to short summaries you pass through tools like `buddy_observe`, plus its own saved state. It never scans your files or project directory.
 
 ### What does Buddy store?
 
-Local companion state in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. Nothing leaves your machine.
+Local companion state in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. If max mode is on, buddy also stores extracted claim snippets (≤240 chars each, plaintext) for structural reasoning analysis, pruned after 30 days and purgeable via `buddy_forget`. Nothing leaves your machine.
 
 ### Is Buddy tied to one client?
 

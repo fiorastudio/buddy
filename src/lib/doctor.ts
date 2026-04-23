@@ -9,6 +9,8 @@ import { db } from '../db/schema.js';
 import { loadCompanion } from './companion.js';
 import { STAT_NAMES, RARITY_STARS } from './types.js';
 import { levelProgress } from './leveling.js';
+import { REASONING_CONFIG, telemetry } from './reasoning/index.js';
+import { basisDistributionHealth } from './reasoning/telemetry.js';
 
 // Shared sentinel — keep in sync with install.sh / install.ps1
 export const PROMPT_SENTINEL_V2 = 'buddy-companion v2';
@@ -146,7 +148,8 @@ function checkDbExists(): DiagnosticCheck {
 }
 
 function checkDbTables(): DiagnosticCheck {
-  const expected = ['companions', 'memories', 'xp_events', 'sessions', 'evolution_history'];
+  const expected = ['companions', 'memories', 'xp_events', 'sessions', 'evolution_history',
+                    'reasoning_claims', 'reasoning_edges', 'reasoning_findings_log'];
   try {
     const rows = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as any[];
     const tables = rows.map(r => r.name);
@@ -280,6 +283,129 @@ function checkPromptInjection(): DiagnosticCheck {
   return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: '\u2717 no buddy instructions in CLAUDE.md', suggestion: 'Re-run install script to inject buddy instructions' };
 }
 
+function checkReasoningMaxMode(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT id, max_mode FROM companions LIMIT 1').get() as any;
+    if (!row) {
+      return { id: 'reasoning.max', status: 'skip', label: 'Max mode', detail: 'No companion' };
+    }
+    const on = (row.max_mode ?? 0) === 1;
+    if (!on) {
+      return { id: 'reasoning.max', status: 'ok', label: 'Max mode', detail: 'off (enable via buddy_mode max=true)' };
+    }
+
+    // Read the persisted observe-seq counters. These survive server restart,
+    // so the inert-mode warning doesn't reset when the user relaunches.
+    const seqRow = db.prepare(
+      'SELECT seq, last_claims_received_seq FROM reasoning_observe_seq WHERE companion_id = ?'
+    ).get(row.id) as { seq: number; last_claims_received_seq: number } | undefined;
+
+    const totalObserves = seqRow?.seq ?? 0;
+    const lastClaimsSeq = seqRow?.last_claims_received_seq ?? 0;
+
+    if (totalObserves === 0) {
+      return { id: 'reasoning.max', status: 'ok', label: 'Max mode', detail: 'on (no observes yet)' };
+    }
+
+    // If we've had INERT_MAX_WARN_OBSERVES observes and never received claims,
+    // the host isn't honoring the extraction prompt.
+    if (totalObserves >= REASONING_CONFIG.INERT_MAX_WARN_OBSERVES && lastClaimsSeq === 0) {
+      return {
+        id: 'reasoning.max', status: 'warn', label: 'Max mode',
+        detail: `on, but 0 claims received in ${totalObserves} observes`,
+        suggestion: 'Host may not be honoring the max-mode extraction prompt. Verified hosts: Claude Code (Sonnet/Opus). See README for host requirements.',
+      };
+    }
+
+    // Per-run telemetry supplies richer detail when available (counts don't
+    // persist across restart but are informative when they exist).
+    const stats = telemetry.snapshot();
+    const extra = stats.claims_received_total > 0
+      ? ` · this run: ${stats.claims_received_total} claims, ${stats.findings_surfaced_total} findings`
+      : '';
+    return {
+      id: 'reasoning.max', status: 'ok', label: 'Max mode',
+      detail: `on · ${totalObserves} observes, last claims at seq ${lastClaimsSeq}${extra}`,
+    };
+  } catch {
+    return { id: 'reasoning.max', status: 'fail', label: 'Max mode', detail: 'DB query failed' };
+  }
+}
+
+function checkReasoningStorage(): DiagnosticCheck {
+  try {
+    const c = (db.prepare('SELECT count(*) as n FROM reasoning_claims').get() as any)?.n ?? 0;
+    const s = (db.prepare('SELECT count(DISTINCT session_id) as n FROM reasoning_claims').get() as any)?.n ?? 0;
+    if (c === 0) {
+      return { id: 'reasoning.storage', status: 'ok', label: 'Stored claims', detail: '0 claims · 0 sessions' };
+    }
+    const oldest = (db.prepare('SELECT min(created_at) as t FROM reasoning_claims').get() as any)?.t;
+    const oldestDays = oldest ? Math.floor((Date.now() - oldest) / (24 * 60 * 60 * 1000)) : 0;
+    return {
+      id: 'reasoning.storage', status: 'ok', label: 'Stored claims',
+      detail: `${c} claims across ${s} session(s); oldest ${oldestDays}d ago. Purge via buddy_forget.`,
+    };
+  } catch {
+    return { id: 'reasoning.storage', status: 'fail', label: 'Stored claims', detail: 'DB query failed' };
+  }
+}
+
+function checkReasoningRootResolution(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT max_mode FROM companions LIMIT 1').get() as any;
+    if (!row || (row.max_mode ?? 0) === 0) {
+      return { id: 'reasoning.root', status: 'skip', label: 'Workspace root', detail: 'Max mode off' };
+    }
+    const s = telemetry.snapshot().root_source_counts;
+    const total = s.hint + s.env + s.marker + s.cwd + s.homedir;
+    if (total === 0) {
+      return { id: 'reasoning.root', status: 'ok', label: 'Workspace root', detail: 'on · no observes yet this run' };
+    }
+    // If MOST observes this run resolved to the homedir, workspace isolation
+    // is almost certainly broken — every project collapses into one graph.
+    if (s.homedir > 0 && s.homedir / total > 0.5) {
+      return {
+        id: 'reasoning.root', status: 'warn', label: 'Workspace root',
+        detail: `${s.homedir}/${total} observes resolved to $HOME — projects are mixing`,
+        suggestion: 'Pass `cwd` in buddy_observe calls, or set CLAUDE_PROJECT_DIR/BUDDY_PROJECT_ROOT env var. Buddy walks up from cwd looking for .git/package.json markers automatically when launched from a project.',
+      };
+    }
+    const parts: string[] = [];
+    if (s.hint) parts.push(`hint=${s.hint}`);
+    if (s.env) parts.push(`env=${s.env}`);
+    if (s.marker) parts.push(`marker=${s.marker}`);
+    if (s.cwd) parts.push(`cwd=${s.cwd}`);
+    if (s.homedir) parts.push(`homedir=${s.homedir}`);
+    return { id: 'reasoning.root', status: 'ok', label: 'Workspace root', detail: `sources: ${parts.join(', ')}` };
+  } catch {
+    return { id: 'reasoning.root', status: 'fail', label: 'Workspace root', detail: 'DB query failed' };
+  }
+}
+
+function checkReasoningBasisQuality(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT max_mode FROM companions LIMIT 1').get() as any;
+    if (!row || (row.max_mode ?? 0) === 0) {
+      return { id: 'reasoning.quality', status: 'skip', label: 'Extraction quality', detail: 'Max mode off' };
+    }
+    const h = basisDistributionHealth();
+    if (h.sample < 20) {
+      return { id: 'reasoning.quality', status: 'ok', label: 'Extraction quality', detail: `sample too small (${h.sample} claims this run)` };
+    }
+    if (h.degenerate) {
+      const pct = Math.round((h.pct ?? 0) * 100);
+      return {
+        id: 'reasoning.quality', status: 'warn', label: 'Extraction quality',
+        detail: `${pct}% of recent claims classified as "${h.dominantBasis}" — host may be misclassifying`,
+        suggestion: `A degenerate basis distribution usually means the host is defaulting every claim to one bucket. Try a more capable host model, or verify the extraction prompt is reaching the model (buddy://intro resource).`,
+      };
+    }
+    return { id: 'reasoning.quality', status: 'ok', label: 'Extraction quality', detail: `${h.sample} claims sampled, dominant basis "${h.dominantBasis}" at ${Math.round((h.pct ?? 0) * 100)}%` };
+  } catch {
+    return { id: 'reasoning.quality', status: 'fail', label: 'Extraction quality', detail: 'DB query failed' };
+  }
+}
+
 // ── Runner ──
 
 export function runDiagnostics(): DiagnosticCheck[] {
@@ -299,6 +425,10 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkStatuslineRefresh(),
     checkHooks(),
     checkPromptInjection(),
+    checkReasoningMaxMode(),
+    checkReasoningStorage(),
+    checkReasoningRootResolution(),
+    checkReasoningBasisQuality(),
   ];
 }
 
@@ -329,6 +459,7 @@ export function formatReport(checks: DiagnosticCheck[]): string {
     'DATABASE': checks.filter(c => c.id.startsWith('db.')),
     'STATUS FILE': checks.filter(c => c.id.startsWith('status.')),
     'CLAUDE CODE INTEGRATION': checks.filter(c => c.id.startsWith('mcp.') || c.id.startsWith('config.') || c.id.startsWith('prompt.')),
+    'REASONING LAYER': checks.filter(c => c.id.startsWith('reasoning.')),
   };
 
   for (const [section, sectionChecks] of Object.entries(sections)) {
