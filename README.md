@@ -469,8 +469,8 @@ These stay tucked away by default, but Buddy exposes a real MCP surface for comp
 | `buddy_status` | Show current stats, mood, and card art |
 | `buddy_observe` | React to completed work. Fire on hooks |
 | `buddy_pet` | Pet your buddy |
-| `buddy_remember` | Save a memory |
-| `buddy_dream` | Consolidate memories |
+| `buddy_remember` | Save a memory (Not yet robust) |
+| `buddy_dream` | Consolidate memories (Placeholder) |
 | `buddy_mute` | Pause reactions |
 | `buddy_unmute` | Resume reactions |
 | `buddy_respawn` | Reset and start over |
@@ -560,7 +560,7 @@ We measured the actual MCP payloads in April 2026 (Void Cat companion, `o200k_ba
 
 | Component | Tokens (approx.) | Notes |
 |---|---|---|
-| `tools/list` (9 tools) | ~670 | Includes full JSON schema definitions |
+| `tools/list` (12 tools) | ~670 | Includes full JSON schema definitions |
 | `resources/list` (3 resources) | ~120 | Metadata only |
 | `buddy://intro` | ~240 | Companion bio + instructions |
 | `buddy://companion` | ~170 | Only fetched when a client syncs the JSON state |
