@@ -68,7 +68,53 @@ CODEX_CONFIGURED=0
 
 # ── Auto-configure MCP for detected CLIs ──
 
+CLAUDE_DETECTED=0
+CURSOR_DETECTED=0
+COPILOT_DETECTED=0
+CODEX_CONFIGURED=0
+GEMINI_DETECTED=0
+
+check_claude() {
+  if command -v claude &> /dev/null || [ -d "$HOME/.claude" ]; then
+    CLAUDE_DETECTED=1
+    return 0
+  fi
+  return 1
+}
+
+check_cursor() {
+  if command -v cursor &> /dev/null || [ -d "$HOME/.cursor" ]; then
+    CURSOR_DETECTED=1
+    return 0
+  fi
+  return 1
+}
+
+check_copilot() {
+  if command -v copilot &> /dev/null || [ -d "$HOME/.copilot" ]; then
+    COPILOT_DETECTED=1
+    return 0
+  fi
+  return 1
+}
+
+check_codex() {
+  if command -v codex &> /dev/null || [ -d "$HOME/.codex" ]; then
+    return 0 # Detection helper only, CODEX_CONFIGURED is managed in configure_codex
+  fi
+  return 1
+}
+
+check_gemini() {
+  if command -v gemini &> /dev/null || [ -d "$HOME/.gemini" ]; then
+    GEMINI_DETECTED=1
+    return 0
+  fi
+  return 1
+}
+
 configure_claude_code() {
+  check_claude || return 0
   local config_dir="$HOME/.claude"
   local settings_file="$config_dir/settings.json"
   local user_file="$HOME/.claude.json"
@@ -228,6 +274,7 @@ EOJS
 
 
 configure_cursor() {
+  check_cursor || return 0
   local config_file="$HOME/.cursor/mcp.json"
 
   if [ -d "$HOME/.cursor" ]; then
@@ -256,6 +303,7 @@ EOJSON
 }
 
 configure_copilot() {
+  check_copilot || return 0
   local config_file="$HOME/.copilot/mcp-config.json"
 
   if [ -d "$HOME/.copilot" ]; then
@@ -338,12 +386,12 @@ inject_prompt() {
   local dir
   dir="$(dirname "$file")"
 
-  mkdir -p "$dir"
-
   if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
     echo -e "  ${GREEN}✓${NC} $cli_name prompt already has buddy instructions"
     return 0
   fi
+
+  mkdir -p "$dir"
 
   # Append to existing file or create new one
   echo "" >> "$file"
@@ -353,33 +401,42 @@ inject_prompt() {
 
 echo ""
 echo "  Injecting buddy instructions..."
-inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
-mkdir -p "$HOME/.cursor/rules" 2>/dev/null
-inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor CLI"
+
+# Claude Code
+if [ "$CLAUDE_DETECTED" -eq 1 ]; then
+  inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
+fi
+
+# Cursor
+if [ "$CURSOR_DETECTED" -eq 1 ]; then
+  inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor"
+fi
 
 # Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
-if [ "$CODEX_CONFIGURED" -eq 1 ]; then
+if [ "$CODEX_CONFIGURED" -eq 1 ] || check_codex; then
   if [ -f "$HOME/.codex/AGENTS.md" ]; then
     inject_prompt "$HOME/.codex/AGENTS.md" "Codex CLI"
   else
     inject_prompt "$HOME/.codex/instructions.md" "Codex CLI"
   fi
-else
-  echo -e "  ${YELLOW}!${NC} Skipping Codex CLI prompt injection because Buddy MCP is not configured"
 fi
 
 # Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
-if [ -f "$HOME/.gemini/AGENTS.md" ] && [ ! -f "$HOME/.gemini/GEMINI.md" ]; then
-  inject_prompt "$HOME/.gemini/AGENTS.md" "Gemini CLI"
-else
-  inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+if [ "$GEMINI_DETECTED" -eq 1 ] || check_gemini; then
+  if [ -f "$HOME/.gemini/AGENTS.md" ] && [ ! -f "$HOME/.gemini/GEMINI.md" ]; then
+    inject_prompt "$HOME/.gemini/AGENTS.md" "Gemini CLI"
+  else
+    inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+  fi
 fi
 
 # GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
-if [ -f "$HOME/.copilot/AGENTS.md" ]; then
-  inject_prompt "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
-else
-  inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+if [ "$COPILOT_DETECTED" -eq 1 ]; then
+  if [ -f "$HOME/.copilot/AGENTS.md" ]; then
+    inject_prompt "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
+  else
+    inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+  fi
 fi
 
 # ── Run onboarding wizard ──
