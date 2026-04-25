@@ -217,6 +217,31 @@ describe('handlePostToolUse', () => {
     const result = handlePostToolUse(input, statusPath);
     expect(result).toBe(false);
   });
+
+  it('handles Codex/Copilot-style payloads', () => {
+    const input = {
+      toolName: 'bash',
+      toolResult: {
+        resultType: 'error',
+        textResultForLlm: 'Process exited with exit code 2',
+      },
+    };
+
+    const result = handlePostToolUse(input, statusPath);
+    expect(result).toBe(true);
+  });
+
+  it('handles Cursor-style shell payloads', () => {
+    const input = {
+      command: 'npm test',
+      stdout: 'Tests: 3 FAILED, 10 passed',
+      stderr: '',
+      exitCode: 1,
+    };
+
+    const result = handlePostToolUse(input, statusPath);
+    expect(result).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

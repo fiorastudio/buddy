@@ -30,6 +30,48 @@ export interface PostToolUseInput {
   tool_response?: string;
 }
 
+interface GenericHookInput {
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_response?: unknown;
+  toolName?: string;
+  toolArgs?: string;
+  toolResult?: {
+    resultType?: string;
+    textResultForLlm?: string;
+    [key: string]: unknown;
+  };
+  command?: string;
+  output?: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+}
+
+function inferToolName(input: GenericHookInput): string {
+  if (typeof input.tool_name === "string") return input.tool_name;
+  if (typeof input.toolName === "string") return input.toolName;
+  if (typeof input.command === "string") return "Bash";
+  return "";
+}
+
+function inferToolOutput(input: GenericHookInput): string {
+  if (typeof input.tool_response === "string") return input.tool_response;
+  if (typeof input.toolResult?.textResultForLlm === "string") return input.toolResult.textResultForLlm;
+
+  const parts = [
+    typeof input.output === "string" ? input.output : "",
+    typeof input.stdout === "string" ? input.stdout : "",
+    typeof input.stderr === "string" ? input.stderr : "",
+  ].filter(Boolean);
+
+  if (typeof input.exitCode === "number" && input.exitCode !== 0) {
+    parts.push(`exit code ${input.exitCode}`);
+  }
+
+  return parts.join("\n");
+}
+
 /**
  * Check if a fresh reaction already exists (race protection).
  * Returns true if we should bail and not overwrite.
@@ -77,11 +119,11 @@ export function writeConcernedReaction(statusPath: string = BUDDY_STATUS_PATH, e
 /**
  * Main handler — reads stdin, processes PostToolUse event.
  */
-export function handlePostToolUse(input: PostToolUseInput, statusPath: string = BUDDY_STATUS_PATH): boolean {
-  // Only act on Bash tool
-  if (input.tool_name !== "Bash") return false;
+export function handlePostToolUse(input: PostToolUseInput | GenericHookInput, statusPath: string = BUDDY_STATUS_PATH): boolean {
+  const toolName = inferToolName(input);
+  if (toolName !== "Bash" && toolName.toLowerCase() !== "bash") return false;
 
-  const output = input.tool_response || "";
+  const output = inferToolOutput(input);
 
   // Check for error patterns
   if (!ERROR_REGEX.test(output)) return false;

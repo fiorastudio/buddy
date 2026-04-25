@@ -52,6 +52,45 @@ function readTextSafe(path: string): string | null {
   try { return readFileSync(path, 'utf-8'); } catch { return null; }
 }
 
+function formatPathList(paths: string[]): string {
+  return paths.join(' | ');
+}
+
+function codexConfigPath(): string {
+  return join(homedir(), '.codex', 'config.toml');
+}
+
+function codexHooksPath(): string {
+  return join(homedir(), '.codex', 'hooks.json');
+}
+
+function cursorMcpPath(): string {
+  return join(homedir(), '.cursor', 'mcp.json');
+}
+
+function cursorHooksPath(): string {
+  return join(homedir(), '.cursor', 'hooks.json');
+}
+
+function copilotMcpPath(): string {
+  return join(homedir(), '.copilot', 'mcp-config.json');
+}
+
+function copilotSettingsPath(): string {
+  return join(homedir(), '.copilot', 'settings.json');
+}
+
+function hostPromptFiles(): Array<{ host: string, path: string }> {
+  return [
+    { host: 'Claude Code', path: join(homedir(), '.claude', 'CLAUDE.md') },
+    { host: 'Codex CLI', path: join(homedir(), '.codex', 'AGENTS.md') },
+    { host: 'Codex CLI', path: join(homedir(), '.codex', 'instructions.md') },
+    { host: 'Cursor CLI', path: join(homedir(), '.cursor', 'rules', 'buddy.md') },
+    { host: 'GitHub Copilot CLI', path: join(homedir(), '.copilot', 'AGENTS.md') },
+    { host: 'GitHub Copilot CLI', path: join(homedir(), '.copilot', 'copilot-instructions.md') },
+  ];
+}
+
 // ── Individual checks ──
 
 function checkNodeVersion(): DiagnosticCheck {
@@ -191,15 +230,31 @@ function checkMcpRegistered(): DiagnosticCheck {
   if (config?.mcpServers?.buddy) {
     return { id: 'mcp.registered', status: 'ok', label: 'MCP registration', detail: `\u2713 registered in ${claudeJsonPath}` };
   }
-  // Also check ~/.claude/settings.json as fallback
+
   const settingsPath = join(homedir(), '.claude', 'settings.json');
   const settings = readJsonSafe(settingsPath);
   if (settings?.mcpServers?.buddy) {
     return { id: 'mcp.registered', status: 'ok', label: 'MCP registration', detail: `\u2713 registered in ${settingsPath}` };
   }
+
+  const codexConfig = readTextSafe(codexConfigPath());
+  if (codexConfig?.includes('[mcp_servers.buddy]')) {
+    return { id: 'mcp.registered', status: 'ok', label: 'MCP registration', detail: `\u2713 registered in ${codexConfigPath()}` };
+  }
+
+  const cursorConfig = readJsonSafe(cursorMcpPath());
+  if (cursorConfig?.mcpServers?.buddy) {
+    return { id: 'mcp.registered', status: 'ok', label: 'MCP registration', detail: `\u2713 registered in ${cursorMcpPath()}` };
+  }
+
+  const copilotConfig = readJsonSafe(copilotMcpPath());
+  if (copilotConfig?.mcpServers?.buddy) {
+    return { id: 'mcp.registered', status: 'ok', label: 'MCP registration', detail: `\u2713 registered in ${copilotMcpPath()}` };
+  }
+
   return {
     id: 'mcp.registered', status: 'fail', label: 'MCP registration', detail: '\u2717 not found',
-    suggestion: 'Run: claude mcp add buddy -s user -- node ~/.buddy/server/dist/server/index.js',
+    suggestion: 'Re-run the install script, or register Buddy in your host CLI MCP config.',
   };
 }
 
@@ -248,24 +303,45 @@ function checkStatuslineRefresh(): DiagnosticCheck {
 }
 
 function checkHooks(): DiagnosticCheck {
-  const settingsPath = join(homedir(), '.claude', 'settings.json');
-  const settings = readJsonSafe(settingsPath);
-  if (!settings?.hooks?.PostToolUse) {
-    return { id: 'config.hooks', status: 'warn', label: 'Hooks', detail: '\u2717 no PostToolUse hooks', suggestion: 'Re-run install script to configure hooks' };
-  }
-  const hooks: any[] = Array.isArray(settings.hooks.PostToolUse) ? settings.hooks.PostToolUse : [];
-  const hasBuddy = hooks.some((entry: any) => {
+  const found: string[] = [];
+
+  const claudeSettingsPath = join(homedir(), '.claude', 'settings.json');
+  const claudeSettings = readJsonSafe(claudeSettingsPath);
+  const claudeHooks: any[] = Array.isArray(claudeSettings?.hooks?.PostToolUse) ? claudeSettings.hooks.PostToolUse : [];
+  const hasClaudeHook = claudeHooks.some((entry: any) => {
     if (entry.matcher === 'Bash' && Array.isArray(entry.hooks)) {
       return entry.hooks.some((h: any) => h.command && h.command.includes('post-tool-handler'));
     }
-    // Handle legacy string format
     if (typeof entry === 'string' && entry.includes('post-tool-handler')) return true;
     return false;
   });
-  if (!hasBuddy) {
-    return { id: 'config.hooks', status: 'warn', label: 'Hooks', detail: '\u2717 buddy hook not found in PostToolUse', suggestion: 'Re-run install script to configure hooks' };
+  if (hasClaudeHook) found.push(`Claude Code (${claudeSettingsPath})`);
+
+  const codexHooks = readJsonSafe(codexHooksPath());
+  const codexGroups: any[] = Array.isArray(codexHooks?.hooks?.PostToolUse) ? codexHooks.hooks.PostToolUse : [];
+  const hasCodexHook = codexGroups.some((entry: any) =>
+    Array.isArray(entry?.hooks) && entry.hooks.some((hook: any) => typeof hook?.command === 'string' && hook.command.includes('post-tool-handler'))
+  );
+  if (hasCodexHook) found.push(`Codex CLI (${codexHooksPath()})`);
+
+  const cursorHooks = readJsonSafe(cursorHooksPath());
+  const cursorShellHooks: any[] = Array.isArray(cursorHooks?.hooks?.afterShellExecution) ? cursorHooks.hooks.afterShellExecution : [];
+  const hasCursorHook = cursorShellHooks.some((entry: any) => typeof entry?.command === 'string' && entry.command.includes('post-tool-handler'));
+  if (hasCursorHook) found.push(`Cursor CLI (${cursorHooksPath()})`);
+
+  const copilotSettings = readJsonSafe(copilotSettingsPath());
+  const copilotHooks: any[] = Array.isArray(copilotSettings?.hooks?.postToolUse) ? copilotSettings.hooks.postToolUse : [];
+  const hasCopilotHook = copilotHooks.some((entry: any) => {
+    const bash = typeof entry?.bash === 'string' ? entry.bash : '';
+    const powershell = typeof entry?.powershell === 'string' ? entry.powershell : '';
+    return bash.includes('post-tool-handler') || powershell.includes('post-tool-handler');
+  });
+  if (hasCopilotHook) found.push(`GitHub Copilot CLI (${copilotSettingsPath()})`);
+
+  if (found.length === 0) {
+    return { id: 'config.hooks', status: 'warn', label: 'Hooks', detail: '\u2717 no buddy post-tool hook found', suggestion: 'Re-run install script to configure hooks' };
   }
-  return { id: 'config.hooks', status: 'ok', label: 'Hooks', detail: '\u2713 PostToolUse hook present' };
+  return { id: 'config.hooks', status: 'ok', label: 'Hooks', detail: `\u2713 ${formatPathList(found)}` };
 }
 
 function checkStopHook(): DiagnosticCheck {
@@ -297,18 +373,23 @@ function checkPromptHook(): DiagnosticCheck {
 }
 
 function checkPromptInjection(): DiagnosticCheck {
-  const claudeMdPath = join(homedir(), '.claude', 'CLAUDE.md');
-  const content = readTextSafe(claudeMdPath);
-  if (!content) {
-    return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: `${claudeMdPath} not found or unreadable`, suggestion: 'Re-run install script to inject buddy instructions' };
+  const found: string[] = [];
+  const legacy: string[] = [];
+
+  for (const file of hostPromptFiles()) {
+    const content = readTextSafe(file.path);
+    if (!content) continue;
+    if (content.includes(PROMPT_SENTINEL_V2)) found.push(`${file.host} (${file.path})`);
+    else if (content.includes('buddy-companion')) legacy.push(`${file.host} (${file.path})`);
   }
-  if (content.includes(PROMPT_SENTINEL_V2)) {
-    return { id: 'prompt.injected', status: 'ok', label: 'Prompt injection', detail: `\u2713 ${PROMPT_SENTINEL_V2} found in CLAUDE.md` };
+
+  if (found.length > 0) {
+    return { id: 'prompt.injected', status: 'ok', label: 'Prompt injection', detail: `\u2713 ${formatPathList(found)}` };
   }
-  if (content.includes('buddy-companion')) {
-    return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: 'v1 sentinel found — needs upgrade to v2', suggestion: 'Re-run install script to upgrade prompt instructions' };
+  if (legacy.length > 0) {
+    return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: `v1 sentinel found in ${formatPathList(legacy)}`, suggestion: 'Re-run install script to upgrade prompt instructions' };
   }
-  return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: '\u2717 no buddy instructions in CLAUDE.md', suggestion: 'Re-run install script to inject buddy instructions' };
+  return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: '\u2717 no buddy instructions found in supported host prompt files', suggestion: 'Re-run install script to inject buddy instructions' };
 }
 
 function checkReasoningMaxMode(): DiagnosticCheck {
@@ -488,7 +569,7 @@ export function formatReport(checks: DiagnosticCheck[]): string {
     'COMPANION': checks.filter(c => c.id.startsWith('companion.')),
     'DATABASE': checks.filter(c => c.id.startsWith('db.')),
     'STATUS FILE': checks.filter(c => c.id.startsWith('status.')),
-    'CLAUDE CODE INTEGRATION': checks.filter(c => c.id.startsWith('mcp.') || c.id.startsWith('config.') || c.id.startsWith('prompt.')),
+    'HOST INTEGRATION': checks.filter(c => c.id.startsWith('mcp.') || c.id.startsWith('config.') || c.id.startsWith('prompt.')),
     'REASONING LAYER': checks.filter(c => c.id.startsWith('reasoning.')),
   };
 

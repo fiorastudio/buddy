@@ -284,6 +284,12 @@ The installer:
 3. Auto-configures supported CLI clients when detected
 4. Injects Buddy instructions into supported terminal prompts where applicable
 
+Current integration details vary by host:
+
+- Claude Code: Buddy auto-configures MCP, statusline, and Claude hook wiring.
+- Codex CLI: Buddy configures MCP, writes a `PostToolUse` hook in `~/.codex/hooks.json`, and injects prompt instructions into `~/.codex/AGENTS.md` or `~/.codex/instructions.md`.
+- GitHub Copilot CLI: Buddy configures MCP, writes a user-level `postToolUse` hook in `~/.copilot/settings.json`, and injects prompt instructions into `~/.copilot/AGENTS.md` or `~/.copilot/copilot-instructions.md`.
+- Cursor CLI: Buddy configures MCP in `~/.cursor/mcp.json`, writes an `afterShellExecution` hook in `~/.cursor/hooks.json`, and injects prompt instructions into `~/.cursor/rules/buddy.md`.
 If you prefer to install from source:
 
 ```bash
@@ -775,5 +781,4 @@ Learn more about the mission to rescue Buddy and the engineering behind the scen
 ## License
 
 MIT. This project is licensed under the MIT License. See [LICENSE](LICENSE). You are free to use, host, and monetize this project (you must credit this project in case of distribution and monetization).
-
 

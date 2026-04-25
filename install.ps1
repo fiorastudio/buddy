@@ -207,9 +207,118 @@ if (Test-Path "$env:USERPROFILE\.cursor") {
   Add-BuddyToConfig "$env:USERPROFILE\.cursor\mcp.json" "Cursor"
 }
 
+$cursorHooks = "$env:USERPROFILE\.cursor\hooks.json"
+if (Test-Path "$env:USERPROFILE\.cursor") {
+  $cursorConfig = @{}
+  if (Test-Path $cursorHooks) {
+    try { $cursorConfig = Get-Content $cursorHooks -Raw | ConvertFrom-Json }
+    catch { $cursorConfig = @{} }
+  }
+  if (!$cursorConfig.version) {
+    $cursorConfig | Add-Member -NotePropertyName "version" -NotePropertyValue 1 -Force
+  }
+  if (!$cursorConfig.hooks) {
+    $cursorConfig | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
+  }
+  if (!$cursorConfig.hooks.afterShellExecution) {
+    $cursorConfig.hooks | Add-Member -NotePropertyName "afterShellExecution" -NotePropertyValue @() -Force
+  }
+  $hasCursorHook = $false
+  foreach ($entry in @($cursorConfig.hooks.afterShellExecution)) {
+    if ($entry.command -eq "node $HOOK_PATH_UNIX") {
+      $hasCursorHook = $true
+    }
+  }
+  if (-not $hasCursorHook) {
+    $cursorConfig.hooks.afterShellExecution = @($cursorConfig.hooks.afterShellExecution) + @(@{ command = "node $HOOK_PATH_UNIX" })
+    $cursorConfig | ConvertTo-Json -Depth 8 | Set-Content $cursorHooks -Encoding UTF8
+    Write-Host "  ✓ Cursor CLI afterShellExecution hook configured ($cursorHooks)" -ForegroundColor Green
+  } else {
+    Write-Host "  ✓ Cursor CLI afterShellExecution hook already configured" -ForegroundColor Green
+  }
+}
+
 # GitHub Copilot CLI (only if ~/.copilot exists — don't create dir for users without Copilot)
 if (Test-Path "$env:USERPROFILE\.copilot") {
   Add-BuddyToConfig "$env:USERPROFILE\.copilot\mcp-config.json" "GitHub Copilot CLI"
+
+  $copilotSettings = "$env:USERPROFILE\.copilot\settings.json"
+  $copilotConfig = @{}
+  if (Test-Path $copilotSettings) {
+    try { $copilotConfig = Get-Content $copilotSettings -Raw | ConvertFrom-Json }
+    catch { $copilotConfig = @{} }
+  }
+  if (!$copilotConfig.hooks) {
+    $copilotConfig | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
+  }
+  if (!$copilotConfig.hooks.postToolUse) {
+    $copilotConfig.hooks | Add-Member -NotePropertyName "postToolUse" -NotePropertyValue @() -Force
+  }
+  $hasCopilotHook = $false
+  foreach ($entry in @($copilotConfig.hooks.postToolUse)) {
+    if ($entry.bash -eq "node $HOOK_PATH_UNIX" -or $entry.powershell -eq "node $HOOK_PATH_UNIX") {
+      $hasCopilotHook = $true
+    }
+  }
+  if (-not $hasCopilotHook) {
+    $copilotConfig.hooks.postToolUse = @($copilotConfig.hooks.postToolUse) + @(@{
+      type = "command"
+      bash = "node $HOOK_PATH_UNIX"
+      powershell = "node $HOOK_PATH_UNIX"
+      timeoutSec = 3
+    })
+    $copilotConfig | ConvertTo-Json -Depth 8 | Set-Content $copilotSettings -Encoding UTF8
+    Write-Host "  ✓ GitHub Copilot CLI postToolUse hook configured ($copilotSettings)" -ForegroundColor Green
+  } else {
+    Write-Host "  ✓ GitHub Copilot CLI postToolUse hook already configured" -ForegroundColor Green
+  }
+}
+
+if (Get-Command codex -ErrorAction SilentlyContinue) {
+  $codexHooks = "$env:USERPROFILE\.codex\hooks.json"
+  $codexConfig = @{}
+  if (Test-Path $codexHooks) {
+    try { $codexConfig = Get-Content $codexHooks -Raw | ConvertFrom-Json }
+    catch { $codexConfig = @{} }
+  }
+  if (!$codexConfig.hooks) {
+    $codexConfig | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
+  }
+  if (!$codexConfig.hooks.PostToolUse) {
+    $codexConfig.hooks | Add-Member -NotePropertyName "PostToolUse" -NotePropertyValue @() -Force
+  }
+  $postToolUseGroups = @($codexConfig.hooks.PostToolUse)
+  $codexGroup = $null
+  foreach ($entry in $postToolUseGroups) {
+    if ($entry.matcher -eq 'Bash' -and $entry.hooks) {
+      $codexGroup = $entry
+      break
+    }
+  }
+  if (-not $codexGroup) {
+    $codexGroup = [ordered]@{
+      matcher = "Bash"
+      hooks = @()
+    }
+    $codexConfig.hooks.PostToolUse = @($postToolUseGroups) + @($codexGroup)
+  }
+  $hasCodexHook = $false
+  foreach ($entry in @($codexGroup.hooks)) {
+    if ($entry.command -eq "node $HOOK_PATH_UNIX") {
+      $hasCodexHook = $true
+    }
+  }
+  if (-not $hasCodexHook) {
+    $codexGroup.hooks = @($codexGroup.hooks) + @(@{
+      type = "command"
+      command = "node $HOOK_PATH_UNIX"
+      statusMessage = "Reviewing Bash output"
+    })
+    $codexConfig | ConvertTo-Json -Depth 10 | Set-Content $codexHooks -Encoding UTF8
+    Write-Host "  ✓ Codex CLI PostToolUse hook configured ($codexHooks)" -ForegroundColor Green
+  } else {
+    Write-Host "  ✓ Codex CLI PostToolUse hook already configured" -ForegroundColor Green
+  }
 }
 
 # ── Inject buddy instructions into CLI prompt files ──

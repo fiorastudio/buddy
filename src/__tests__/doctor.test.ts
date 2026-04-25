@@ -79,7 +79,7 @@ describe('Doctor — formatReport', () => {
     expect(report).toContain('COMPANION');
     expect(report).toContain('DATABASE');
     expect(report).toContain('STATUS FILE');
-    expect(report).toContain('CLAUDE CODE INTEGRATION');
+    expect(report).toContain('HOST INTEGRATION');
     expect(report).toContain('REASONING LAYER');
     expect(report).toContain('SUMMARY');
   });
@@ -141,7 +141,7 @@ describe('Doctor — failure paths', () => {
     expect(['ok', 'fail']).toContain(mcp!.status);
     if (mcp!.status === 'fail') {
       expect(mcp!.suggestion).toBeDefined();
-      expect(mcp!.suggestion).toContain('claude mcp add');
+      expect(mcp!.suggestion).toContain('install script');
     }
   });
 
