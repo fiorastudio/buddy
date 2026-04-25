@@ -96,10 +96,10 @@ The installer will guide you through onboarding:
 | Client | Status |
 |---|---|
 | Claude Code CLI | Full support |
-| Codex CLI | Supported via MCP |
+| Codex CLI | Supported via MCP + AGENTS/instructions |
 | Gemini CLI | Supported via MCP |
-| GitHub Copilot CLI | Supported via MCP |
-| Cursor CLI | Supported via MCP |
+| GitHub Copilot CLI | Supported via MCP + AGENTS/instructions |
+| Cursor CLI | Supported via MCP + Cursor config/rules |
 | Other MCP-capable clients | Usually supported with manual config |
 
 ## Install Notes
@@ -110,6 +110,14 @@ The installer:
 2. Installs dependencies and builds the MCP server
 3. Auto-configures supported CLI clients when detected
 4. Injects Buddy instructions into supported terminal prompts where applicable
+
+Current integration details vary by host:
+
+- Claude Code: Buddy auto-configures MCP, statusline, and Claude hook wiring.
+- Codex CLI: Buddy configures MCP and injects prompt instructions into `~/.codex/AGENTS.md` or `~/.codex/instructions.md`.
+- GitHub Copilot CLI: Buddy configures MCP and injects prompt instructions into `~/.copilot/AGENTS.md` or `~/.copilot/copilot-instructions.md`.
+- Cursor CLI: Buddy configures MCP in `~/.cursor/mcp.json` and injects prompt instructions into `~/.cursor/rules/buddy.md`.
+- Codex, Cursor, and GitHub Copilot CLI hook auto-configuration are not implemented yet, so they do not currently get the same hook-driven automation layer as Claude Code.
 
 If you prefer to install from source:
 
