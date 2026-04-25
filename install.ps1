@@ -214,7 +214,7 @@ if (Test-Path "$env:USERPROFILE\.copilot") {
 # ── Inject buddy instructions into CLI prompt files ──
 
 $BUDDY_INSTRUCTIONS = @"
-<!-- buddy-companion -->
+<!-- buddy-companion v2 -->
 ## Buddy Companion
 
 You have a coding companion available via the buddy MCP server.
@@ -226,7 +226,7 @@ At the start of each conversation, call ``buddy_status`` to check on your buddy.
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
 After calling buddy_observe, relay the buddy's reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
-<!-- /buddy-companion -->
+<!-- /buddy-companion v2 -->
 "@
 
 function Inject-BuddyPrompt($filePath, $cliName) {
