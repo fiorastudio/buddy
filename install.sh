@@ -66,6 +66,9 @@ npm run build --quiet 2>/dev/null
 SERVER_PATH="$INSTALL_DIR/dist/server/index.js"
 CODEX_CONFIGURED=0
 HOOK_PATH="$INSTALL_DIR/dist/hooks/post-tool-handler.js"
+CLAUDE_CONFIGURED=0
+CURSOR_CONFIGURED=0
+COPILOT_CONFIGURED=0
 
 # ── Auto-configure MCP for detected CLIs ──
 
@@ -224,6 +227,8 @@ EOJS
   else
     echo -e "  ${YELLOW}!${NC} node not found — cannot configure hooks or statusline"
   fi
+
+  CLAUDE_CONFIGURED=1
 }
 
 configure_cursor_hooks() {
@@ -340,6 +345,7 @@ EOJSON
       " 2>/dev/null
     fi
     echo -e "  ${GREEN}✓${NC} Cursor configured ${DIM}($config_file)${NC}"
+    CURSOR_CONFIGURED=1
   fi
 }
 
@@ -373,6 +379,7 @@ EOJSON
       fi
     fi
     echo -e "  ${GREEN}✓${NC} GitHub Copilot CLI configured ${DIM}($config_file)${NC}"
+    COPILOT_CONFIGURED=1
   fi
 }
 
@@ -459,7 +466,7 @@ configure_codex_hooks
 
 # ── Inject buddy instructions into CLI prompt files ──
 
-BUDDY_INSTRUCTIONS='<!-- buddy-companion -->
+BUDDY_INSTRUCTIONS='<!-- buddy-companion v2 -->
 ## Buddy Companion
 
 You have a coding companion available via the buddy MCP server.
@@ -471,7 +478,7 @@ At the start of each conversation, call `buddy_status` to check on your buddy.
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
 After calling buddy_observe, relay the buddy'\''s reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
-<!-- /buddy-companion -->'
+<!-- /buddy-companion v2 -->'
 
 inject_prompt() {
   local file="$1"
@@ -494,9 +501,15 @@ inject_prompt() {
 
 echo ""
 echo "  Injecting buddy instructions..."
-inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
-mkdir -p "$HOME/.cursor/rules" 2>/dev/null
-inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor CLI"
+
+if [ "$CLAUDE_CONFIGURED" -eq 1 ]; then
+  inject_prompt "$HOME/.claude/CLAUDE.md" "Claude Code"
+fi
+
+if [ "$CURSOR_CONFIGURED" -eq 1 ]; then
+  mkdir -p "$HOME/.cursor/rules" 2>/dev/null
+  inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor CLI"
+fi
 
 # Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
 if [ "$CODEX_CONFIGURED" -eq 1 ]; then
@@ -517,10 +530,12 @@ else
 fi
 
 # GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
-if [ -f "$HOME/.copilot/AGENTS.md" ]; then
-  inject_prompt "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
-else
-  inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+if [ "$COPILOT_CONFIGURED" -eq 1 ]; then
+  if [ -f "$HOME/.copilot/AGENTS.md" ]; then
+    inject_prompt "$HOME/.copilot/AGENTS.md" "GitHub Copilot CLI"
+  else
+    inject_prompt "$HOME/.copilot/copilot-instructions.md" "GitHub Copilot CLI"
+  fi
 fi
 
 # ── Run onboarding wizard ──
