@@ -121,7 +121,7 @@ export function writeConcernedReaction(statusPath: string = BUDDY_STATUS_PATH, e
  */
 export function handlePostToolUse(input: PostToolUseInput | GenericHookInput, statusPath: string = BUDDY_STATUS_PATH): boolean {
   const toolName = inferToolName(input);
-  if (toolName !== "Bash" && toolName.toLowerCase() !== "bash") return false;
+  if (toolName.toLowerCase() !== "bash") return false;
 
   const output = inferToolOutput(input);
 
