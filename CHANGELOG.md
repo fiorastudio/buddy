@@ -2,6 +2,22 @@
 
 All notable changes to this project will follow [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] - 2026-04-26
+
+### Added
+- **Non-Claude host hook auto-configuration** (PR #96): The installer now wires up Buddy's post-tool hook on Codex CLI, Cursor, and GitHub Copilot CLI automatically when those tools are detected — no manual config needed.
+  - Codex CLI: `PostToolUse` hook written to `~/.codex/hooks.json` (matcher: `Bash`)
+  - Cursor: `afterShellExecution` hook written to `~/.cursor/hooks.json`
+  - GitHub Copilot CLI: `postToolUse` hook written to `~/.copilot/settings.json`
+  - Works in both `install.sh` (macOS/Linux) and `install.ps1` (Windows)
+- **Host-aware prompt injection**: Buddy instructions are now only injected into prompt files for tools that are actually detected and configured. Claude Code, Cursor, Codex, Copilot, and Gemini each gate on their own `*_CONFIGURED` flag. Gemini injection is gated on `~/.gemini` directory existence and only writes to files that already exist (no spurious file creation).
+- **Host-agnostic `buddy_doctor`**: MCP registration, hook detection, and prompt injection checks now span all supported hosts. The report section is renamed from "CLAUDE CODE INTEGRATION" to "HOST INTEGRATION".
+- **Multi-host `post-tool-handler`**: The shared hook handler now accepts payload shapes from Codex, Cursor, and Copilot in addition to Claude Code (`tool_name`/`tool_response`, `toolName`/`toolResult`, and shell-style `command`/`stdout`/`stderr`/`exitCode` are all normalised).
+
+### Fixed
+- Gemini CLI prompt injection no longer creates `~/.gemini/GEMINI.md` on machines that don't have Gemini installed.
+- Prompt injection for Claude Code, Cursor, and Copilot is now skipped (not just a no-op) when those hosts are not detected.
+
 ## [1.0.5] - 2026-04-23
 
 ### Added
