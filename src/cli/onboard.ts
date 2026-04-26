@@ -181,7 +181,7 @@ async function main() {
 
   // Execute
   if (action === 'skip') {
-    console.log(`\n  ${c(DIM, 'No problem. Say "hatch a buddy" in your CLI to start later.')}\n`);
+    console.log(`\n  ${c(DIM, 'No problem. When you are ready, open the AI chat in your client and ask to hatch a buddy — that goes to the assistant, not the shell.')}\n`);
     process.exit(0);
   }
 

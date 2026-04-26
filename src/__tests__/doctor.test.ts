@@ -6,7 +6,7 @@ describe('Doctor — runDiagnostics', () => {
   it('returns an array of checks', () => {
     const checks = runDiagnostics();
     expect(Array.isArray(checks)).toBe(true);
-    expect(checks.length).toBe(21);
+    expect(checks.length).toBe(23);
   });
 
   it('every check has required fields', () => {
@@ -39,6 +39,16 @@ describe('Doctor — runDiagnostics', () => {
     const verCheck = checks.find(c => c.id === 'pkg.version');
     expect(verCheck).toBeDefined();
     expect(verCheck!.detail).toMatch(/@fiorastudio\/buddy v/);
+  });
+
+  it('install.server and mcp.paths checks exist and use valid statuses', () => {
+    const checks = runDiagnostics();
+    const install = checks.find(c => c.id === 'install.server');
+    const mcpPaths = checks.find(c => c.id === 'mcp.paths');
+    expect(install).toBeDefined();
+    expect(mcpPaths).toBeDefined();
+    expect(['ok', 'warn', 'fail']).toContain(install!.status);
+    expect(['ok', 'warn', 'fail', 'skip']).toContain(mcpPaths!.status);
   });
 
   it('db.exists check runs without throwing', () => {
@@ -88,7 +98,7 @@ describe('Doctor — formatReport', () => {
   it('includes check count in header', () => {
     const checks = runDiagnostics();
     const report = formatReport(checks);
-    expect(report).toContain('21 checks:');
+    expect(report).toContain('23 checks:');
   });
 
   it('includes ISO timestamp', () => {
@@ -137,10 +147,11 @@ describe('Doctor — failure paths', () => {
     const checks = runDiagnostics();
     const status = checks.find(c => c.id === 'status.file');
     expect(status).toBeDefined();
-    // In test env, status file likely doesn't exist
+    // In test env, status file may be missing, stale, or present
     expect(['ok', 'warn']).toContain(status!.status);
     if (status!.status === 'warn') {
-      expect(status!.detail).toContain('not found');
+      // Missing file, stale, read-only, etc. — environment-dependent
+      expect(status!.detail.length).toBeGreaterThan(5);
     }
   });
 

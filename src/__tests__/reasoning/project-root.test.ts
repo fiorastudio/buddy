@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { resolveProjectRoot, resetProjectRootMemo } from '../../lib/reasoning/project-root.js';
@@ -90,7 +90,7 @@ describe('resolveProjectRoot', () => {
     const r = resolveProjectRoot(undefined);
     expect(r.source).toBe('marker');
     expect(r.markerFound).toBe('.git');
-    expect(r.path).toBe(proj);
+    expect(realpathSync(r.path)).toBe(realpathSync(proj));
   });
 
   it('finds package.json as a marker when there is no .git', () => {
@@ -102,7 +102,7 @@ describe('resolveProjectRoot', () => {
     const r = resolveProjectRoot(undefined);
     expect(r.source).toBe('marker');
     expect(r.markerFound).toBe('package.json');
-    expect(r.path).toBe(proj);
+    expect(realpathSync(r.path)).toBe(realpathSync(proj));
   });
 
   it('.git beats package.json (priority order in the marker list)', () => {

@@ -428,7 +428,8 @@ if (Test-Path $ONBOARD_SCRIPT) {
 
 Write-Host ""
 if ($CLAUDE_CONFIGURED -or $CURSOR_CONFIGURED -or $COPILOT_CONFIGURED -or $CODEX_CONFIGURED) {
-  Write-Host "  ✅ Buddy installed! Say `"hatch a buddy`" to start." -ForegroundColor Green
+  Write-Host "  ✅ Buddy installed!" -ForegroundColor Green
+  Write-Host "  Next: in your client, open the AI chat and ask the assistant to hatch your first buddy. That is a message to the model, not a command in this terminal." -ForegroundColor DarkGray
 } elseif (Get-Command codex -ErrorAction SilentlyContinue) {
   Write-Host "  ⚠ Buddy installed, but no supported host was fully configured." -ForegroundColor Yellow
   Write-Host "  ! Codex CLI is installed, but MCP registration still needs attention." -ForegroundColor Yellow

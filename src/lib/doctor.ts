@@ -1,7 +1,7 @@
 // src/lib/doctor.ts — Diagnostic engine for buddy_doctor tool and CLI
 
 import { readFileSync, accessSync, statSync, constants as fsConstants } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve as pathResolve, normalize, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { BUDDY_DB_PATH, BUDDY_STATUS_PATH } from './constants.js';
@@ -14,6 +14,15 @@ import { basisDistributionHealth } from './reasoning/telemetry.js';
 
 // Shared sentinel — keep in sync with install.sh / install.ps1
 export const PROMPT_SENTINEL_V2 = 'buddy-companion v2';
+
+/** Default clone/build root from install.sh (INSTALL_DIR) */
+export function canonicalBuddyInstallDir(): string {
+  return join(homedir(), '.buddy', 'server');
+}
+
+export function canonicalBuddyMcpEntryPath(): string {
+  return join(canonicalBuddyInstallDir(), 'dist', 'server', 'index.js');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -50,6 +59,79 @@ function readJsonSafe(path: string): any {
 
 function readTextSafe(path: string): string | null {
   try { return readFileSync(path, 'utf-8'); } catch { return null; }
+}
+
+function expandTildeInPath(p: string): string {
+  if (p === '~' || p.startsWith('~/')) {
+    return p === '~' ? homedir() : join(homedir(), p.slice(2));
+  }
+  return p;
+}
+
+/**
+ * Resolves a config path for existence checks (tilde, relative segments).
+ */
+function resolveBuddyEntryPath(p: string): string {
+  const expanded = expandTildeInPath(p.trim());
+  if (isAbsolute(expanded)) {
+    return normalize(pathResolve(expanded));
+  }
+  return normalize(pathResolve(process.cwd(), expanded));
+}
+
+/**
+ * First script path from a host's buddy MCP block (install.sh / Cursor style).
+ */
+function entryPathFromMcpBlock(buddy: any): string | null {
+  if (!buddy || typeof buddy !== 'object') return null;
+  const args = buddy.args;
+  if (Array.isArray(args) && args.length > 0 && typeof args[0] === 'string' && args[0].endsWith('.js')) {
+    return args[0];
+  }
+  return null;
+}
+
+/**
+ * All buddy MCP `dist/server/index.js` paths from known config files (for mismatch / missing checks).
+ */
+function getRegisteredBuddyMcpEntryPaths(): Array<{ source: string; path: string; resolved: string }> {
+  const out: Array<{ source: string; path: string; resolved: string }> = [];
+
+  const claudeJsonPath = join(homedir(), '.claude.json');
+  const cj = readJsonSafe(claudeJsonPath);
+  const p1 = entryPathFromMcpBlock(cj?.mcpServers?.buddy);
+  if (p1) {
+    out.push({ source: claudeJsonPath, path: p1, resolved: resolveBuddyEntryPath(p1) });
+  }
+
+  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  const st = readJsonSafe(settingsPath);
+  const p2 = entryPathFromMcpBlock(st?.mcpServers?.buddy);
+  if (p2) {
+    out.push({ source: settingsPath, path: p2, resolved: resolveBuddyEntryPath(p2) });
+  }
+
+  const cur = readJsonSafe(cursorMcpPath());
+  const p3 = entryPathFromMcpBlock(cur?.mcpServers?.buddy);
+  if (p3) {
+    out.push({ source: cursorMcpPath(), path: p3, resolved: resolveBuddyEntryPath(p3) });
+  }
+
+  const cop = readJsonSafe(copilotMcpPath());
+  const p4 = entryPathFromMcpBlock(cop?.mcpServers?.buddy);
+  if (p4) {
+    out.push({ source: copilotMcpPath(), path: p4, resolved: resolveBuddyEntryPath(p4) });
+  }
+
+  const toml = readTextSafe(codexConfigPath());
+  if (toml) {
+    const m = toml.match(/\[mcp_servers\.buddy\][\s\S]*?args\s*=\s*\[\s*"([^"]+\.js)"/);
+    if (m?.[1]) {
+      out.push({ source: codexConfigPath(), path: m[1], resolved: resolveBuddyEntryPath(m[1]) });
+    }
+  }
+
+  return out;
 }
 
 function formatPathList(paths: string[]): string {
@@ -122,6 +204,113 @@ function checkEnvVars(): DiagnosticCheck {
 function checkPackageVersion(): DiagnosticCheck {
   const ver = getVersion();
   return { id: 'pkg.version', status: 'ok', label: 'Package', detail: `@fiorastudio/buddy v${ver}` };
+}
+
+const INSTALL_CURL = 'curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh | bash';
+const BUILD_FROM_SOURCE = 'git clone https://github.com/fiorastudio/buddy.git ~/.buddy/server && cd ~/.buddy/server && npm install && npm run build';
+
+/**
+ * install.sh default location: ~/.buddy/server/dist/server/index.js
+ * Strong signal when buddy.db exists but the tree is missing (common partial install / manual DB).
+ */
+function checkInstallLayout(): DiagnosticCheck {
+  const expected = canonicalBuddyMcpEntryPath();
+  if (fileExists(expected)) {
+    return {
+      id: 'install.server',
+      status: 'ok',
+      label: 'Server install',
+      detail: `\u2713 ${expected}`,
+    };
+  }
+
+  // Only fail hard when the *default* data file on disk exists (user has state but no
+  // install). Custom BUDDY_DB_PATH in tests/CI should not trip this.
+  const homeDefaultDb = join(homedir(), '.buddy', 'buddy.db');
+  const hasStateWithoutInstall = fileExists(homeDefaultDb);
+  const hasDir = fileExists(canonicalBuddyInstallDir());
+  const parts = [hasStateWithoutInstall ? 'buddy.db in ~/.buddy' : null, hasDir ? 'repo dir without dist build' : null].filter(Boolean);
+  const ctx = parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+  const suggestion = `Run the installer: ${INSTALL_CURL} — or: ${BUILD_FROM_SOURCE}`;
+
+  if (hasStateWithoutInstall) {
+    return {
+      id: 'install.server',
+      status: 'fail',
+      label: 'Server install',
+      detail: `Missing or not built: ${expected}${ctx}`,
+      suggestion: `Data exists at ~/.buddy/buddy.db but the standard server checkout/build is not present. ${suggestion} Then re-point MCP to ~/.buddy/server/dist/server/index.js if needed.`,
+    };
+  }
+
+  return {
+    id: 'install.server',
+    status: 'warn',
+    label: 'Server install',
+    detail: `Missing: ${expected}${ctx}`,
+    suggestion,
+  };
+}
+
+/**
+ * MCP paths must exist; warn when multiple host configs or non-canonical copy is used.
+ */
+function checkMcpEntryPaths(): DiagnosticCheck {
+  const registered = getRegisteredBuddyMcpEntryPaths();
+  if (registered.length === 0) {
+    return {
+      id: 'mcp.paths',
+      status: 'skip',
+      label: 'MCP paths',
+      detail: 'No buddy args found in config files (see mcp.registered)',
+    };
+  }
+
+  const missing = registered.filter((r) => !fileExists(r.resolved));
+  if (missing.length > 0) {
+    const list = missing.map((m) => `${m.source} \u2192 ${m.resolved} (missing)`).join(' | ');
+    return {
+      id: 'mcp.paths',
+      status: 'fail',
+      label: 'MCP paths',
+      detail: list,
+      suggestion: `Fix or rebuild the path in mcp config, or install to ~/.buddy/server: ${BUILD_FROM_SOURCE}`,
+    };
+  }
+
+  const unique = [...new Set(registered.map((r) => r.resolved))];
+  if (unique.length > 1) {
+    return {
+      id: 'mcp.paths',
+      status: 'warn',
+      label: 'MCP paths',
+      detail: `Multiple different entry scripts: ${unique.join(' | ')}`,
+      suggestion: 'Point every host at one checkout (recommended: ~/.buddy/server/dist/server/index.js) so CLI and IDEs use the same Buddy build.',
+    };
+  }
+
+  const canonical = normalize(pathResolve(canonicalBuddyMcpEntryPath()));
+  const only = unique[0]!;
+  if (only === canonical) {
+    return { id: 'mcp.paths', status: 'ok', label: 'MCP paths', detail: `\u2713 single path, matches standard install` };
+  }
+
+  if (fileExists(canonical)) {
+    return {
+      id: 'mcp.paths',
+      status: 'warn',
+      label: 'MCP paths',
+      detail: `MCP uses ${only} but standard install also exists: ${canonical}`,
+      suggestion: 'Align ~/.cursor/mcp.json (and other hosts) on one path, or remove the extra checkout to avoid version drift.',
+    };
+  }
+
+  return {
+    id: 'mcp.paths',
+    status: 'ok',
+    label: 'MCP paths',
+    detail: `\u2713 ${only} (non-standard; ~/.buddy/server not present)`,
+  };
 }
 
 function checkCompanionActive(): DiagnosticCheck {
@@ -523,6 +712,7 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkPlatform(),
     checkEnvVars(),
     checkPackageVersion(),
+    checkInstallLayout(),
     checkCompanionActive(),
     checkCompanionCount(),
     checkCompanionDetails(),
@@ -530,6 +720,7 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkDbTables(),
     checkStatusFile(),
     checkMcpRegistered(),
+    checkMcpEntryPaths(),
     checkStatusline(),
     checkStatuslineRefresh(),
     checkHooks(),
@@ -565,7 +756,7 @@ export function formatReport(checks: DiagnosticCheck[]): string {
 
   // Group checks by section
   const sections: Record<string, DiagnosticCheck[]> = {
-    'ENVIRONMENT': checks.filter(c => c.id.startsWith('env.') || c.id.startsWith('pkg.')),
+    'ENVIRONMENT': checks.filter(c => c.id.startsWith('env.') || c.id.startsWith('pkg.') || c.id.startsWith('install.')),
     'COMPANION': checks.filter(c => c.id.startsWith('companion.')),
     'DATABASE': checks.filter(c => c.id.startsWith('db.')),
     'STATUS FILE': checks.filter(c => c.id.startsWith('status.')),

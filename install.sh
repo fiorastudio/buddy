@@ -555,7 +555,8 @@ fi
 
 echo ""
 if [ "$CLAUDE_CONFIGURED" -eq 1 ] || [ "$CURSOR_CONFIGURED" -eq 1 ] || [ "$COPILOT_CONFIGURED" -eq 1 ] || [ "$CODEX_CONFIGURED" -eq 1 ]; then
-  echo -e "${GREEN}  ✅ Buddy installed! Say \"hatch a buddy\" to start.${NC}"
+  echo -e "${GREEN}  ✅ Buddy installed!${NC}"
+  echo -e "  ${DIM}Next: in your client, open the AI chat and ask the assistant to hatch your first buddy. That is a message to the model, not a command in this terminal.${NC}"
 elif command -v codex &> /dev/null; then
   echo -e "${YELLOW}  ⚠ Buddy installed, but no supported host was fully configured.${NC}"
   echo -e "  ${YELLOW}!${NC} Codex CLI is installed, but MCP registration still needs attention."
