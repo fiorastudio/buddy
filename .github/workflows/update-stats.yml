@@ -94,11 +94,7 @@ jobs:
           TODAY_EPOCH=$(date -d today +%s)
           DAYS_ALIVE=$(( (TODAY_EPOCH - LAUNCH_EPOCH) / 86400 ))
           WEEKS_ALIVE=$((DAYS_ALIVE / 7))
-          if [ "$WEEKS_ALIVE" -eq 1 ]; then
-            WEEKS_TEXT="~1 week"
-          else
-            WEEKS_TEXT="~${WEEKS_ALIVE} weeks"
-          fi
+          WEEKS_TEXT="~${WEEKS_ALIVE} weeks"
 
           # Update clones count
           sed -i "s/[0-9,]*+ clones/${CLONES_TEXT} clones/" README.md
@@ -119,5 +115,6 @@ jobs:
           else
             echo "No changes to commit."
           fi
+
 
 
