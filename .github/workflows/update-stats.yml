@@ -89,12 +89,24 @@ jobs:
           CLONES_TEXT="${FORMATTED_CLONES}+"
           RESCUED_TEXT="${FORMATTED_UNIQUES}+"
 
+          # Calculate weeks alive since April 10, 2026
+          LAUNCH_EPOCH=$(date -d "2026-04-10" +%s)
+          TODAY_EPOCH=$(date -d today +%s)
+          DAYS_ALIVE=$(( (TODAY_EPOCH - LAUNCH_EPOCH) / 86400 ))
+          WEEKS_ALIVE=$((DAYS_ALIVE / 7))
+          if [ "$WEEKS_ALIVE" -eq 1 ]; then
+            WEEKS_TEXT="~1 week"
+          else
+            WEEKS_TEXT="~${WEEKS_ALIVE} weeks"
+          fi
+
           # Update clones count
           sed -i "s/[0-9,]*+ clones/${CLONES_TEXT} clones/" README.md
           # Update buddies rescued/hatched count
           sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
           sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
           sed -i "s/[0-9,]*+ buddies rescued or hatched/${RESCUED_TEXT} buddies rescued or hatched/" README.md
+          sed -i "s/~[0-9]* weeks\? in the wild/${WEEKS_TEXT} in the wild/" README.md
 
           # 7. Commit and push directly to master
           git config --local user.email "action@github.com"
@@ -102,9 +114,10 @@ jobs:
           git add README.md "$STATS_FILE"
           
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update stats — ${CLONES_TEXT} clones, ${RESCUED_TEXT} rescued [skip ci]"
+            git commit -m "chore: update stats — ${CLONES_TEXT} clones, ${RESCUED_TEXT} rescued, ${WEEKS_TEXT} in the wild [skip ci]"
             git push origin master
           else
             echo "No changes to commit."
           fi
+
 
