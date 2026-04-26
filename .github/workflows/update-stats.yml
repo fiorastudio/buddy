@@ -94,7 +94,7 @@ jobs:
           # Update buddies rescued/hatched count
           sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
           sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
-          sed -i "s/[0-9,]*+ buddies saved or hatched/${RESCUED_TEXT} buddies saved or hatched/" README.md
+          sed -i "s/[0-9,]*+ buddies rescued or hatched/${RESCUED_TEXT} buddies rescued or hatched/" README.md
 
           # 7. Commit and push directly to master
           git config --local user.email "action@github.com"
@@ -107,3 +107,4 @@ jobs:
           else
             echo "No changes to commit."
           fi
+
