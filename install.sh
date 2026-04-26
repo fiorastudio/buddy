@@ -511,7 +511,7 @@ if [ "$CURSOR_CONFIGURED" -eq 1 ]; then
   inject_prompt "$HOME/.cursor/rules/buddy.md" "Cursor CLI"
 fi
 
-# Codex CLI (supports AGENTS.md and instructions.md — prefer AGENTS.md)
+# Codex CLI (only inject prompts after Buddy MCP is configured; prefer AGENTS.md)
 if [ "$CODEX_CONFIGURED" -eq 1 ]; then
   if [ -f "$HOME/.codex/AGENTS.md" ]; then
     inject_prompt "$HOME/.codex/AGENTS.md" "Codex CLI"
@@ -522,11 +522,15 @@ else
   echo -e "  ${YELLOW}!${NC} Skipping Codex CLI prompt injection because Buddy MCP is not configured"
 fi
 
-# Gemini CLI (supports GEMINI.md and AGENTS.md — use whichever exists, prefer GEMINI.md)
-if [ -f "$HOME/.gemini/AGENTS.md" ] && [ ! -f "$HOME/.gemini/GEMINI.md" ]; then
-  inject_prompt "$HOME/.gemini/AGENTS.md" "Gemini CLI"
-else
-  inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+# Gemini CLI (only touch existing Gemini prompt locations; Buddy does not auto-configure Gemini MCP)
+if [ -d "$HOME/.gemini" ]; then
+  if [ -f "$HOME/.gemini/GEMINI.md" ]; then
+    inject_prompt "$HOME/.gemini/GEMINI.md" "Gemini CLI"
+  elif [ -f "$HOME/.gemini/AGENTS.md" ]; then
+    inject_prompt "$HOME/.gemini/AGENTS.md" "Gemini CLI"
+  else
+    echo -e "  ${YELLOW}!${NC} Skipping Gemini CLI prompt injection because no existing Gemini prompt file was found"
+  fi
 fi
 
 # GitHub Copilot CLI (supports AGENTS.md and copilot-instructions.md — prefer AGENTS.md)
@@ -550,12 +554,20 @@ elif [ "$NO_ONBOARD" -eq 1 ]; then
 fi
 
 echo ""
-if [ "$CODEX_CONFIGURED" -eq 1 ] || ! command -v codex &> /dev/null; then
+if [ "$CLAUDE_CONFIGURED" -eq 1 ] || [ "$CURSOR_CONFIGURED" -eq 1 ] || [ "$COPILOT_CONFIGURED" -eq 1 ] || [ "$CODEX_CONFIGURED" -eq 1 ]; then
   echo -e "${GREEN}  ✅ Buddy installed! Say \"hatch a buddy\" to start.${NC}"
-  echo ""
-  echo -e "  💛 If you like it, star the repo:"
-  echo "  github.com/fiorastudio/buddy"
+elif command -v codex &> /dev/null; then
+  echo -e "${YELLOW}  ⚠ Buddy installed, but no supported host was fully configured.${NC}"
+  echo -e "  ${YELLOW}!${NC} Codex CLI is installed, but MCP registration still needs attention."
 else
-  echo -e "${YELLOW}  ⚠ Buddy installed, but Codex CLI still needs MCP configuration.${NC}"
+  echo -e "${YELLOW}  ⚠ Buddy installed, but no supported host was fully configured.${NC}"
+  echo -e "  ${YELLOW}!${NC} Open a supported CLI and rerun the installer to wire Buddy in automatically."
 fi
+if [ "$CODEX_CONFIGURED" -ne 1 ] && command -v codex &> /dev/null; then
+  echo ""
+  echo -e "  ${YELLOW}!${NC} Codex CLI prompt injection was skipped because Buddy MCP is not configured there yet."
+fi
+echo ""
+echo -e "  💛 If you like it, star the repo:"
+echo "  github.com/fiorastudio/buddy"
 echo ""
