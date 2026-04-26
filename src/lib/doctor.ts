@@ -1,6 +1,6 @@
 // src/lib/doctor.ts — Diagnostic engine for buddy_doctor tool and CLI
 
-import { readFileSync, accessSync, statSync, constants as fsConstants } from 'fs';
+import { readFileSync, accessSync, statSync, realpathSync, constants as fsConstants } from 'fs';
 import { join, dirname, resolve as pathResolve, normalize, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -61,6 +61,10 @@ function readTextSafe(path: string): string | null {
   try { return readFileSync(path, 'utf-8'); } catch { return null; }
 }
 
+function safeRealpath(p: string): string {
+  try { return realpathSync(p); } catch { return p; }
+}
+
 function expandTildeInPath(p: string): string {
   if (p === '~' || p.startsWith('~/')) {
     return p === '~' ? homedir() : join(homedir(), p.slice(2));
@@ -85,10 +89,9 @@ function resolveBuddyEntryPath(p: string): string {
 function entryPathFromMcpBlock(buddy: any): string | null {
   if (!buddy || typeof buddy !== 'object') return null;
   const args = buddy.args;
-  if (Array.isArray(args) && args.length > 0 && typeof args[0] === 'string' && args[0].endsWith('.js')) {
-    return args[0];
-  }
-  return null;
+  if (!Array.isArray(args)) return null;
+  const entry = args.find((a: unknown) => typeof a === 'string' && a.endsWith('.js'));
+  return entry ?? null;
 }
 
 /**
@@ -291,7 +294,7 @@ function checkMcpEntryPaths(): DiagnosticCheck {
 
   const canonical = normalize(pathResolve(canonicalBuddyMcpEntryPath()));
   const only = unique[0]!;
-  if (only === canonical) {
+  if (safeRealpath(only) === safeRealpath(canonical)) {
     return { id: 'mcp.paths', status: 'ok', label: 'MCP paths', detail: `\u2713 single path, matches standard install` };
   }
 
