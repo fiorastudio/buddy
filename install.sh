@@ -501,7 +501,12 @@ inject_prompt() {
 
   # Upgrade from older version: strip the old block before appending new one
   if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
-    sed -i '/<!-- buddy-companion/,/<!-- \/buddy-companion/d' "$file"
+    if grep -q "<!-- /buddy-companion" "$file" 2>/dev/null; then
+      sed -i '/<!-- buddy-companion/,/<!-- \/buddy-companion/d' "$file"
+    else
+      # Malformed block (no closing marker) — remove just the opening line
+      sed -i '/<!-- buddy-companion/d' "$file"
+    fi
     echo -e "  ${GREEN}↑${NC} $cli_name prompt upgrading buddy instructions to v3"
   fi
 

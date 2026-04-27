@@ -381,7 +381,7 @@ function Inject-BuddyPrompt($filePath, $cliName) {
   # Upgrade from older version: strip the old block before appending new one
   if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion" -Quiet)) {
     $content = Get-Content $filePath -Raw
-    $content = $content -replace '(?s)<!-- buddy-companion.*?<!-- /buddy-companion[^>]*-->', ''
+    $content = $content -replace '(?s)<!-- buddy-companion.*?<!-- /buddy-companion v\d+\s*-->', ''
     $content = $content.Trim()
     Set-Content -Path $filePath -Value $content -Encoding UTF8
     Write-Host "  ↑ $cliName prompt upgrading buddy instructions to v3" -ForegroundColor Green
