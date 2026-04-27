@@ -23,6 +23,22 @@ All notable changes to this project will follow [Semantic Versioning](https://se
 - **"Dark" and "bright" nudges renamed** to **"caution"** and **"kudos"** nudges — clearer labels for the two finding categories. Finding type values (`load_bearing_vibes`, etc.) are unchanged.
 - Version bumped to **1.0.7**.
 
+### Upgrade notes
+Re-run the installer to get 1.0.7:
+```bash
+# macOS/Linux
+curl -fsSL https://raw.githubusercontent.com/fiorastudio/buddy/master/install.sh | bash
+
+# Windows
+irm https://raw.githubusercontent.com/fiorastudio/buddy/master/install.ps1 | iex
+```
+
+**Existing users — what you need to know:**
+- **Database**: The `max_mode` column is automatically renamed to `insight_mode` on first startup. No manual migration needed.
+- **`buddy_mode max=true` still works**: The `max` parameter is accepted as a deprecated alias for `insight`. You'll see a deprecation note in the response suggesting you switch to `buddy_mode insight=true`.
+- **Stored data is unaffected**: Finding type IDs (`load_bearing_vibes`, `echo_chamber`, etc.) and all claim/edge data in `buddy.db` are unchanged. The "caution"/"kudos" labels are display-only — nothing in the database references "dark" or "bright".
+- **No action required**: Just upgrade and everything works. Update `max` → `insight` in your CLAUDE.md or scripts at your convenience.
+
 ### Fixed
 - Gemini CLI prompt injection no longer creates `~/.gemini/GEMINI.md` on machines that don't have Gemini installed.
 - Prompt injection for Claude Code, Cursor, and Copilot is now skipped (not just a no-op) when those hosts are not detected.
