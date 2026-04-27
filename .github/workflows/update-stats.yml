@@ -60,13 +60,6 @@ jobs:
             )
           ')
 
-          # Exit early when the latest traffic window hasn't changed. This keeps
-          # the backup schedule from producing redundant commits.
-          if [ "$NEW_DAILY_UNIQUES" = "$DAILY_UNIQUES" ] && [ "$NEW_DAILY_CLONES" = "$DAILY_CLONES" ]; then
-            echo "Traffic snapshot unchanged; skipping README and stats update."
-            exit 0
-          fi
-
           # 4. Recalculate totals (Baseline + Sum of Daily)
           UNIQUES_SUM=$(echo "$NEW_DAILY_UNIQUES" | jq '[.[]] | add // 0')
           CLONES_SUM=$(echo "$NEW_DAILY_CLONES" | jq '[.[]] | add // 0')
@@ -109,12 +102,19 @@ jobs:
           WEEKS_TEXT="~${WEEKS_ALIVE} weeks"
 
           # Update clones count
-          sed -i "s/[0-9,]*+ clones/${CLONES_TEXT} clones/" README.md
+          sed -i "s/\*\*🚀 [0-9,]*+ clones · [0-9,]*+ buddies rescued or hatched · [0-9]* weeks in the wild\*\*/\*\*🚀 ${CLONES_TEXT} clones · ${RESCUED_TEXT} buddies rescued or hatched · ${WEEKS_ALIVE} weeks in the wild\*\*/" README.md
           # Update buddies rescued/hatched count
           sed -i "s/\*\*🐾 [0-9,]*+ Buddies Rescued & Hatched · Our terminal companions are finally coming home\.\*\*/\*\*🐾 ${RESCUED_TEXT} Buddies Rescued \& Hatched · Our terminal companions are finally coming home.\*\*/" README.md
           sed -i "s|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-[0-9,]*+-green?style=flat-square&logo=gitlfs)|!\[Buddies Rescued\](https://img.shields.io/badge/buddies_rescued-${RESCUED_TEXT}-green?style=flat-square\&logo=gitlfs)|" README.md
           sed -i "s/[0-9,]*+ buddies rescued or hatched/${RESCUED_TEXT} buddies rescued or hatched/" README.md
           sed -i "s/~[0-9]* weeks\? in the wild/${WEEKS_TEXT} in the wild/" README.md
+
+          EXPECTED_HEADLINE="**🚀 ${CLONES_TEXT} clones · ${RESCUED_TEXT} buddies rescued or hatched · ${WEEKS_ALIVE} weeks in the wild**"
+          if ! grep -Fq "$EXPECTED_HEADLINE" README.md; then
+            echo "README headline did not update to the expected stats line."
+            echo "Expected: $EXPECTED_HEADLINE"
+            exit 1
+          fi
 
           # 7. Commit and push directly to master
           git config --local user.email "action@github.com"
@@ -127,4 +127,3 @@ jobs:
           else
             echo "No changes to commit."
           fi
-
