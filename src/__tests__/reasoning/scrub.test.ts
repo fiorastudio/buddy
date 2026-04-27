@@ -12,6 +12,7 @@ describe('scrubReactionText', () => {
     expect(scrubReactionText('I detected a problem')).not.toMatch(/detected/i);
     expect(scrubReactionText('the graph shows it')).not.toMatch(/the graph/i);
     expect(scrubReactionText('[max mode] kicking in')).not.toMatch(/\[max mode\]/i);
+    expect(scrubReactionText('[insight mode] kicking in')).not.toMatch(/\[insight mode\]/i);
   });
 
   it('rewrites scold phrasings', () => {
@@ -22,7 +23,7 @@ describe('scrubReactionText', () => {
   });
 
   it('collapses double-spaces introduced by replacement', () => {
-    const out = scrubReactionText('before [max mode] after');
+    const out = scrubReactionText('before [insight mode] after');
     expect(out).not.toMatch(/\s{2,}/);
   });
 

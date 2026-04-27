@@ -17,17 +17,17 @@ export const REASONING_CONFIG = {
   SESSION_RETENTION_DAYS: 30,
 
   // Cooldowns (measured in observe calls, not wall-clock time).
-  DARK_COOLDOWN_OBSERVES: 10,
-  BRIGHT_COOLDOWN_OBSERVES: 5,
+  CAUTION_COOLDOWN_OBSERVES: 10,
+  KUDOS_COOLDOWN_OBSERVES: 5,
 
-  // Bright bias: if the last N observes had K dark findings and zero bright,
-  // next eligible finding must be bright (if one is available).
-  BRIGHT_BIAS_WINDOW: 10,
-  BRIGHT_BIAS_DARK_THRESHOLD: 3,
+  // Kudos bias: if the last N observes had K caution findings and zero kudos,
+  // next eligible finding must be kudos (if one is available).
+  KUDOS_BIAS_WINDOW: 10,
+  KUDOS_BIAS_CAUTION_THRESHOLD: 3,
 
-  // When both bright and dark fire and neither is cooldown-blocked, weight
-  // toward dark (higher information density) but leave room for bright.
-  BRIGHT_TIE_BREAK_WEIGHT: 0.4,
+  // When both kudos and caution fire and neither is cooldown-blocked, weight
+  // toward caution (higher information density) but leave room for kudos.
+  KUDOS_TIE_BREAK_WEIGHT: 0.4,
 
   // Detector-specific thresholds.
   LOAD_BEARING_MIN_DOWNSTREAM: 3,
@@ -44,9 +44,9 @@ export const REASONING_CONFIG = {
   // edge into prior-turn claims. Bounded for prompt size.
   RECENT_CLAIMS_CONTEXT: 10,
 
-  // Doctor check: max mode on but zero claims received in the last N observes
+  // Doctor check: insight mode on but zero claims received in the last N observes
   // triggers a "host may not be honoring extraction" warning.
-  INERT_MAX_WARN_OBSERVES: 10,
+  INERT_INSIGHT_WARN_OBSERVES: 10,
 
   // Detector latency budget. If detectors exceed this, skip finding injection
   // for this observe (budget measured per-observe, reset each call).

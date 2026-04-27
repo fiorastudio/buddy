@@ -18,6 +18,11 @@ All notable changes to this project will follow [Semantic Versioning](https://se
   - `mcp.paths` — reads all host MCP configs, verifies each configured entry path exists on disk, and warns when multiple hosts point to different Buddy builds (version drift).
 - **Clearer post-install and onboarding copy**: Success message and skip text now say "open the AI chat in your client" instead of the ambiguous "say 'hatch a buddy'" phrasing that read like a shell command.
 
+### Changed
+- **"Max mode" renamed to "insight mode"** — `buddy_mode insight=true` replaces `buddy_mode max=true`. The `max` parameter is still accepted as a deprecated alias.
+- **"Dark" and "bright" nudges renamed** to **"caution"** and **"kudos"** nudges — clearer labels for the two finding categories. Finding type values (`load_bearing_vibes`, etc.) are unchanged.
+- Version bumped to **1.0.7**.
+
 ### Fixed
 - Gemini CLI prompt injection no longer creates `~/.gemini/GEMINI.md` on machines that don't have Gemini installed.
 - Prompt injection for Claude Code, Cursor, and Copilot is now skipped (not just a no-op) when those hosts are not detected.
@@ -26,39 +31,39 @@ All notable changes to this project will follow [Semantic Versioning](https://se
 ## [1.0.5] - 2026-04-23
 
 ### Added
-- **Max mode** (PR #87 by [@justinstimatze](https://github.com/justinstimatze)) — an opt-in anti-sycophancy layer. AI coding assistants are yes-men; max mode is the one feature that pushes back — gently, in your buddy's voice.
+- **Insight mode** (PR #87 by [@justinstimatze](https://github.com/justinstimatze)) — an opt-in anti-sycophancy layer. AI coding assistants are yes-men; insight mode is the one feature that pushes back — gently, in your buddy's voice.
 
-  Max mode watches your coding sessions and spots 6 patterns:
+  Insight mode watches your coding sessions and spots 6 patterns:
 
-  **Dark nudges** (risky assumptions):
+  **Caution nudges** (risky assumptions):
   - 🧱 **Load-Bearing Vibes** — you're building on top of a guess nobody checked
   - 🔗 **Unchallenged Chain** — 4+ reasoning steps with zero pushback
   - 🪞 **Echo Chamber** — you and the AI are just agreeing with each other
 
-  **Bright nudges** (quiet wins):
+  **Kudos nudges** (quiet wins):
   - ✅ **Well-Sourced Load Bearer** — you built on solid, verified ground
   - 💪 **Productive Stress Test** — someone pushed back and the idea survived
   - 🌱 **Grounded Premise Adopted** — you started with a real fact and it became foundational
 
-  Enable with `buddy_mode max=true`. ~500-1000 extra tokens per observe. Default calls unaffected.
+  Enable with `buddy_mode insight=true`. ~500-1000 extra tokens per observe. Default calls unaffected.
 
   Ported from [slimemold](https://github.com/justinstimatze/slimemold) (Apache-2.0) by the original author, contributed under MIT.
 
 - **`buddy_mode`** now has two independent settings:
   - `buddy_mode voice=backseat` / `skillcoach` / `both` — controls reaction style
-  - `buddy_mode max=true` / `false` — controls reasoning analysis (default: off)
+  - `buddy_mode insight=true` / `false` — controls reasoning analysis (default: off)
   - Any combination works. The old `mode` field is still accepted as a deprecated alias for `voice`.
 - **`buddy_forget`** — purge stored reasoning data (`session` or `all`).
 - **`buddy_reasoning_status`** — inspect stored claims, sessions, finding history.
-- **4 new doctor checks** for the reasoning layer (max mode status, storage health, workspace resolution, quality monitor).
-- **Stressed voice per species** — second voice kernel used when max mode surfaces a finding.
+- **4 new doctor checks** for the reasoning layer (insight mode status, storage health, workspace resolution, quality monitor).
+- **Stressed voice per species** — second voice kernel used when insight mode surfaces a finding.
 - **721 tests** (from 509 baseline). New coverage for detectors, pipeline, sanitizer, graph cache, workspace isolation, tone linting, and performance benchmarks.
 
 ### Privacy
-Max mode stores claim snippets (240 chars each, plaintext) in `~/.buddy/buddy.db`. Nothing leaves your machine. Sessions auto-prune after 30 days. Purge manually with `buddy_forget`.
+Insight mode stores claim snippets (240 chars each, plaintext) in `~/.buddy/buddy.db`. Nothing leaves your machine. Sessions auto-prune after 30 days. Purge manually with `buddy_forget`.
 
 ### Safety
-- Max mode is strictly additive — pipeline failures fall through to a normal reaction
+- Insight mode is strictly additive — pipeline failures fall through to a normal reaction
 - Claim text sanitized for prompt injection (chat-template markers, fenced code, role tags, unicode lookalikes)
 - `PRAGMA foreign_keys = ON` now enforced on the shared connection for proper CASCADE behavior
 

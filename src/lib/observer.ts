@@ -52,7 +52,7 @@ export function inferReaction(summary: string): ReactionResult {
 
 // --- Prompt Builder ---
 
-export type MaxModeInjection = {
+export type InsightModeInjection = {
   finding: Finding | null;
   stressedVoice: string | null;
   extractionInstruction: string | null;
@@ -102,7 +102,7 @@ export function buildObserverPrompt(
   companion: Companion,
   mode: 'backseat' | 'skillcoach' | 'both',
   summary: string,
-  maxInjection?: MaxModeInjection,
+  insightInjection?: InsightModeInjection,
 ): ObserverResult {
   const peakStat = getPeakStat(companion.stats);
   const dumpStat = getDumpStat(companion.stats);
@@ -162,22 +162,22 @@ What happened: ${summary}`;
   }
 
   // Max-mode augmentation: finding block, then extraction instruction.
-  if (maxInjection?.finding && maxInjection?.stressedVoice) {
-    prompt += '\n\n' + buildFindingBlock(maxInjection.finding, maxInjection.stressedVoice);
+  if (insightInjection?.finding && insightInjection?.stressedVoice) {
+    prompt += '\n\n' + buildFindingBlock(insightInjection.finding, insightInjection.stressedVoice);
   }
-  if (maxInjection?.extractionInstruction) {
-    prompt += '\n\n' + maxInjection.extractionInstruction;
+  if (insightInjection?.extractionInstruction) {
+    prompt += '\n\n' + insightInjection.extractionInstruction;
   }
 
   // Template fallback: if a finding is present, weave its phrasing in.
   // Scrub the result through the mechanism/tone filter as a runtime
   // second line of defense beyond the phrasings-tone review-time test.
   let templateFallback = templateReaction(companion, mode, summary, reaction.state);
-  if (maxInjection?.finding) {
+  if (insightInjection?.finding) {
     const findingPhrase = phraseFinding(
-      maxInjection.finding.type,
+      insightInjection.finding.type,
       reaction.state,
-      maxInjection.finding.claim_text,
+      insightInjection.finding.claim_text,
       summary.length,
     );
     templateFallback = `${templateFallback} ${findingPhrase}`;
@@ -200,7 +200,7 @@ What happened: ${summary}`;
     summary,
     reaction,
     templateFallback,
-    finding: maxInjection?.finding ?? null,
+    finding: insightInjection?.finding ?? null,
   };
 }
 

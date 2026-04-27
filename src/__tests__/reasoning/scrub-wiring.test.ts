@@ -38,7 +38,7 @@ describe('buildObserverPrompt — scrubber is wired into templateFallback', () =
     const r = buildObserverPrompt(mock, 'both', 'wrote code', {
       finding: findingWithText('using the graph correctly'),
       stressedVoice: 'stressed',
-      extractionInstruction: '[max mode]',
+      extractionInstruction: '[insight mode]',
     });
     // 'the graph' appears in the claim text; scrub rewrites it to 'the reasoning'.
     expect(r.templateFallback).not.toMatch(/\bthe graph\b/);
@@ -49,7 +49,7 @@ describe('buildObserverPrompt — scrubber is wired into templateFallback', () =
     const r = buildObserverPrompt(mock, 'both', 'wrote code', {
       finding: findingWithText(`you're wrong about the cache`),
       stressedVoice: 'stressed',
-      extractionInstruction: '[max mode]',
+      extractionInstruction: '[insight mode]',
     });
     expect(r.templateFallback).not.toMatch(/you'?re wrong/i);
   });
@@ -62,15 +62,15 @@ describe('buildObserverPrompt — scrubber is wired into templateFallback', () =
     expect(r.templateFallback.length).toBeGreaterThan(0);
   });
 
-  it('prompt (not templateFallback) is NOT scrubbed — it needs to contain [max mode] for the host', () => {
+  it('prompt (not templateFallback) is NOT scrubbed — it needs to contain [insight mode] for the host', () => {
     const r = buildObserverPrompt(mock, 'both', 'wrote code', {
       finding: findingWithText('a claim'),
       stressedVoice: 'stressed',
-      extractionInstruction: '[max mode]\nextraction rules here',
+      extractionInstruction: '[insight mode]\nextraction rules here',
     });
     // The extraction instruction is for the host LLM to read; it must
-    // keep the [max mode] label so the model recognizes the block.
+    // keep the [insight mode] label so the model recognizes the block.
     // Only templateFallback (what buddy emits directly) is scrubbed.
-    expect(r.prompt).toContain('[max mode]');
+    expect(r.prompt).toContain('[insight mode]');
   });
 });

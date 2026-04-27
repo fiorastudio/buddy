@@ -1,18 +1,19 @@
 // src/lib/reasoning/mode-handler.ts
 //
 // Pure-function core of the buddy_mode tool handler. Extracted so the
-// voice/max/legacy-alias logic is unit-testable without the MCP
+// voice/insight/legacy-alias logic is unit-testable without the MCP
 // transport. The server handler wraps this with DB I/O + writeBuddyStatus.
 
 export type ModeInput = {
   voice?: unknown;
-  max?: unknown;
-  mode?: unknown; // legacy alias for voice
+  insight?: unknown;
+  max?: unknown;    // deprecated alias for insight
+  mode?: unknown;   // deprecated alias for voice
 };
 
 export type CurrentState = {
   observer_mode: string | null;
-  max_mode: 0 | 1;
+  insight_mode: 0 | 1;
 };
 
 export type ModePlan =
@@ -20,7 +21,7 @@ export type ModePlan =
   | {
       kind: 'update';
       newVoice?: 'backseat' | 'skillcoach' | 'both';
-      newMax?: 0 | 1;
+      newInsight?: 0 | 1;
       legacyAliasUsed: boolean;
       changed: string[];
     }
@@ -36,15 +37,21 @@ function isValidVoice(v: unknown): v is (typeof VALID_VOICE_MODES)[number] {
 }
 
 export function planModeChange(input: ModeInput): ModePlan {
-  const { voice, max, mode: legacyMode } = input;
+  const { voice, insight, max, mode: legacyMode } = input;
 
   // Resolve voice: explicit `voice` wins, legacy `mode` as fallback.
-  const legacyUsed = voice === undefined && legacyMode !== undefined;
+  const legacyVoiceUsed = voice === undefined && legacyMode !== undefined;
   const proposedVoice = voice !== undefined ? voice : legacyMode;
+
+  // Resolve insight: explicit `insight` wins, legacy `max` as fallback.
+  const legacyMaxUsed = insight === undefined && max !== undefined;
+  const proposedInsight = insight !== undefined ? insight : max;
+
+  const legacyAliasUsed = legacyVoiceUsed || legacyMaxUsed;
 
   const changed: string[] = [];
   let newVoice: 'backseat' | 'skillcoach' | 'both' | undefined;
-  let newMax: 0 | 1 | undefined;
+  let newInsight: 0 | 1 | undefined;
 
   if (proposedVoice !== undefined) {
     if (!isValidVoice(proposedVoice)) {
@@ -57,22 +64,22 @@ export function planModeChange(input: ModeInput): ModePlan {
     changed.push(`voice → ${proposedVoice}`);
   }
 
-  if (max !== undefined) {
-    if (typeof max !== 'boolean') {
+  if (proposedInsight !== undefined) {
+    if (typeof proposedInsight !== 'boolean') {
       return {
         kind: 'error',
-        message: `Invalid max value "${String(max)}". Must be boolean.`,
+        message: `Invalid insight value "${String(proposedInsight)}". Must be boolean.`,
       };
     }
-    newMax = max ? 1 : 0;
-    changed.push(`max → ${max ? 'on' : 'off'}`);
+    newInsight = proposedInsight ? 1 : 0;
+    changed.push(`insight → ${proposedInsight ? 'on' : 'off'}`);
   }
 
   if (changed.length === 0) {
-    return { kind: 'status', legacyAliasUsed: legacyUsed };
+    return { kind: 'status', legacyAliasUsed };
   }
 
-  return { kind: 'update', newVoice, newMax, legacyAliasUsed: legacyUsed, changed };
+  return { kind: 'update', newVoice, newInsight, legacyAliasUsed, changed };
 }
 
 export function formatModeResponse(
@@ -82,18 +89,20 @@ export function formatModeResponse(
   if (plan.kind === 'error') return plan.message;
 
   const currentVoice = current.observer_mode || 'both';
-  const currentMax = current.max_mode === 1 ? 'on' : 'off';
+  const currentInsight = current.insight_mode === 1 ? 'on' : 'off';
 
-  const maybeNote = plan.legacyAliasUsed
-    ? `\n\nnote: the 'mode' field is deprecated — use 'voice' in new calls.`
-    : '';
+  const notes: string[] = [];
+  if (plan.legacyAliasUsed) {
+    notes.push(`the 'mode' and 'max' fields are deprecated — use 'voice' and 'insight' in new calls.`);
+  }
+  const maybeNote = notes.length ? '\n\nnote: ' + notes.join(' ') : '';
 
   if (plan.kind === 'status') {
-    return `Current settings:\n  voice: ${currentVoice}\n  max:   ${currentMax}\n\n`
+    return `Current settings:\n  voice:   ${currentVoice}\n  insight: ${currentInsight}\n\n`
       + `Voice modes: backseat (personality only) · skillcoach (code feedback) · both (combined)\n`
-      + `Max mode: when on, buddy notices structural reasoning patterns and weaves them into its reaction in character.`
+      + `Insight mode: when on, buddy notices structural reasoning patterns and weaves them into its reaction in character.`
       + maybeNote;
   }
 
-  return `Updated: ${plan.changed.join(', ')}.\nNow: voice=${currentVoice}, max=${currentMax}.` + maybeNote;
+  return `Updated: ${plan.changed.join(', ')}.\nNow: voice=${currentVoice}, insight=${currentInsight}.` + maybeNote;
 }

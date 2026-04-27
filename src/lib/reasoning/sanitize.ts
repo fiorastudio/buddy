@@ -10,7 +10,7 @@
 // turn, header-style separators dividing sections, free-standing quotes
 // unbalancing the snippet delimiter we use in prompts). We do NOT defend
 // against a motivated attacker who controls the host — that's the host's
-// job. If max mode is off, sanitize is never invoked.
+// job. If insight mode is off, sanitize is never invoked.
 
 import { REASONING_CONFIG } from './config.js';
 

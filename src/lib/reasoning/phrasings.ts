@@ -21,7 +21,7 @@ export function claimSnippet(text: string, max: number = 60): string {
 }
 
 const PHRASINGS: PhrasingTable = {
-  // ── Dark ────────────────────────────────────────────────────────────────
+  // ── Caution ─────────────────────────────────────────────────────────────
   load_bearing_vibes: {
     concerned: [
       `That "{claim}" is doing a lot of work. Worth pinning down — the rest would get sturdier.`,
@@ -58,7 +58,7 @@ const PHRASINGS: PhrasingTable = {
     ],
   },
 
-  // ── Bright ──────────────────────────────────────────────────────────────
+  // ── Kudos ───────────────────────────────────────────────────────────────
   well_sourced_load_bearer: {
     impressed: [
       `"{claim}" is holding up the rest, and you've got it anchored. Solid.`,

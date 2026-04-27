@@ -126,11 +126,11 @@ The installer will guide you through onboarding:
 - **Feedback is personality-driven.** Reactions are shaped by species, stats, mood, and observer state, so the companion feels like a character rather than a random text generator.
 - **It survives client churn.** Because it is built on MCP and local state, your buddy can outlive terminal restarts and host-client changes.
 
-## Max Mode
+## Insight Mode
 
-> *Max mode watches your coding sessions for risky assumptions and quiet wins — and tells you about them in Buddy's voice.*
+> *Insight mode watches your coding sessions for risky assumptions and quiet wins — and tells you about them in Buddy's voice.*
 
-AI coding assistants are yes-men. They agree with everything you say. Max mode is the one feature that pushes back — but gently, and in your buddy's voice, not a scary linter. It catches the moments where you and your AI are vibing too hard and nobody's checking if the code actually makes sense.
+AI coding assistants are yes-men. They agree with everything you say. Insight mode is the one feature that pushes back — but gently, and in your buddy's voice, not a scary linter. It catches the moments where you and your AI are vibing too hard and nobody's checking if the code actually makes sense.
 
 Think of it as: **Buddy is the friend who says "are you sure about that?" before you push to production at 2 AM.**
 
@@ -142,24 +142,24 @@ buddy_mode voice=backseat      # personality reactions only
 buddy_mode voice=skillcoach    # code feedback only
 buddy_mode voice=both          # both (default)
 
-# Max — structural reasoning analysis (on or off)
-buddy_mode max=true            # turn on reasoning analysis
-buddy_mode max=false           # turn it off (default)
+# Insight — structural reasoning analysis (on or off)
+buddy_mode insight=true            # turn on reasoning analysis
+buddy_mode insight=false           # turn it off (default)
 ```
 
-Mix and match — any voice works with max on or off.
+Mix and match — any voice works with insight on or off.
 
 <details>
-<summary><strong>🧠 &nbsp; How it works, dark &amp; bright nudges, and examples</strong></summary>
+<summary><strong>🧠 &nbsp; How it works, caution &amp; kudos nudges, and examples</strong></summary>
 <br>
 
 ### How it works (the Lego version)
 
 Imagine you're building a Lego castle with a friend. Your friend says "we should make the tower tall because tall towers look cool." You say "yeah totally" and start building it tall. Then you put a heavy dragon on top and... it falls over. Nobody stopped to ask "wait, can the base actually hold a tall tower with a dragon?"
 
-That's what max mode catches. It watches your coding conversation and spots 6 patterns:
+That's what insight mode catches. It watches your coding conversation and spots 6 patterns:
 
-### 3 Dark Nudges
+### 3 Caution Nudges
 
 **1. Load-Bearing Vibes** 🧱
 
@@ -179,7 +179,7 @@ You said A, which led to B, which led to C, which led to D — and nobody questi
 
 You say "let's use Redis." AI says "great idea, Redis is perfect." You say "yeah Redis is fast." AI says "absolutely, Redis is the way to go." Nobody brought up alternatives or tradeoffs. You're both just high-fiving in a mirror.
 
-### 3 Bright Nudges
+### 3 Kudos Nudges
 
 **4. Well-Sourced Load Bearer** ✅
 
@@ -201,13 +201,13 @@ You cited real documentation, a real test result, or a real measurement — and 
 
 ### What it feels like in practice
 
-Without max mode:
+Without insight mode:
 > "Nice commit! 🐣 +10 XP"
 
-With max mode (dark nudge):
+With insight mode (caution nudge):
 > "Nice commit! 🐣 +10 XP — btw, that assumption about the API response format is holding up a lot of your logic. Might be worth a quick sanity check before you build more on it."
 
-With max mode (bright nudge):
+With insight mode (kudos nudge):
 > "Nice commit! 🐣 +10 XP — love that you actually tested the response format before building the parser on top of it. Solid foundation."
 
 </details>
@@ -217,7 +217,7 @@ With max mode (bright nudge):
 <details>
 <summary>Knowledge graph, ontology, and performance details</summary>
 
-Max mode builds a local directed graph from your conversation. The host LLM extracts claims — assertions tagged with an epistemic basis — and typed edges between them.
+Insight mode builds a local directed graph from your conversation. The host LLM extracts claims — assertions tagged with an epistemic basis — and typed edges between them.
 
 **Epistemic basis types:**
 
@@ -247,9 +247,9 @@ Max mode builds a local directed graph from your conversation. The host LLM extr
 | Session scope | Workspace + date (cwd-hash + YYYYMMDD) |
 | Retention | 30-day auto-prune on startup |
 
-Bright nudges are slightly favored — after 3 dark findings with zero bright, the next must be bright.
+Kudos nudges are slightly favored — after 3 caution findings with zero kudos, the next must be kudos.
 
-**Token cost:** ~500-1000 extra tokens per `buddy_observe` when on. Default calls with max mode off are unaffected.
+**Token cost:** ~500-1000 extra tokens per `buddy_observe` when on. Default calls with insight mode off are unaffected.
 
 **Host compatibility:** Works best on Claude hosts where the extraction prompt is reliably honored. Run `buddy_doctor` to check.
 
@@ -264,7 +264,7 @@ Everything stays local. Claim snippets (240 chars each, plaintext) live in `~/.b
 
 ### Attribution
 
-Max mode is a port of [slimemold](https://github.com/justinstimatze/slimemold) by [@justinstimatze](https://github.com/justinstimatze) (Apache-2.0). Contributed to buddy under MIT. The standalone project has the full system with conditional gates and evaluation against reasoning benchmarks; buddy ships the foundational six detectors.
+Insight mode is a port of [slimemold](https://github.com/justinstimatze/slimemold) by [@justinstimatze](https://github.com/justinstimatze) (Apache-2.0). Contributed to buddy under MIT. The standalone project has the full system with conditional gates and evaluation against reasoning benchmarks; buddy ships the foundational six detectors.
 
 ## Supported Clients
 
@@ -458,7 +458,7 @@ There is also a 1% shiny chance on any hatch.
 <summary><strong>🗺️ &nbsp; See what's planned</strong></summary>
 <br>
 
-- [x] **Max Mode with Slimemold integration** - Anti-Sycophancy Reasoning Auditor. personality + code + SlimeMold reasoning audit ([see below](#max-mode--structural-reasoning))
+- [x] **Insight Mode with Slimemold integration** - Anti-Sycophancy Reasoning Auditor. personality + code + SlimeMold reasoning audit ([see below](#insight-mode--structural-reasoning))
 - [ ] **Dream/memory system** — buddy_dream consolidation logic, pattern recognition from stored memories, memory-informed reactions
 - [ ] **Unlockable reactions** tied to leveling and longer-term interaction
 - [ ] **Multilangauge Support**: 中文, espanol
@@ -494,9 +494,9 @@ These stay tucked away by default, but Buddy exposes a real MCP surface for comp
 | `buddy_mute` | Pause reactions |
 | `buddy_unmute` | Resume reactions |
 | `buddy_respawn` | Reset and start over |
-| `buddy_mode` | Set voice and max independently. `buddy_mode voice=skillcoach` for code feedback, `buddy_mode max=true` for reasoning analysis. See [Max Mode](#max-mode). |
+| `buddy_mode` | Set voice and insight independently. `buddy_mode voice=skillcoach` for code feedback, `buddy_mode insight=true` for reasoning analysis. See [Insight Mode](#insight-mode). |
 | `buddy_forget` | Purge stored reasoning data. Scope `session` (default, current workspace/day) or `all`. |
-| `buddy_reasoning_status` | Inspect what max mode has stored — claim count, session breakdown, finding history. |
+| `buddy_reasoning_status` | Inspect what insight mode has stored — claim count, session breakdown, finding history. |
 
 The most important loop is:
 
@@ -605,17 +605,17 @@ Claude Code / Cursor sessions that use Sonnet 4.6 turn on [prompt caching](https
 
 **Per-observe cost by voice mode:**
 
-**Voice** controls how buddy reacts. **Max** controls whether reasoning analysis is on. They're independent:
+**Voice** controls how buddy reacts. **Insight** controls whether reasoning analysis is on. They're independent:
 
 ```bash
 buddy_mode voice=backseat      # personality only
 buddy_mode voice=skillcoach    # code feedback only
 buddy_mode voice=both          # both (default)
-buddy_mode max=true            # reasoning analysis on
-buddy_mode max=false           # reasoning analysis off (default)
+buddy_mode insight=true            # reasoning analysis on
+buddy_mode insight=false           # reasoning analysis off (default)
 ```
 
-| Voice | Max | What you get | Tokens per observe |
+| Voice | Insight | What you get | Tokens per observe |
 |-------|-----|-------------|-------------------|
 | `backseat` | off | Personality reactions only | ~150–300 |
 | `backseat` | on | Personality + reasoning observations | ~650–1,300 |
@@ -626,7 +626,7 @@ buddy_mode max=false           # reasoning analysis off (default)
 
 Each `buddy_observe` call sends a short prompt to the host LLM (~100–150 incremental input tokens for the tool-call payload — separate from the static overhead above which is already cached) and receives a response. Total round-trip per call:
 
-**Base cost (max mode off):**
+**Base cost (insight mode off):**
 
 | Voice | What it does | Input tokens | Output tokens | Total per call | Typical session (10–15 calls) |
 |-------|-------------|-------------|--------------|----------------|-------------------------------|
@@ -634,16 +634,16 @@ Each `buddy_observe` call sends a short prompt to the host LLM (~100–150 incre
 | **Skillcoach** | One specific, actionable code observation. Real technical feedback, in character. | ~100–150 | ~200–350 | ~300–500 | ~3,000–7,500 |
 | **Both** | Personality reaction + code observation. Capped at 3 sentences. | ~100–150 | ~300–450 | ~400–600 | ~4,000–9,000 |
 
-**Max mode overhead (added on top of any voice mode):**
+**Insight mode overhead (added on top of any voice mode):**
 
 | Component | Tokens | Notes |
 |-----------|--------|-------|
 | Extraction schema | ~200–300 | Tells the host LLM how to extract claims and edges |
 | Recent claims context | ~200–500 | Last 10 claims from the session, so the host knows what's already in the graph |
 | Finding block (when one fires) | ~100–200 | Detector result + phrasing guidance for the buddy's reaction |
-| **Total max mode overhead** | **~500–1000** | Added per `buddy_observe` call when max is on |
+| **Total insight mode overhead** | **~500–1000** | Added per `buddy_observe` call when insight is on |
 
-So `voice=both, max=on` costs ~900–1,600 tokens per observe — roughly double `both` mode alone. `voice=backseat, max=on` costs ~650–1,300 per observe.
+So `voice=both, insight=on` costs ~900–1,600 tokens per observe — roughly double `both` mode alone. `voice=backseat, insight=on` costs ~650–1,300 per observe.
 
 **Template fallback reactions** are keyword-matched locally and cost **zero tokens**. When your summary contains a recognized keyword (e.g. "bug", "refactor", "deploy"), Buddy picks a pre-written reaction template from its local library instead of asking the LLM. The speech bubble you see is this template — the LLM prompt is included in the JSON metadata for clients that want richer AI-generated reactions, but the immediate visual response is always free.
 
@@ -656,21 +656,21 @@ No. All responses are generated by the host LLM already running in your session 
 Even on raw API usage, Buddy's spend is measured in tenths of a cent because it reuses the same session as your AI terminal.
 
 **Anthropic Claude Sonnet 4.6 ($3 input / $15 output per MTok):**
-- **backseat, max=off**, 15 calls: ~$0.002–$0.005
-- **both, max=off**, 15 calls: ~$0.007–$0.012
-- **both, max=on**, 15 calls: ~$0.015–$0.025
+- **backseat, insight=off**, 15 calls: ~$0.002–$0.005
+- **both, insight=off**, 15 calls: ~$0.007–$0.012
+- **both, insight=on**, 15 calls: ~$0.015–$0.025
 - **Static overhead:** ~$0.004 on turn 1, ~$0.0004 on cached turns (≈$0.0077 across 10 turns — see table above)
 
 **OpenAI GPT-5.4 mini ($0.75 input / $4.50 output per MTok):**
-- **backseat, max=off**, 15 calls: ~$0.0006–$0.0015
-- **both, max=off**, 15 calls: ~$0.0021–$0.0036
-- **both, max=on**, 15 calls: ~$0.0045–$0.0075
+- **backseat, insight=off**, 15 calls: ~$0.0006–$0.0015
+- **both, insight=off**, 15 calls: ~$0.0021–$0.0036
+- **both, insight=on**, 15 calls: ~$0.0045–$0.0075
 - **Static overhead:** ≈$0.0010 on turn 1, ≈$0.00010 on cached turns (~$0.0019 for 10 turns)
 
 **Gemini 2.5 Flash (Vertex standard; $0.30 input / $2.50 output per MTok):**
-- **backseat, max=off**, 15 calls: ~$0.0003–$0.00075
-- **both, max=off**, 15 calls: ~$0.00105–$0.0018
-- **both, max=on**, 15 calls: ~$0.0022–$0.0037
+- **backseat, insight=off**, 15 calls: ~$0.0003–$0.00075
+- **both, insight=off**, 15 calls: ~$0.00105–$0.0018
+- **both, insight=on**, 15 calls: ~$0.0022–$0.0037
 - **Static overhead:** ≈$0.00041 on turn 1, ≈$0.000041 on cached turns (~$0.00077 for 10 turns)
 
 Need it even cheaper? GPT-5.4 nano drops to $0.20 / $1.25 per MTok, and Gemini 2.5 Flash Lite is $0.10 / $0.40 — both keep Buddy well under a tenth of a cent per interaction.
@@ -679,44 +679,44 @@ For comparison, a single complex coding prompt ("refactor this module") typicall
 
 ### Will this affect my Claude Pro/Max limits?
 
-Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage limits are based on a rolling 5-hour window. Even with `voice=both, max=on` (the most expensive combo), Buddy adds <10% to your token throughput. With max off, it's <5%.
+Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage limits are based on a rolling 5-hour window. Even with `voice=both, insight=on` (the most expensive combo), Buddy adds <10% to your token throughput. With insight off, it's <5%.
 
 ### Can I reduce token usage?
 
 - Use **backseat voice** for lowest cost: `buddy_mode voice=backseat` (~150 tokens/call)
-- Turn **max mode off**: `buddy_mode max=false` to drop ~500-1000 tokens per observe
+- Turn **insight mode off**: `buddy_mode insight=false` to drop ~500-1000 tokens per observe
 - `buddy_mute` pauses reactions entirely during token-intensive work
 - Template reactions fire on keyword matches with zero token cost
 - The observer only runs when you call `buddy_observe` — nothing runs in the background
 
-### What's "max mode"?
+### What's "insight mode"?
 
-Max mode is an optional upgrade: buddy notices structural patterns in the
+Insight mode is an optional upgrade: buddy notices structural patterns in the
 reasoning during a session — assumptions that are quietly holding up multiple
 decisions, long chains nobody has stress-tested, grounded premises the
 assistant is building on — and weaves the observation into its in-character
 reaction. A high-WISDOM mushroom will name the pattern earnestly; a high-SNARK
 rabbit will tease you about it. Same observation, different species voice.
 
-Turn it on with `buddy_mode max=true`. Turn it off with `buddy_mode max=false`.
+Turn it on with `buddy_mode insight=true`. Turn it off with `buddy_mode insight=false`.
 The reasoning layer is a light port of
 [slimemold](https://github.com/justinstimatze/slimemold) — the standalone
 project has the full system with state, conditional gates, and evaluation
 against reasoning benchmarks; buddy ships the foundational detectors.
 
-Max mode stores extracted claim snippets (≤240 chars each) locally in
+Insight mode stores extracted claim snippets (≤240 chars each) locally in
 `~/.buddy/buddy.db` as plaintext SQLite. Snippets never leave your machine —
 buddy has no network code. Run `buddy_forget` to purge claims (scope `session`
 for the current workspace/day, or `all` for everything). Run
-`buddy_reasoning_status` to see what's stored. Max mode relies on the host
+`buddy_reasoning_status` to see what's stored. Insight mode relies on the host
 LLM to extract claims each turn; it works best on Claude hosts (Claude Code,
 Claude Desktop) and may be inert on hosts that don't honor the extraction
 prompt — `buddy_doctor` surfaces a warning if that's happening.
 
-**Token cost:** max mode adds ~500-1000 tokens to every `buddy_observe`
+**Token cost:** insight mode adds ~500-1000 tokens to every `buddy_observe`
 prompt (extraction schema + recent-claims list + finding block when one
-fires). Default `buddy_observe` calls are unaffected. Turn max off with
-`buddy_mode max=false` to return to the base-mode token footprint.
+fires). Default `buddy_observe` calls are unaffected. Turn insight off with
+`buddy_mode insight=false` to return to the base-mode token footprint.
 
 ### Does Buddy read my whole codebase?
 
@@ -724,7 +724,7 @@ No. Buddy mainly reacts to short summaries you pass through tools like `buddy_ob
 
 ### What does Buddy store?
 
-Local companion state in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. If max mode is on, buddy also stores extracted claim snippets (≤240 chars each, plaintext) for structural reasoning analysis, pruned after 30 days and purgeable via `buddy_forget`. Nothing leaves your machine.
+Local companion state in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. If insight mode is on, buddy also stores extracted claim snippets (≤240 chars each, plaintext) for structural reasoning analysis, pruned after 30 days and purgeable via `buddy_forget`. Nothing leaves your machine.
 
 ### Is Buddy tied to one client?
 

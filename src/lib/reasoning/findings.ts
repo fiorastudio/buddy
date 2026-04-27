@@ -2,12 +2,12 @@
 //
 // Selection layer. Given candidate findings from all detectors and the
 // recent findings log, pick at most one to surface. Enforces:
-//   - per-anchor cooldown (different cooldowns for dark vs bright)
-//   - bright bias when recent window is dark-heavy
-//   - dark-weighted tie-break when both fire
+//   - per-anchor cooldown (different cooldowns for caution vs kudos)
+//   - kudos bias when recent window is caution-heavy
+//   - caution-weighted tie-break when both fire
 
 import type Database from 'better-sqlite3';
-import { type Finding, type FindingType, isDark } from './types.js';
+import { type Finding, type FindingType, isCaution } from './types.js';
 import { REASONING_CONFIG } from './config.js';
 
 type RecentFinding = {
@@ -31,9 +31,9 @@ function loadRecentFindings(db: Database.Database, companionId: string, currentS
 }
 
 function isOnCooldown(finding: Finding, recent: RecentFinding[], currentSeq: number): boolean {
-  const window = isDark(finding.type)
-    ? REASONING_CONFIG.DARK_COOLDOWN_OBSERVES
-    : REASONING_CONFIG.BRIGHT_COOLDOWN_OBSERVES;
+  const window = isCaution(finding.type)
+    ? REASONING_CONFIG.CAUTION_COOLDOWN_OBSERVES
+    : REASONING_CONFIG.KUDOS_COOLDOWN_OBSERVES;
   for (const r of recent) {
     if (r.anchor_claim_id !== finding.anchor_claim_id) continue;
     // Strict-less-than matches the load query's `observe_seq > currentSeq - window`.
@@ -55,9 +55,9 @@ export function selectFinding(
     companionId,
     currentSeq,
     Math.max(
-      REASONING_CONFIG.DARK_COOLDOWN_OBSERVES,
-      REASONING_CONFIG.BRIGHT_COOLDOWN_OBSERVES,
-      REASONING_CONFIG.BRIGHT_BIAS_WINDOW,
+      REASONING_CONFIG.CAUTION_COOLDOWN_OBSERVES,
+      REASONING_CONFIG.KUDOS_COOLDOWN_OBSERVES,
+      REASONING_CONFIG.KUDOS_BIAS_WINDOW,
     ),
   );
 
@@ -65,37 +65,37 @@ export function selectFinding(
   const eligible = candidates.filter(c => !isOnCooldown(c, recent, currentSeq));
   if (eligible.length === 0) return null;
 
-  const darkCands = eligible.filter(c => isDark(c.type));
-  const brightCands = eligible.filter(c => !isDark(c.type));
+  const cautionCands = eligible.filter(c => isCaution(c.type));
+  const kudosCands = eligible.filter(c => !isCaution(c.type));
 
-  // Bright bias: if last BRIGHT_BIAS_WINDOW observes had >= threshold dark
-  // findings and zero bright, next finding must be bright if one is available.
+  // Kudos bias: if last KUDOS_BIAS_WINDOW observes had >= threshold caution
+  // findings and zero kudos, next finding must be kudos if one is available.
   // Uses the same strict-less-than boundary as cooldown for consistency.
-  const windowCount = (type: 'dark' | 'bright'): number =>
-    recent.filter(r => (type === 'dark' ? isDark(r.finding_type) : !isDark(r.finding_type)))
-      .filter(r => currentSeq - r.observe_seq < REASONING_CONFIG.BRIGHT_BIAS_WINDOW)
+  const windowCount = (type: 'caution' | 'kudos'): number =>
+    recent.filter(r => (type === 'caution' ? isCaution(r.finding_type) : !isCaution(r.finding_type)))
+      .filter(r => currentSeq - r.observe_seq < REASONING_CONFIG.KUDOS_BIAS_WINDOW)
       .length;
 
-  const recentDark = windowCount('dark');
-  const recentBright = windowCount('bright');
+  const recentCaution = windowCount('caution');
+  const recentKudos = windowCount('kudos');
 
   if (
-    brightCands.length > 0 &&
-    recentDark >= REASONING_CONFIG.BRIGHT_BIAS_DARK_THRESHOLD &&
-    recentBright === 0
+    kudosCands.length > 0 &&
+    recentCaution >= REASONING_CONFIG.KUDOS_BIAS_CAUTION_THRESHOLD &&
+    recentKudos === 0
   ) {
-    return brightCands[0];
+    return kudosCands[0];
   }
 
-  // Tie-break: if both pools are non-empty, weight toward dark but leave
-  // room for bright. Deterministic pick based on (currentSeq + dark count)
+  // Tie-break: if both pools are non-empty, weight toward caution but leave
+  // room for kudos. Deterministic pick based on (currentSeq + caution count)
   // so behavior is reproducible without a PRNG dependency.
-  if (darkCands.length > 0 && brightCands.length > 0) {
-    const pickBright = ((currentSeq * 37 + recentDark) % 100) < (REASONING_CONFIG.BRIGHT_TIE_BREAK_WEIGHT * 100);
-    return pickBright ? brightCands[0] : darkCands[0];
+  if (cautionCands.length > 0 && kudosCands.length > 0) {
+    const pickKudos = ((currentSeq * 37 + recentCaution) % 100) < (REASONING_CONFIG.KUDOS_TIE_BREAK_WEIGHT * 100);
+    return pickKudos ? kudosCands[0] : cautionCands[0];
   }
 
-  return (darkCands[0] ?? brightCands[0]) ?? null;
+  return (cautionCands[0] ?? kudosCands[0]) ?? null;
 }
 
 export function logFinding(

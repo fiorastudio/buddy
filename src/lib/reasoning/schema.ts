@@ -1,6 +1,6 @@
 // src/lib/reasoning/schema.ts
 //
-// Additive schema for claims + edges + max_mode column. Called from initDb()
+// Additive schema for claims + edges + insight_mode column. Called from initDb()
 // so it lands on startup alongside buddy's existing migrations.
 //
 // Pattern: CREATE TABLE IF NOT EXISTS for new tables; PRAGMA-then-ALTER for
@@ -67,10 +67,15 @@ export function initReasoningSchema(db: Database.Database): void {
     );
   `);
 
-  // Add max_mode column to companions (PRAGMA-then-alter for idempotency).
+  // Add insight_mode column to companions (PRAGMA-then-alter for idempotency).
+  // Three-way branch: fresh install → add directly; v1.0.5/6 upgrade → rename
+  // max_mode; already migrated → no-op.
   const cols = db.prepare(`PRAGMA table_info(companions)`).all() as Array<{ name: string }>;
   const hasMaxMode = cols.some(c => c.name === 'max_mode');
-  if (!hasMaxMode) {
-    db.exec(`ALTER TABLE companions ADD COLUMN max_mode INTEGER DEFAULT 0`);
+  const hasInsightMode = cols.some(c => c.name === 'insight_mode');
+  if (!hasInsightMode && !hasMaxMode) {
+    db.exec(`ALTER TABLE companions ADD COLUMN insight_mode INTEGER DEFAULT 0`);
+  } else if (hasMaxMode && !hasInsightMode) {
+    db.exec(`ALTER TABLE companions RENAME COLUMN max_mode TO insight_mode`);
   }
 }

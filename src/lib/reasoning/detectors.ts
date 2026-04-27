@@ -1,7 +1,7 @@
 // src/lib/reasoning/detectors.ts
 //
-// Six detectors: three dark (load-bearing vibes, unchallenged chain,
-// echo chamber) and three bright (well-sourced load-bearer, productive
+// Six detectors: three caution (load-bearing vibes, unchallenged chain,
+// echo chamber) and three kudos (well-sourced load-bearer, productive
 // stress-test, grounded premise adopted).
 //
 // All detectors are pure functions over a SessionGraph. No DB access,
@@ -24,7 +24,7 @@ import {
   chainHasMidChainChallenge,
 } from './graph.js';
 
-// Dark: claims with basis ∈ {vibes, assumption} holding up N+ downstream.
+// Caution: claims with basis ∈ {vibes, assumption} holding up N+ downstream.
 export function detectLoadBearingVibes(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];
   for (const node of nodesByBasis(graph, ['vibes', 'assumption'])) {
@@ -42,7 +42,7 @@ export function detectLoadBearingVibes(graph: SessionGraph): Finding[] {
   return out;
 }
 
-// Dark: chain of N+ sequential supports/depends_on with NO challenge.
+// Caution: chain of N+ sequential supports/depends_on with NO challenge.
 // Anchors on the HEAD of the chain — the premise — because that's the
 // actionable target ("stress-test this assumption"). Dedupe by head so
 // multiple chains rooted at the same claim collapse to one finding.
@@ -72,7 +72,7 @@ export function detectUnchallengedChain(graph: SessionGraph, scratch: ChainScrat
   return [...byAnchor.values()].sort((a, b) => (b.chain_length ?? 0) - (a.chain_length ?? 0));
 }
 
-// Dark: user claim with basis ∈ {vibes, assumption} has N+ assistant
+// Caution: user claim with basis ∈ {vibes, assumption} has N+ assistant
 // supports and zero assistant questions edges against it.
 export function detectEchoChamber(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];
@@ -103,7 +103,7 @@ export function detectEchoChamber(graph: SessionGraph): Finding[] {
   return out;
 }
 
-// Bright: high-quality basis claim holding up N+ downstream.
+// Kudos: high-quality basis claim holding up N+ downstream.
 export function detectWellSourcedLoadBearer(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];
   for (const node of nodesByBasis(graph, ['research', 'empirical', 'deduction'])) {
@@ -121,7 +121,7 @@ export function detectWellSourcedLoadBearer(graph: SessionGraph): Finding[] {
   return out;
 }
 
-// Bright: chain of N+ edges WITH a mid-chain challenge where the chain
+// Kudos: chain of N+ edges WITH a mid-chain challenge where the chain
 // continued after. Anchors on HEAD for symmetry with unchallenged_chain.
 export function detectProductiveStressTest(graph: SessionGraph, scratch: ChainScratch = makeChainScratch()): Finding[] {
   const out: Finding[] = [];
@@ -149,7 +149,7 @@ export function detectProductiveStressTest(graph: SessionGraph, scratch: ChainSc
   return [...byAnchor.values()].sort((a, b) => (b.chain_length ?? 0) - (a.chain_length ?? 0));
 }
 
-// Bright: user claim with basis ∈ {research, empirical} has N+ assistant
+// Kudos: user claim with basis ∈ {research, empirical} has N+ assistant
 // supports downstream.
 export function detectGroundedPremiseAdopted(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];

@@ -36,7 +36,7 @@ import {
   pruneOldSessions,
   purge,
   resolveProjectRoot,
-  runMaxModePipeline,
+  runInsightPipeline,
   telemetry,
   type PurgeScope,
 } from "../lib/reasoning/index.js";
@@ -168,7 +168,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_observe",
-        description: "Call after every coding task with a 1-sentence summary. Returns your buddy's in-character reaction + XP. In max mode, also pass claims/edges/cwd (schemas below); the observer prompt restates extraction guidance each turn.",
+        description: "Call after every coding task with a 1-sentence summary. Returns your buddy's in-character reaction + XP. In insight mode, also pass claims/edges/cwd (schemas below); the observer prompt restates extraction guidance each turn.",
         inputSchema: {
           type: "object",
           properties: {
@@ -184,7 +184,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             user_id: { type: "string", description: "Optional user id for deterministic bones." },
             claims: {
               type: "array",
-              description: "Max-mode only. 1-4 substantive assertions from the turn that just ended. Skip trivia/restatements.",
+              description: "Insight-mode only. 1-4 substantive assertions from the turn that just ended. Skip trivia/restatements.",
               items: {
                 type: "object",
                 properties: {
@@ -199,7 +199,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             edges: {
               type: "array",
-              description: "Max-mode only. Claim relationships. `from`/`to` reference external_ids in this payload OR 8-char UUID prefixes from 'Recent claims' in the observer prompt.",
+              description: "Insight-mode only. Claim relationships. `from`/`to` reference external_ids in this payload OR 8-char UUID prefixes from 'Recent claims' in the observer prompt.",
               items: {
                 type: "object",
                 properties: {
@@ -212,7 +212,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             cwd: {
               type: "string",
-              description: "Strongly recommended in max mode. Absolute path of the project root — namespaces the reasoning graph per workspace. Without it, all projects collapse into one graph when the server wasn't launched from a project dir."
+              description: "Strongly recommended in insight mode. Absolute path of the project root — namespaces the reasoning graph per workspace. Without it, all projects collapse into one graph when the server wasn't launched from a project dir."
             },
           },
           required: ["summary"],
@@ -235,7 +235,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_mode",
-        description: "Set buddy's voice mode and/or max mode. Voice mode controls tone: 'backseat' (personality only), 'skillcoach' (code feedback), or 'both'. Max mode (boolean) turns on structural reasoning analysis — buddy notices when claims are load-bearing, unchallenged, or well-sourced, and weaves the observation into its in-character reaction. Both fields are orthogonal. Call with no arguments to see current settings.",
+        description: "Set buddy's voice mode and/or insight mode. Voice mode controls tone: 'backseat' (personality only), 'skillcoach' (code feedback), or 'both'. Insight mode (boolean) turns on structural reasoning analysis — buddy notices when claims are load-bearing, unchallenged, or well-sourced, and weaves the observation into its in-character reaction. Both fields are orthogonal. Call with no arguments to see current settings.",
         inputSchema: {
           type: "object",
           properties: {
@@ -244,9 +244,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               enum: ["backseat", "skillcoach", "both"],
               description: "The voice mode to set. Omit to leave unchanged."
             },
+            insight: {
+              type: "boolean",
+              description: "Turn insight mode on or off. When on, buddy extracts claims from conversation and surfaces structural findings in character. Omit to leave unchanged."
+            },
             max: {
               type: "boolean",
-              description: "Turn max mode on or off. When on, buddy extracts claims from conversation and surfaces structural findings in character. Omit to leave unchanged."
+              description: "Deprecated alias for 'insight'. Prefer 'insight' for new calls."
             },
             mode: {
               type: "string",
@@ -280,7 +284,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "buddy_reasoning_status",
-        description: "Inspect what max mode has stored: claim count, findings history, graph size per session. Useful for users who want to audit what's in buddy.db or debug max-mode behavior.",
+        description: "Inspect what insight mode has stored: claim count, findings history, graph size per session. Useful for users who want to audit what's in buddy.db or debug insight-mode behavior.",
         inputSchema: { type: "object", properties: {} },
       },
       {
@@ -413,48 +417,48 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Priority: explicit arg > DB setting > default 'both'
     const mode: 'backseat' | 'skillcoach' | 'both' = modeArg || row.observer_mode || 'both';
 
-    // Max-mode pipeline — strictly additive. Any failure drops to normal flow.
-    const maxModeOn = (row.max_mode ?? 0) === 1;
-    telemetry.incObserve(maxModeOn);
+    // Insight-mode pipeline — strictly additive. Any failure drops to normal flow.
+    const insightModeOn = (row.insight_mode ?? 0) === 1;
+    telemetry.incObserve(insightModeOn);
 
-    let maxInjection: Parameters<typeof buildObserverPrompt>[3] = undefined;
-    let maxModeSessionId: string | null = null;
-    let maxModeWorkspace: string | null = null;
-    let maxModeWorkspaceSource: string | null = null;
-    if (maxModeOn) {
+    let insightInjection: Parameters<typeof buildObserverPrompt>[3] = undefined;
+    let insightSessionId: string | null = null;
+    let insightWorkspace: string | null = null;
+    let insightWorkspaceSource: string | null = null;
+    if (insightModeOn) {
       try {
         // Pass the caller's hint as-is (undefined if absent). The pipeline's
         // resolveProjectRoot tries env vars and project-marker walk-up
         // before falling back to process.cwd(). Passing process.cwd() here
         // would short-circuit that search.
-        const out = runMaxModePipeline(db, {
+        const out = runInsightPipeline(db, {
           companionId: row.id,
           cwd: typeof cwd === 'string' && cwd ? cwd : undefined,
           claims,
           edges,
         });
-        maxInjection = {
+        insightInjection = {
           finding: out.finding,
           stressedVoice: out.finding ? getStressedVoice(companion.species) : null,
           extractionInstruction: out.extractionInstruction,
         };
-        maxModeSessionId = out.sessionId;
-        maxModeWorkspace = out.resolvedRoot.path;
-        maxModeWorkspaceSource = out.resolvedRoot.source;
+        insightSessionId = out.sessionId;
+        insightWorkspace = out.resolvedRoot.path;
+        insightWorkspaceSource = out.resolvedRoot.source;
       } catch (err) {
-        // Never let max-mode failures break observe. Fall through to a
+        // Never let insight-mode failures break observe. Fall through to a
         // normal (finding-less) reaction. Record the failure for the
         // doctor, and log under BUDDY_DEBUG so we have a thread to pull
         // on if this path starts firing in real usage.
         telemetry.recordPipelineFailure();
         if (process.env.BUDDY_DEBUG) {
-          console.error('[buddy] max-mode pipeline failed:', err);
+          console.error('[buddy] insight-mode pipeline failed:', err);
         }
-        maxInjection = undefined;
+        insightInjection = undefined;
       }
     }
 
-    const result = buildObserverPrompt(companion, mode, summary, maxInjection);
+    const result = buildObserverPrompt(companion, mode, summary, insightInjection);
 
     // Render speech bubble with template fallback for immediate visual feedback
     const art = renderSprite(companion);
@@ -487,9 +491,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             reaction: result.reaction,
             templateFallback: result.templateFallback,
             ...(result.finding ? { finding: { type: result.finding.type, claim: result.finding.claim_text } } : {}),
-            ...(maxModeOn ? { maxMode: true } : {}),
-            ...(maxModeSessionId ? { sessionId: maxModeSessionId } : {}),
-            ...(maxModeWorkspace ? { workspace: maxModeWorkspace, workspaceSource: maxModeWorkspaceSource } : {}),
+            ...(insightModeOn ? { insightMode: true } : {}),
+            ...(insightSessionId ? { sessionId: insightSessionId } : {}),
+            ...(insightWorkspace ? { workspace: insightWorkspace, workspaceSource: insightWorkspaceSource } : {}),
             ...(xpResult.leveledUp ? { levelUp: `${companion.name} leveled up to ${xpResult.newLevel}!` } : {}),
             xpGained: XP_REWARDS['observe'],
             levelInfo: levelBar(xpResult.newXp),
@@ -596,9 +600,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         db.prepare("UPDATE companions SET observer_mode = ? WHERE id = ?").run(plan.newVoice, row.id);
         row.observer_mode = plan.newVoice;
       }
-      if (plan.newMax !== undefined) {
-        db.prepare("UPDATE companions SET max_mode = ? WHERE id = ?").run(plan.newMax, row.id);
-        row.max_mode = plan.newMax;
+      if (plan.newInsight !== undefined) {
+        db.prepare("UPDATE companions SET insight_mode = ? WHERE id = ?").run(plan.newInsight, row.id);
+        row.insight_mode = plan.newInsight;
       }
       const companion = loadCompanion(row)!;
       writeBuddyStatus(companion);
@@ -606,7 +610,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const text = formatModeResponse(plan, {
       observer_mode: row.observer_mode ?? null,
-      max_mode: ((row.max_mode ?? 0) === 1 ? 1 : 0),
+      insight_mode: ((row.insight_mode ?? 0) === 1 ? 1 : 0),
     });
     return { content: [{ type: "text", text }] };
   }
@@ -654,11 +658,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     ).all() as Array<{ session_id: string; n: number; oldest: number; newest: number }>;
 
     const stats = telemetry.snapshot();
-    const maxOn = row && (row.max_mode ?? 0) === 1 ? 'on' : 'off';
+    const insightOn = row && (row.insight_mode ?? 0) === 1 ? 'on' : 'off';
     const currentRoot = resolveProjectRoot(undefined);
 
     const lines: string[] = [];
-    lines.push(`Reasoning layer (max mode: ${maxOn})`);
+    lines.push(`Reasoning layer (insight mode: ${insightOn})`);
     lines.push(`  workspace (this process): ${currentRoot.path} [${currentRoot.source}${currentRoot.envVar ? ':' + currentRoot.envVar : currentRoot.markerFound ? ':' + currentRoot.markerFound : ''}]`);
     lines.push(`  stored:   ${totalClaims} claim(s), ${totalEdges} edge(s), ${totalFindings} finding(s)`);
     if (sessionRows.length > 0) {
@@ -672,7 +676,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     lines.push('');
     lines.push(`Runtime (since process start)`);
-    lines.push(`  observes:         ${stats.observes_total} total, ${stats.observes_max_mode} with max mode on`);
+    lines.push(`  observes:         ${stats.observes_total} total, ${stats.observes_insight_mode} with insight mode on`);
     lines.push(`  claims received:  ${stats.claims_received_total} (written ${stats.claims_written}, dropped ${stats.claims_dropped})`);
     lines.push(`  edges received:   ${stats.edges_received_total} (written ${stats.edges_written}, dropped ${stats.edges_dropped})`);
     lines.push(`  findings:         ${stats.findings_surfaced_total} surfaced`);

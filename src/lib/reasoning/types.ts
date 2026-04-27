@@ -2,7 +2,7 @@
 //
 // Ported from github.com/justinstimatze/slimemold (Apache-2.0) by the original
 // author and contributed here under MIT. See src/lib/reasoning/DESIGN.md for
-// the design rationale and the sycophancy-as-tool principle that makes max
+// the design rationale and the sycophancy-as-tool principle that makes insight
 // mode an inversion of typical LLM sycophancy rather than a symmetric scold.
 
 export const BASIS_VALUES = [
@@ -72,20 +72,20 @@ export const FINDING_TYPES = [
 ] as const;
 export type FindingType = (typeof FINDING_TYPES)[number];
 
-export const DARK_FINDINGS: readonly FindingType[] = [
+export const CAUTION_FINDINGS: readonly FindingType[] = [
   'load_bearing_vibes',
   'echo_chamber',
   'unchallenged_chain',
 ] as const;
 
-export const BRIGHT_FINDINGS: readonly FindingType[] = [
+export const KUDOS_FINDINGS: readonly FindingType[] = [
   'well_sourced_load_bearer',
   'productive_stress_test',
   'grounded_premise_adopted',
 ] as const;
 
-export function isDark(type: FindingType): boolean {
-  return (DARK_FINDINGS as readonly FindingType[]).includes(type);
+export function isCaution(type: FindingType): boolean {
+  return (CAUTION_FINDINGS as readonly FindingType[]).includes(type);
 }
 
 export type Finding = {

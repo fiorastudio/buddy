@@ -4,7 +4,7 @@ import {
   formatModeResponse,
 } from '../../lib/reasoning/mode-handler.js';
 
-const CURRENT = { observer_mode: 'both', max_mode: 0 as const };
+const CURRENT = { observer_mode: 'both', insight_mode: 0 as const };
 
 describe('planModeChange', () => {
   it('status when no args', () => {
@@ -18,29 +18,29 @@ describe('planModeChange', () => {
     expect(plan.kind).toBe('update');
     if (plan.kind !== 'update') throw new Error('unreachable');
     expect(plan.newVoice).toBe('skillcoach');
-    expect(plan.newMax).toBeUndefined();
+    expect(plan.newInsight).toBeUndefined();
     expect(plan.legacyAliasUsed).toBe(false);
   });
 
-  it('max on', () => {
-    const plan = planModeChange({ max: true });
+  it('insight on', () => {
+    const plan = planModeChange({ insight: true });
     expect(plan.kind).toBe('update');
     if (plan.kind !== 'update') throw new Error('unreachable');
-    expect(plan.newMax).toBe(1);
+    expect(plan.newInsight).toBe(1);
     expect(plan.newVoice).toBeUndefined();
   });
 
-  it('max off', () => {
-    const plan = planModeChange({ max: false });
+  it('insight off', () => {
+    const plan = planModeChange({ insight: false });
     if (plan.kind !== 'update') throw new Error('unreachable');
-    expect(plan.newMax).toBe(0);
+    expect(plan.newInsight).toBe(0);
   });
 
-  it('voice + max together, orthogonal', () => {
-    const plan = planModeChange({ voice: 'backseat', max: true });
+  it('voice + insight together, orthogonal', () => {
+    const plan = planModeChange({ voice: 'backseat', insight: true });
     if (plan.kind !== 'update') throw new Error('unreachable');
     expect(plan.newVoice).toBe('backseat');
-    expect(plan.newMax).toBe(1);
+    expect(plan.newInsight).toBe(1);
     expect(plan.changed).toHaveLength(2);
   });
 
@@ -65,18 +65,33 @@ describe('planModeChange', () => {
     expect(plan.message).toMatch(/Invalid voice/);
   });
 
-  it('invalid max (not boolean) → error', () => {
-    const plan = planModeChange({ max: 'yes' as any });
+  it('invalid insight (not boolean) → error', () => {
+    const plan = planModeChange({ insight: 'yes' as any });
     expect(plan.kind).toBe('error');
+  });
+
+  it('legacy `max` aliases to insight with deprecation flag', () => {
+    const plan = planModeChange({ max: true });
+    expect(plan.kind).toBe('update');
+    if (plan.kind !== 'update') throw new Error('unreachable');
+    expect(plan.newInsight).toBe(1);
+    expect(plan.legacyAliasUsed).toBe(true);
+  });
+
+  it('when both insight and max given, insight wins', () => {
+    const plan = planModeChange({ insight: false, max: true });
+    if (plan.kind !== 'update') throw new Error('unreachable');
+    expect(plan.newInsight).toBe(0);
+    expect(plan.legacyAliasUsed).toBe(false);
   });
 });
 
 describe('formatModeResponse', () => {
-  it('status includes current voice and max', () => {
+  it('status includes current voice and insight', () => {
     const plan = planModeChange({});
     const text = formatModeResponse(plan, CURRENT);
-    expect(text).toContain('voice: both');
-    expect(text).toContain('max:   off');
+    expect(text).toContain('voice:   both');
+    expect(text).toContain('insight: off');
   });
 
   it('legacy alias note attached to status', () => {
@@ -86,11 +101,11 @@ describe('formatModeResponse', () => {
   });
 
   it('update includes `Updated:` line', () => {
-    const plan = planModeChange({ max: true });
-    const text = formatModeResponse(plan, { observer_mode: 'both', max_mode: 1 });
+    const plan = planModeChange({ insight: true });
+    const text = formatModeResponse(plan, { observer_mode: 'both', insight_mode: 1 });
     expect(text).toMatch(/^Updated:/);
-    expect(text).toContain('max → on');
-    expect(text).toContain('voice=both, max=on');
+    expect(text).toContain('insight → on');
+    expect(text).toContain('voice=both, insight=on');
   });
 
   it('error format passes through', () => {

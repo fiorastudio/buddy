@@ -82,7 +82,7 @@ describe('observer integration — full pipeline', () => {
 
     const recent = loadRecentClaims(db, SID, REASONING_CONFIG.RECENT_CLAIMS_CONTEXT);
     const instruction = buildExtractionInstruction(recent);
-    expect(instruction).toContain('[max mode]');
+    expect(instruction).toContain('[insight mode]');
     expect(instruction).toContain('Recent claims you can edge into');
 
     const result = buildObserverPrompt(mockCompanion, 'both', 'refactored the auth module', {
@@ -99,7 +99,7 @@ describe('observer integration — full pipeline', () => {
     expect(result.prompt).toContain('You have noticed something');
     expect(result.prompt).toContain('Stay fully in character');
     expect(result.prompt).toContain('Suddenly attentive'); // mushroom stressed voice
-    expect(result.prompt).toContain('[max mode]');
+    expect(result.prompt).toContain('[insight mode]');
     expect(result.prompt).toContain('we need auth');
 
     // Template fallback should also include finding phrasing.
@@ -142,7 +142,7 @@ describe('observer integration — full pipeline', () => {
     expect(runAllDetectors(graph)).toEqual([]);
   });
 
-  it('buildObserverPrompt returns same shape without maxInjection (backward compat)', () => {
+  it('buildObserverPrompt returns same shape without insightInjection (backward compat)', () => {
     const result = buildObserverPrompt(mockCompanion, 'backseat', 'wrote some code');
     expect(result.prompt).not.toContain('MAX MODE');
     expect(result.finding).toBe(null);

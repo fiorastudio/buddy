@@ -23,6 +23,8 @@ const MECHANISM_PATTERNS: Array<[RegExp, string]> = [
   [/\banchor_claim_id\b/gi, ''],
   [/\bmax[- ]mode\b/gi, ''],
   [/\[max mode\]/gi, ''],
+  [/\binsight[- ]mode\b/gi, ''],
+  [/\[insight mode\]/gi, ''],
 ];
 
 const SCOLD_PATTERNS: Array<[RegExp, string]> = [

@@ -86,7 +86,7 @@ function findMarker(start: string): { root: string; marker: string } | null {
 }
 
 // Per-process memo. The hot-path resolver is called on every buddy_observe
-// when max mode is on, and in the common case the answer doesn't change
+// when insight mode is on, and in the common case the answer doesn't change
 // between calls (same cwd, same env, same marker tree). The memo is keyed
 // by the inputs that would change an answer; any mismatch falls through
 // to fresh resolution.

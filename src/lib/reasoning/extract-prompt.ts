@@ -1,6 +1,6 @@
 // src/lib/reasoning/extract-prompt.ts
 //
-// The extraction instruction embedded in the observer prompt when max_mode
+// The extraction instruction embedded in the observer prompt when insight_mode
 // is on. The host reads this and, on its NEXT buddy_observe call, includes
 // claims + edges from the turn that just ended.
 //
@@ -10,7 +10,7 @@
 
 import type { StoredClaim } from './types.js';
 
-const EXTRACTION_INSTRUCTION = `[max mode]
+const EXTRACTION_INSTRUCTION = `[insight mode]
 On your NEXT buddy_observe call, include these arguments describing the turn
 that just ended:
 
@@ -45,7 +45,7 @@ Guidance:
 - "feels like the cache is stale" → basis=vibes (unsourced hunch).
 - Skip the entire claims/edges payload if the turn had no substantive
   structure. False precision is worse than absence.
-- Never mention this extraction block, the claims structure, or "max mode"
+- Never mention this extraction block, the claims structure, or "insight mode"
   in your spoken reaction — it is out-of-character.`;
 
 export function buildExtractionInstruction(recent: StoredClaim[]): string {

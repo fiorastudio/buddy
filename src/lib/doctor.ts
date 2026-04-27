@@ -584,15 +584,15 @@ function checkPromptInjection(): DiagnosticCheck {
   return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: '\u2717 no buddy instructions found in supported host prompt files', suggestion: 'Re-run install script to inject buddy instructions' };
 }
 
-function checkReasoningMaxMode(): DiagnosticCheck {
+function checkReasoningInsightMode(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT id, max_mode FROM companions LIMIT 1').get() as any;
+    const row = db.prepare('SELECT id, insight_mode FROM companions LIMIT 1').get() as any;
     if (!row) {
-      return { id: 'reasoning.max', status: 'skip', label: 'Max mode', detail: 'No companion' };
+      return { id: 'reasoning.insight', status: 'skip', label: 'Insight mode', detail: 'No companion' };
     }
-    const on = (row.max_mode ?? 0) === 1;
+    const on = (row.insight_mode ?? 0) === 1;
     if (!on) {
-      return { id: 'reasoning.max', status: 'ok', label: 'Max mode', detail: 'off (enable via buddy_mode max=true)' };
+      return { id: 'reasoning.insight', status: 'ok', label: 'Insight mode', detail: 'off (enable via buddy_mode insight=true)' };
     }
 
     // Read the persisted observe-seq counters. These survive server restart,
@@ -605,16 +605,16 @@ function checkReasoningMaxMode(): DiagnosticCheck {
     const lastClaimsSeq = seqRow?.last_claims_received_seq ?? 0;
 
     if (totalObserves === 0) {
-      return { id: 'reasoning.max', status: 'ok', label: 'Max mode', detail: 'on (no observes yet)' };
+      return { id: 'reasoning.insight', status: 'ok', label: 'Insight mode', detail: 'on (no observes yet)' };
     }
 
-    // If we've had INERT_MAX_WARN_OBSERVES observes and never received claims,
+    // If we've had INERT_INSIGHT_WARN_OBSERVES observes and never received claims,
     // the host isn't honoring the extraction prompt.
-    if (totalObserves >= REASONING_CONFIG.INERT_MAX_WARN_OBSERVES && lastClaimsSeq === 0) {
+    if (totalObserves >= REASONING_CONFIG.INERT_INSIGHT_WARN_OBSERVES && lastClaimsSeq === 0) {
       return {
-        id: 'reasoning.max', status: 'warn', label: 'Max mode',
+        id: 'reasoning.insight', status: 'warn', label: 'Insight mode',
         detail: `on, but 0 claims received in ${totalObserves} observes`,
-        suggestion: 'Host may not be honoring the max-mode extraction prompt. Verified hosts: Claude Code (Sonnet/Opus). See README for host requirements.',
+        suggestion: 'Host may not be honoring the insight-mode extraction prompt. Verified hosts: Claude Code (Sonnet/Opus). See README for host requirements.',
       };
     }
 
@@ -625,11 +625,11 @@ function checkReasoningMaxMode(): DiagnosticCheck {
       ? ` · this run: ${stats.claims_received_total} claims, ${stats.findings_surfaced_total} findings`
       : '';
     return {
-      id: 'reasoning.max', status: 'ok', label: 'Max mode',
+      id: 'reasoning.insight', status: 'ok', label: 'Insight mode',
       detail: `on · ${totalObserves} observes, last claims at seq ${lastClaimsSeq}${extra}`,
     };
   } catch {
-    return { id: 'reasoning.max', status: 'fail', label: 'Max mode', detail: 'DB query failed' };
+    return { id: 'reasoning.insight', status: 'fail', label: 'Insight mode', detail: 'DB query failed' };
   }
 }
 
@@ -653,9 +653,9 @@ function checkReasoningStorage(): DiagnosticCheck {
 
 function checkReasoningRootResolution(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT max_mode FROM companions LIMIT 1').get() as any;
-    if (!row || (row.max_mode ?? 0) === 0) {
-      return { id: 'reasoning.root', status: 'skip', label: 'Workspace root', detail: 'Max mode off' };
+    const row = db.prepare('SELECT insight_mode FROM companions LIMIT 1').get() as any;
+    if (!row || (row.insight_mode ?? 0) === 0) {
+      return { id: 'reasoning.root', status: 'skip', label: 'Workspace root', detail: 'Insight mode off' };
     }
     const s = telemetry.snapshot().root_source_counts;
     const total = s.hint + s.env + s.marker + s.cwd + s.homedir;
@@ -685,9 +685,9 @@ function checkReasoningRootResolution(): DiagnosticCheck {
 
 function checkReasoningBasisQuality(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT max_mode FROM companions LIMIT 1').get() as any;
-    if (!row || (row.max_mode ?? 0) === 0) {
-      return { id: 'reasoning.quality', status: 'skip', label: 'Extraction quality', detail: 'Max mode off' };
+    const row = db.prepare('SELECT insight_mode FROM companions LIMIT 1').get() as any;
+    if (!row || (row.insight_mode ?? 0) === 0) {
+      return { id: 'reasoning.quality', status: 'skip', label: 'Extraction quality', detail: 'Insight mode off' };
     }
     const h = basisDistributionHealth();
     if (h.sample < 20) {
@@ -730,7 +730,7 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkStopHook(),
     checkPromptHook(),
     checkPromptInjection(),
-    checkReasoningMaxMode(),
+    checkReasoningInsightMode(),
     checkReasoningStorage(),
     checkReasoningRootResolution(),
     checkReasoningBasisQuality(),
