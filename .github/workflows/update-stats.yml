@@ -109,6 +109,13 @@ jobs:
           sed -i "s/[0-9,]*+ buddies rescued or hatched/${RESCUED_TEXT} buddies rescued or hatched/" README.md
           sed -i "s/~[0-9]* weeks\? in the wild/${WEEKS_TEXT} in the wild/" README.md
 
+          EXPECTED_HEADLINE="**🚀 ${CLONES_TEXT} clones · ${RESCUED_TEXT} buddies rescued or hatched · ${WEEKS_ALIVE} weeks in the wild**"
+          if ! grep -Fq "$EXPECTED_HEADLINE" README.md; then
+            echo "README headline did not update to the expected stats line."
+            echo "Expected: $EXPECTED_HEADLINE"
+            exit 1
+          fi
+
           # 7. Commit and push directly to master
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
