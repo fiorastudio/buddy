@@ -2,7 +2,10 @@ name: Update Stats Monitor
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Daily at 04:00 AM ET (08:00 UTC)
+    - cron: '17 5 * * *'
+      timezone: America/New_York
+    - cron: '47 6 * * *'
+      timezone: America/New_York
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -56,6 +59,13 @@ jobs:
               .[$item.timestamp[0:10]] = $item.count
             )
           ')
+
+          # Exit early when the latest traffic window hasn't changed. This keeps
+          # the backup schedule from producing redundant commits.
+          if [ "$NEW_DAILY_UNIQUES" = "$DAILY_UNIQUES" ] && [ "$NEW_DAILY_CLONES" = "$DAILY_CLONES" ]; then
+            echo "Traffic snapshot unchanged; skipping README and stats update."
+            exit 0
+          fi
 
           # 4. Recalculate totals (Baseline + Sum of Daily)
           UNIQUES_SUM=$(echo "$NEW_DAILY_UNIQUES" | jq '[.[]] | add // 0')
@@ -117,5 +127,4 @@ jobs:
           else
             echo "No changes to commit."
           fi
-
 
