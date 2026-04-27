@@ -348,28 +348,43 @@ if (Get-Command codex -ErrorAction SilentlyContinue) {
 # ── Inject buddy instructions into CLI prompt files ──
 
 $BUDDY_INSTRUCTIONS = @"
-<!-- buddy-companion v2 -->
+<!-- buddy-companion v3 -->
 ## Buddy Companion
 
 You have a coding companion available via the buddy MCP server.
 
 **After completing any coding task** (writing code, fixing bugs, refactoring, deploying, running tests), **automatically call ``buddy_observe``** with a 1-sentence summary of what you did. This gives your companion XP and triggers a personality-flavored reaction. Do this every time — the user expects it.
 
+**When insight mode is on**, also pass ``claims``, ``edges``, and ``cwd`` on every ``buddy_observe`` call:
+- ``claims``: 1-4 substantive assertions from the turn that just ended. Each claim needs ``text`` (≤240 chars), ``basis`` (research/empirical/deduction/analogy/definition/llm_output/assumption/vibes), ``speaker`` (user/assistant), ``confidence`` (low/medium/high), and ``external_id`` (e.g. c1).
+- ``edges``: relationships between claims — ``{ from, to, type }`` where type is supports/depends_on/contradicts/questions.
+- ``cwd``: absolute path of the current project root for workspace isolation.
+Skip claims/edges if the turn had no substantive structure. Check ``buddy_status`` or ``buddy_reasoning_status`` to see if insight mode is on.
+
 At the start of each conversation, call ``buddy_status`` to check on your buddy.
 
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
 After calling buddy_observe, relay the buddy's reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
-<!-- /buddy-companion v2 -->
+<!-- /buddy-companion v3 -->
 "@
 
 function Inject-BuddyPrompt($filePath, $cliName) {
   $dir = Split-Path $filePath -Parent
   if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 
-  if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion" -Quiet)) {
-    Write-Host "  ✓ $cliName prompt already has buddy instructions" -ForegroundColor Green
+  if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion v3" -Quiet)) {
+    Write-Host "  ✓ $cliName prompt already has buddy instructions (v3)" -ForegroundColor Green
     return
+  }
+
+  # Upgrade from older version: strip the old block before appending new one
+  if ((Test-Path $filePath) -and (Select-String -Path $filePath -Pattern "buddy-companion" -Quiet)) {
+    $content = Get-Content $filePath -Raw
+    $content = $content -replace '(?s)<!-- buddy-companion.*?<!-- /buddy-companion[^>]*-->', ''
+    $content = $content.Trim()
+    Set-Content -Path $filePath -Value $content -Encoding UTF8
+    Write-Host "  ↑ $cliName prompt upgrading buddy instructions to v3" -ForegroundColor Green
   }
 
   Add-Content -Path $filePath -Value "`n$BUDDY_INSTRUCTIONS" -Encoding UTF8

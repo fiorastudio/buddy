@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { describe, it, expect } from 'vitest';
-import { runDiagnostics, formatReport, PROMPT_SENTINEL_V2 } from '../lib/doctor.js';
+import { runDiagnostics, formatReport, PROMPT_SENTINEL_V2, PROMPT_SENTINEL_V3 } from '../lib/doctor.js';
 
 describe('Doctor — runDiagnostics', () => {
   it('returns an array of checks', () => {
@@ -110,18 +110,19 @@ describe('Doctor — formatReport', () => {
 });
 
 describe('Doctor — sentinel constant', () => {
-  it('exports the v2 sentinel string', () => {
+  it('exports the v2 and v3 sentinel strings', () => {
     expect(PROMPT_SENTINEL_V2).toBe('buddy-companion v2');
+    expect(PROMPT_SENTINEL_V3).toBe('buddy-companion v3');
   });
 
-  it('keeps installer prompt markers aligned with the v2 sentinel', () => {
+  it('keeps installer prompt markers aligned with the v3 sentinel', () => {
     const installSh = readFileSync(new URL('../../install.sh', import.meta.url), 'utf-8');
     const installPs1 = readFileSync(new URL('../../install.ps1', import.meta.url), 'utf-8');
 
-    expect(installSh).toContain('<!-- buddy-companion v2 -->');
-    expect(installSh).toContain('<!-- /buddy-companion v2 -->');
-    expect(installPs1).toContain('<!-- buddy-companion v2 -->');
-    expect(installPs1).toContain('<!-- /buddy-companion v2 -->');
+    expect(installSh).toContain('<!-- buddy-companion v3 -->');
+    expect(installSh).toContain('<!-- /buddy-companion v3 -->');
+    expect(installPs1).toContain('<!-- buddy-companion v3 -->');
+    expect(installPs1).toContain('<!-- /buddy-companion v3 -->');
   });
 });
 
