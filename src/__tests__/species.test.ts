@@ -91,6 +91,22 @@ describe('All 21 species — SPRITE_BODIES coverage', () => {
   }
 });
 
+describe('Penguin generated motion', () => {
+  it('keeps a compact body while differentiating left and right poses', () => {
+    const bones = makeBones('Penguin');
+    const neutral = renderSprite(bones, 0).join('\n');
+    const left = renderSprite(bones, 1).join('\n');
+    const tucked = renderSprite(bones, 2).join('\n');
+    const right = renderSprite(bones, 3).join('\n');
+
+    expect(neutral).toContain('/(   )\\');
+    expect(left).toContain('_/|   )\\');
+    expect(tucked).toContain('|(   )|');
+    expect(right).toContain('/(   |\\_');
+    expect(left).not.toEqual(right);
+  });
+});
+
 // ── 2. Sprite Rendering ───────────────────────────────────────────────────────
 
 describe('renderSprite', () => {

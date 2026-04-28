@@ -553,8 +553,60 @@ export function getReaction(species: string, event: string, mood: Mood): string 
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+type PenguinYaw = -1 | 0 | 1;
+type PenguinFlapState = 'tucked' | 'neutral' | 'open';
+
+type PenguinMotionKeyframe = {
+  rootX: -1 | 0 | 1;
+  bodyYaw: PenguinYaw;
+  flapLeft: PenguinFlapState;
+  flapRight: PenguinFlapState;
+  blink?: boolean;
+};
+
+const PENGUIN_FRAME_WIDTH = 13;
+
+const PENGUIN_MOTION_KEYFRAMES: PenguinMotionKeyframe[] = [
+  { rootX: 0, bodyYaw: 0, flapLeft: 'neutral', flapRight: 'neutral' },
+  { rootX: -1, bodyYaw: -1, flapLeft: 'open', flapRight: 'neutral' },
+  { rootX: 0, bodyYaw: 0, flapLeft: 'tucked', flapRight: 'tucked' },
+  { rootX: 1, bodyYaw: 1, flapLeft: 'neutral', flapRight: 'open' },
+  { rootX: 0, bodyYaw: 0, flapLeft: 'neutral', flapRight: 'neutral', blink: true },
+];
+
+function padPenguinLine(raw: string): string {
+  return raw.padEnd(PENGUIN_FRAME_WIDTH, ' ');
+}
+
+function renderPenguinTemplateFrame(frame: PenguinMotionKeyframe): string[] {
+  const headIndent = ' '.repeat(3 + frame.rootX);
+  const faceIndent = ' '.repeat(2 + frame.rootX);
+  const bodyIndent = ' '.repeat(1 + frame.rootX);
+  const baseIndent = ' '.repeat(2 + frame.rootX);
+
+  const face = frame.blink
+    ? '(->-)'
+    : frame.bodyYaw === -1
+      ? '({E}>.)'
+      : frame.bodyYaw === 1
+        ? '(.<{E})'
+        : '({E}>{E})';
+
+  let body = '/(   )\\';
+  if (frame.bodyYaw === -1 || frame.flapLeft === 'open') body = '_/|   )\\';
+  if (frame.bodyYaw === 1 || frame.flapRight === 'open') body = '/(   |\\_';
+  if (frame.flapLeft === 'tucked' && frame.flapRight === 'tucked') body = '|(   )|';
+
+  return [
+    padPenguinLine(`${headIndent}.---.`),
+    padPenguinLine(`${faceIndent}${face}`),
+    padPenguinLine(`${bodyIndent}${body}`),
+    padPenguinLine(`${baseIndent}\`- -'`),
+  ];
+}
+
 // New format: line arrays with {E} eye placeholder.
-// Used by renderSprite(). Each species has 2-3 frames.
+// Used by renderSprite().
 export const SPRITE_BODIES: Record<string, string[][]> = {
   'Void Cat': [
     ['  /\\_/\\       ', ' ( {E}ω{E} )      ', '  )   (__/    ', ' (_____/      '],  // idle
@@ -623,12 +675,7 @@ export const SPRITE_BODIES: Record<string, string[][]> = {
     ['   .___,    ', '  ( {E}v{E} )   ', '  /)   (\\   ', '  \\_____/   ', '   "   "    '],  // ruffle
     ['   ,___,    ', '  ({E} v {E})   ', '  /)   (\\   ', '  \\_____/   ', '   "   "    '],  // head tilt
   ],
-  'Penguin': [
-    ['   .---.    ', '  ({E}>{E})     ', ' /(   )\\    ', '  `- -´     '],  // neutral
-    ['   .---.    ', '  (->-)     ', ' /(   )\\    ', '  `- -´     '],  // blink
-    ['   .---.    ', '  ({E}>{E})     ', ' _/|   )\\   ', '   `- -´    '],  // lean left, left flap open
-    ['   .---.    ', '  ({E}>{E})     ', ' /(   |\\_   ', '   `- -´    '],  // lean right, right flap open
-  ],
+  'Penguin': PENGUIN_MOTION_KEYFRAMES.map(renderPenguinTemplateFrame),
   'Snail': [
     ['   \\{E}^^/      ', '     \\  .--.  ', "      \\( @ )  ", "       \\'--'  ", '            ~ '],  // idle
     ['   \\-^^/      ', '     \\  .--.  ', "      \\( @ )  ", "       \\'--'  ", '           ~~ '],  // blink

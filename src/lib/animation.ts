@@ -92,11 +92,11 @@ const SPECIES_OVERRIDES: Partial<Record<string, Partial<AnimationProfile> & { dw
   'Goose':        { dwellMs: 400 },
   'Penguin':      {
     dwellMs: 400,
-    idle: [{ frame: 0 }, { frame: 2 }, { frame: 0 }, { frame: 3 }, { frame: 0 }, { frame: 1 }],
-    happy: [{ frame: 2 }, { frame: 0 }, { frame: 3 }, { frame: 0 }, { frame: 2 }, { frame: 1 }, { frame: 3 }, { frame: 1 }],
-    content: [{ frame: 0 }, { frame: 2 }, { frame: 0 }, { frame: 3 }],
-    reactionExcited: [{ frame: 2 }, { frame: 0 }, { frame: 3 }, { frame: 0 }, { frame: 2 }, { frame: 3 }],
-    reactionImpressed: [{ frame: 0 }, { frame: 2 }, { frame: 0 }, { frame: 3 }, { frame: 1 }],
+    idle: [{ frame: 0 }, { frame: 1 }, { frame: 2 }, { frame: 3 }, { frame: 2 }, { frame: 4 }],
+    happy: [{ frame: 1 }, { frame: 2 }, { frame: 3 }, { frame: 2 }, { frame: 1 }, { frame: 3 }, { frame: 4 }],
+    content: [{ frame: 0 }, { frame: 1 }, { frame: 2 }, { frame: 3 }],
+    reactionExcited: [{ frame: 1 }, { frame: 2 }, { frame: 3 }, { frame: 2 }, { frame: 1 }, { frame: 3 }],
+    reactionImpressed: [{ frame: 0 }, { frame: 1 }, { frame: 2 }, { frame: 3 }, { frame: 4 }],
   },
   'Rabbit':       { dwellMs: 400 },
 };
