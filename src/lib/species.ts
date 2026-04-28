@@ -593,8 +593,8 @@ function renderPenguinTemplateFrame(frame: PenguinMotionKeyframe): string[] {
         : '({E}>{E})';
 
   let body = '/(   )\\';
-  if (frame.bodyYaw === -1 || frame.flapLeft === 'open') body = '_/    )|';
-  if (frame.bodyYaw === 1 || frame.flapRight === 'open') body = '|(    \\_';
+  if (frame.bodyYaw === -1 || frame.flapLeft === 'open') body = ' //  )/';
+  if (frame.bodyYaw === 1 || frame.flapRight === 'open') body = '\\(  \\\\';
 
   return [
     padPenguinLine(`${headIndent}.---.`),
