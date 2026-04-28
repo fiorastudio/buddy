@@ -569,7 +569,7 @@ const PENGUIN_FRAME_WIDTH = 13;
 const PENGUIN_MOTION_KEYFRAMES: PenguinMotionKeyframe[] = [
   { rootX: 0, bodyYaw: 0, flapLeft: 'neutral', flapRight: 'neutral' },
   { rootX: -1, bodyYaw: -1, flapLeft: 'open', flapRight: 'neutral' },
-  { rootX: 0, bodyYaw: 0, flapLeft: 'tucked', flapRight: 'tucked' },
+  { rootX: 0, bodyYaw: 0, flapLeft: 'neutral', flapRight: 'neutral' },
   { rootX: 1, bodyYaw: 1, flapLeft: 'neutral', flapRight: 'open' },
   { rootX: 0, bodyYaw: 0, flapLeft: 'neutral', flapRight: 'neutral', blink: true },
 ];
@@ -593,9 +593,8 @@ function renderPenguinTemplateFrame(frame: PenguinMotionKeyframe): string[] {
         : '({E}>{E})';
 
   let body = '/(   )\\';
-  if (frame.bodyYaw === -1 || frame.flapLeft === 'open') body = '_/|   )\\';
-  if (frame.bodyYaw === 1 || frame.flapRight === 'open') body = '/(   |\\_';
-  if (frame.flapLeft === 'tucked' && frame.flapRight === 'tucked') body = '|(   )|';
+  if (frame.bodyYaw === -1 || frame.flapLeft === 'open') body = '_/    )|';
+  if (frame.bodyYaw === 1 || frame.flapRight === 'open') body = '|(    \\_';
 
   return [
     padPenguinLine(`${headIndent}.---.`),
