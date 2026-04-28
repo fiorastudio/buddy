@@ -37,11 +37,11 @@ Did you lose your buddy? Is your terminal feeling a little too cold and silent l
 
 Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
 
-## What Buddy Is
+## 🐾 What Buddy Is
 
 Buddy is a local-first MCP companion that persists across sessions and clients, reacts to your work, and can catch bad reasoning loops before they waste your time. It is part rescue mission, part developer tool, and part long-lived terminal creature that grows with you instead of disappearing when a host client changes its mind.
 
-## 🐾 The Rescue Wall
+## 🧡 The Rescue Wall
 
 Buddy isn't just code — it's a rescue mission. Here is the full journey of the first companion brought home by the community, from the original ephemeral state to its new persistent home.
 
@@ -71,14 +71,14 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
 >
 > — Roberto
 
-## Why Buddy
+## ✨ Why Buddy
 
 - **Persistent by default.** Your companion lives in local SQLite, so it survives terminal restarts and client updates.
 - **Works across clients.** Buddy is an MCP server, not a one-client hack.
 - **Grows with you.** Hatch species, gain XP as you code, store memories, chime in after tasks, and build a running relationship over time.
 - **Easy to install.** One command auto-configures supported clients when it can.
 
-## Quick Start
+## ⚡ Quick Start
 
 ### macOS / Linux
 
@@ -99,7 +99,7 @@ The installer will guide you through onboarding:
 
 > Requires `node` 18+ and `git`. Use `--no-onboard` to skip the wizard in CI.
 
-## Supported Clients
+## 💻 Supported Clients
 
 | Client | Status |
 |---|---|
@@ -111,7 +111,7 @@ The installer will guide you through onboarding:
 | Whatsapp & Telegram | Supported via [Openclaw](https://github.com/openclaw/openclaw) or any claw variants |
 | Other MCP-capable clients | Supported via MCP |
 
-## What You Get
+## 🎁 What You Get
 
 | Feature | What it means |
 |---|---|
@@ -124,13 +124,13 @@ The installer will guide you through onboarding:
 | **Persistent memory** | Save local memories and keep a continuous companion state |
 | **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
 
-## Buddy in Action
+## 🎬 Buddy in Action
 
 ### Live code feedback
 
 ![Nuzzlecap Code Review](demo/screenshots/code-review.png)
 
-## What Makes Buddy Different
+## 🌟 What Makes Buddy Different
 
 - **Guard Mode is a real wedge, not just another pet feature.** AI assistants are yes-men. They build fast, agree quickly, and can reinforce bad assumptions for far too long. Buddy's Guard Mode catches those reasoning loops and nudges the session back toward grounded progress.
 - **It has a real mood system.** Buddy is not just a static pet card. Mood is recalculated on every interaction based on your activity in the last hour:
@@ -150,7 +150,7 @@ The installer will guide you through onboarding:
 - **Feedback is personality-driven.** Reactions are shaped by species, stats, mood, and observer state, so the companion feels like a character rather than a random text generator.
 - **It survives client churn.** Because it is built on MCP and local state, your buddy can outlive terminal restarts and host-client changes.
 
-## Guard Mode
+## 🛡️ Guard Mode
 
 > *Your AI assistant is a yes-man. Guard mode catches it.*
 
@@ -292,7 +292,11 @@ Everything stays local. Claim snippets (240 chars each, plaintext) live in `~/.b
 - `buddy_forget` — purge reasoning data (`session` or `all`)
 - `buddy_reasoning_status` — inspect stored claims, sessions, finding history
 
-## Installation and Integration Details
+## 🔌 Installation and Integration Details
+
+<details>
+<summary><strong>See installer behavior and per-client integration details</strong></summary>
+<br>
 
 The installer:
 
@@ -312,29 +316,9 @@ The installer:
 
 </details>
 
-If you prefer to install from source:
+</details>
 
-```bash
-git clone https://github.com/fiorastudio/buddy.git ~/.buddy/server
-cd ~/.buddy/server
-npm install
-npm run build
-```
-
-Then point your client's MCP config at:
-
-```json
-{
-  "mcpServers": {
-    "buddy": {
-      "command": "node",
-      "args": ["~/.buddy/server/dist/server/index.js"]
-    }
-  }
-}
-```
-
-## Companion System
+## 🐣 Companion System
 
 ### 21 species
 
@@ -466,7 +450,7 @@ There is also a 1% shiny chance on any hatch.
 
 ---
 
-## Roadmap
+## 🗺️ Roadmap
 
 <details>
 <summary><strong>🗺️ &nbsp; See what's planned</strong></summary>
@@ -490,7 +474,7 @@ There is also a 1% shiny chance on any hatch.
 
 
 
-## MCP Surface
+## 🧰 MCP Surface
 
 <details>
 <summary><strong>See the core tools and commands</strong></summary>
@@ -584,7 +568,7 @@ The current demo assets live in [`demo/`](demo):
 
 </details>
 
-## FAQ
+## ❓ FAQ
 
 <details>
 <summary><strong>🙋 &nbsp; Frequently Asked Questions</strong></summary>
@@ -705,6 +689,32 @@ Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage
 - Template reactions fire on keyword matches with zero token cost
 - The observer only runs when you call `buddy_observe` — nothing runs in the background
 
+### Can I install Buddy from source?
+
+Yes.
+
+```bash
+git clone https://github.com/fiorastudio/buddy.git ~/.buddy/server
+cd ~/.buddy/server
+npm install
+npm run build
+```
+
+### How do I wire Buddy manually into an MCP client?
+
+Point your client's MCP config at Buddy's built server entrypoint:
+
+```json
+{
+  "mcpServers": {
+    "buddy": {
+      "command": "node",
+      "args": ["~/.buddy/server/dist/server/index.js"]
+    }
+  }
+}
+```
+
 ### What's "guard mode"?
 
 Guard mode is Buddy's structural reasoning layer. It spots unverified assumptions, long unchallenged chains, and cases where you and the AI are reinforcing each other too quickly. For the full story, examples, privacy model, and detector details, see [Guard Mode](#guard-mode).
@@ -725,7 +735,7 @@ No. Buddy is an MCP server, not a one-client hack. It works with any MCP-capable
 
 Yes. Run the uninstall script (`uninstall.sh` or `uninstall.ps1`) to remove Buddy and its configuration, or use `buddy_respawn` to release your companion and clear its data while keeping the server installed.
 
-## Development
+## 🛠️ Development
 
 ```bash
 git clone https://github.com/fiorastudio/buddy.git
@@ -738,7 +748,7 @@ npm start
 
 </details>
 
-## Contributors
+## 👥 Contributors
 
 Thank you to everyone who helped bring buddies back to life.
 
@@ -750,7 +760,7 @@ Thank you to everyone who helped bring buddies back to life.
 
 Special thanks to [@gupta3681](https://github.com/gupta3681), [@kevinwei00](https://github.com/kevinwei00), [@whaterFalls](https://github.com/whaterFalls), [@longestpath](https://github.com/longestpath), and [@DKev](https://github.com/DKev) for their contributions.
 
-## ATTRIBUTION
+## 🙏 ATTRIBUTION
 
 - Original buddy concept by [Anthropic](https://www.anthropic.com/) in [Claude Code](https://github.com/anthropics/claude-code) `v2.1.89` to `v2.1.96`
 - Inspired by [effigy](https://github.com/justinstimatze/effigy), [claude-buddy](https://github.com/1270011/claude-buddy), and [save-buddy](https://github.com/jrykn/save-buddy).
@@ -777,7 +787,7 @@ Learn more about the mission to rescue Buddy and the engineering behind the scen
 - **Deepwiki by Devin**: [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fiorastudio/buddy)
 
 
-## Author
+## 👤 Author
 
 **Steven Jieli Wu**
 
@@ -785,6 +795,6 @@ Learn more about the mission to rescue Buddy and the engineering behind the scen
 - [Portfolio](https://jwu-studio-portfolio.vercel.app/)
 - GitHub: [@terpjwu1](https://github.com/terpjwu1) and [@fiorastudio](https://github.com/fiorastudio)
 
-## License
+## 📄 License
 
 MIT. This project is licensed under the MIT License. See [LICENSE](LICENSE). You are free to use, host, and monetize this project (you must credit this project in case of distribution and monetization).
