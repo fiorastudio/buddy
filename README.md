@@ -37,11 +37,11 @@ Did you lose your buddy? Is your terminal feeling a little too cold and silent l
 
 Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
 
-## 🐾 What Buddy Is
+## 🧡 Buddy in Action
 
 Buddy is a local-first MCP companion that persists across sessions and clients, reacts to your work, and can catch bad reasoning loops before they waste your time. It is part rescue mission, part developer tool, and part long-lived terminal creature that grows with you instead of disappearing when a host client changes its mind.
 
-## 🧡 The Rescue Wall
+### The Rescue Wall
 
 Buddy isn't just code — it's a rescue mission. Here is the full journey of the first companion brought home by the community, from the original ephemeral state to its new persistent home.
 
@@ -71,12 +71,27 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
 >
 > — Roberto
 
-## ✨ Why Buddy
+### Live code feedback
 
+![Nuzzlecap Code Review](demo/screenshots/code-review.png)
+
+## 🐾 Why Buddy
+
+- **Guard Mode is the wedge.** Your AI assistant is a yes-man. Buddy catches the moments where you and the model are building quickly on top of bad assumptions.
 - **Persistent by default.** Your companion lives in local SQLite, so it survives terminal restarts and client updates.
-- **Works across clients.** Buddy is an MCP server, not a one-client hack.
+- **Works across clients and chat surfaces.** Buddy is an MCP server, not a one-client hack, and it can ride through tools like OpenClaw into WhatsApp and Telegram workflows.
 - **Grows with you.** Hatch species, gain XP as you code, store memories, chime in after tasks, and build a running relationship over time.
 - **Easy to install.** One command auto-configures supported clients when it can.
+
+| Feature | What it means |
+|---|---|
+| **21 species** | Void Cat, Rust Hound, Goose, Mushroom, Chonk, and more, each with distinct ASCII art and flavor |
+| **5 stats** | `DEBUGGING`, `PATIENCE`, `CHAOS`, `WISDOM`, and `SNARK` shape reactions and personality |
+| **Mood system** | Your buddy can be happy, content, neutral, curious, grumpy based on how you interact with it |
+| **XP and levels** | Your buddy grows with usage instead of disappearing every session, with a real leveling curve behind it |
+| **Observer reactions** | `buddy_observe` lets your companion react to work you just finished |
+| **Persistent memory** | Save local memories and keep a continuous companion state |
+| **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
 
 ## ⚡ Quick Start
 
@@ -99,8 +114,6 @@ The installer will guide you through onboarding:
 
 > Requires `node` 18+ and `git`. Use `--no-onboard` to skip the wizard in CI.
 
-## 💻 Supported Clients
-
 | Client | Status |
 |---|---|
 | Claude Code CLI | Full support |
@@ -110,45 +123,6 @@ The installer will guide you through onboarding:
 | Cursor CLI | Supported via MCP |
 | Whatsapp & Telegram | Supported via [Openclaw](https://github.com/openclaw/openclaw) or any claw variants |
 | Other MCP-capable clients | Supported via MCP |
-
-## 🎁 What You Get
-
-| Feature | What it means |
-|---|---|
-| **21 species** | Void Cat, Rust Hound, Goose, Mushroom, Chonk, and more, each with distinct ASCII art and flavor |
-| **5 stats** | `DEBUGGING`, `PATIENCE`, `CHAOS`, `WISDOM`, and `SNARK` shape reactions and personality |
-| **Mood system** | Your buddy can be happy, content, neutral, curious, grumpy based on how you interact with it |
-| **XP and levels** | Your buddy grows with usage instead of disappearing every session, with a real leveling curve behind it |
-| **Observer reactions** | `buddy_observe` lets your companion react to work you just finished |
-| **Pet-to-happiness loop** | Petting your buddy is not cosmetic only. More interaction makes it happier and more alive over time |
-| **Persistent memory** | Save local memories and keep a continuous companion state |
-| **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
-
-## 🎬 Buddy in Action
-
-### Live code feedback
-
-![Nuzzlecap Code Review](demo/screenshots/code-review.png)
-
-## 🌟 What Makes Buddy Different
-
-- **Guard Mode is a real wedge, not just another pet feature.** AI assistants are yes-men. They build fast, agree quickly, and can reinforce bad assumptions for far too long. Buddy's Guard Mode catches those reasoning loops and nudges the session back toward grounded progress.
-- **It has a real mood system.** Buddy is not just a static pet card. Mood is recalculated on every interaction based on your activity in the last hour:
-
-  | Mood | Interactions (last hr) | What it looks like |
-  |---|---|---|
-  | `content` | >10 | Settled in, fully at ease |
-  | `happy` | >5 | Upbeat, expressive animations |
-  | `curious` | >3 | Alert, watching what you do |
-  | `neutral` | >0 | Calm, occasional blink |
-  | `grumpy` | 0 | Still, rare blink, wants attention |
-
-  Level-ups automatically set mood to `happy`. Petting and observing both count as interactions.
-
-- **Petting changes the relationship.** The more you interact with and pet your buddy, the happier it becomes. That care loop is part of the product, not just a gimmick.
-- **It actually levels up.** Buddy has a real XP and leveling system, so your companion develops over time instead of resetting every session.
-- **Feedback is personality-driven.** Reactions are shaped by species, stats, mood, and observer state, so the companion feels like a character rather than a random text generator.
-- **It survives client churn.** Because it is built on MCP and local state, your buddy can outlive terminal restarts and host-client changes.
 
 ## 🛡️ Guard Mode
 
@@ -167,12 +141,12 @@ This mode exists because of a real stuck-loop problem. While building a Snowflak
 Buddy has two independent settings you control separately:
 
 ```bash
-# Voice: how buddy reacts (personality, code feedback, or both)
+**Voice: how Buddy reacts (personality, code feedback, or both)**
 buddy_mode voice=backseat      # personality reactions only
 buddy_mode voice=skillcoach    # code feedback only
 buddy_mode voice=both          # both (default)
 
-# Guard: structural reasoning analysis (on or off)
+**Guard: structural reasoning analysis (on or off)**
 buddy_mode guard=true          # turn on reasoning analysis
 buddy_mode guard=false         # turn it off (default)
 ```
@@ -357,7 +331,7 @@ Here is the Buddy-owned species sheet in the same spirit: a scannable visual ref
 
 </details>
 
-### 5 personality stats
+### Stats and progression
 
 ```text
 .________________________________.
@@ -377,7 +351,19 @@ These stats shape how your buddy behaves:
 - `WISDOM` affects architectural insight
 - `SNARK` affects sass level
 
-### Leveling milestones
+Buddy also has a real mood system. Mood is recalculated from recent interaction activity:
+
+| Mood | Interactions (last hr) | What it looks like |
+|---|---|---|
+| `content` | >10 | Settled in, fully at ease |
+| `happy` | >5 | Upbeat, expressive animations |
+| `curious` | >3 | Alert, watching what you do |
+| `neutral` | >0 | Calm, occasional blink |
+| `grumpy` | 0 | Still, rare blink, wants attention |
+
+Level-ups automatically set mood to `happy`. Petting and observing both count as interactions.
+
+#### Leveling milestones
 
 Buddy uses a real XP curve, so early levels come quickly and later ones take real commitment.
 
@@ -391,7 +377,7 @@ Buddy uses a real XP curve, so early levels come quickly and later ones take rea
 | Level 49 | 5512 | 99209 |
 | Level 50 | 5716 | 104925 |
 
-### Rarity
+#### Rarity
 
 | Rarity | Chance | Bonus |
 |---|---|---|
@@ -602,11 +588,9 @@ So `voice=both, guard=on` costs ~900–1,600 tokens per observe — roughly doub
 
 **Template fallback reactions** are keyword-matched locally and cost **zero tokens**. When your summary contains a recognized keyword (e.g. "bug", "refactor", "deploy"), Buddy picks a pre-written reaction template from its local library instead of asking the LLM. The speech bubble you see is this template — the LLM prompt is included in the JSON metadata for clients that want richer AI-generated reactions, but the immediate visual response is always free.
 
-### Does Buddy make separate API calls?
+### What does Buddy cost?
 
-No. All responses are generated by the host LLM already running in your session (Claude, Cursor, Codex, Gemini). No separate endpoint, no additional API key, no OAuth.
-
-### What's the real cost on an API plan?
+No separate endpoint, no additional API key, and no hidden OAuth hop. All responses are generated by the host LLM already running in your session (Claude, Cursor, Codex, Gemini).
 
 Even on raw API usage, Buddy's spend is measured in tenths of a cent because it reuses the same session as your AI terminal.
 
@@ -632,8 +616,6 @@ Need it even cheaper? GPT-5.4 nano drops to $0.20 / $1.25 per MTok, and Gemini 2
 
 For comparison, a single complex coding prompt ("refactor this module") typically costs $0.05–$0.15, so Buddy stays under 5% of a normal session even at Anthropic's flagship rates.
 
-### Will this affect my Claude Pro/Max limits?
-
 Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage limits are based on a rolling 5-hour window. Even with `voice=both, guard=on` (the most expensive combo), Buddy adds <10% to your token throughput. With guard off, it's <5%.
 
 ### Can I reduce token usage?
@@ -644,7 +626,7 @@ Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage
 - Template reactions fire on keyword matches with zero token cost
 - The observer only runs when you call `buddy_observe` — nothing runs in the background
 
-### Can I install Buddy from source?
+### Can I install or wire Buddy manually?
 
 Yes.
 
@@ -654,8 +636,6 @@ cd ~/.buddy/server
 npm install
 npm run build
 ```
-
-### How do I wire Buddy manually into an MCP client?
 
 Point your client's MCP config at Buddy's built server entrypoint:
 
@@ -674,13 +654,11 @@ Point your client's MCP config at Buddy's built server entrypoint:
 
 Guard mode is Buddy's structural reasoning layer. It spots unverified assumptions, long unchallenged chains, and cases where you and the AI are reinforcing each other too quickly. For the full story, examples, privacy model, and detector details, see [Guard Mode](#guard-mode).
 
-### Does Buddy read my whole codebase?
+### What does Buddy access and store?
 
-No. Buddy mainly reacts to short summaries you pass through tools like `buddy_observe`, plus its own saved state. It never scans your files or project directory.
+Buddy mainly reacts to short summaries you pass through tools like `buddy_observe`, plus its own saved state. It does not scan your files or project directory.
 
-### What does Buddy store?
-
-Local companion state in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. If guard mode is on, buddy also stores extracted claim snippets (≤240 chars each, plaintext) for structural reasoning analysis, pruned after 30 days and purgeable via `buddy_forget`. Nothing leaves your machine.
+Local companion state lives in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. If guard mode is on, Buddy also stores extracted claim snippets (≤240 chars each, plaintext) for structural reasoning analysis, pruned after 30 days and purgeable via `buddy_forget`. Nothing leaves your machine.
 
 ### Is Buddy tied to one client?
 
