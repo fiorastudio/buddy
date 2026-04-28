@@ -324,51 +324,6 @@ The installer:
 
 Buddy pays homage to the original companion lineup, then adds a little more flair with Buddy-specific characters like Void Cat, Rust Hound, Data Drake, Log Golem, Cache Crow, and Shell Turtle.
 
-Buddy ships with 21 companions:
-
-```text
- void cat          rust hound        data drake        log golem
-   /\_/\             /^ ^\              /^\  /^\         [=====]
-  ( °ω° )           / ° ° \            < °    ° >       [ °  ° ]
-   )   (__/         V\ Y /V            (   ~~   )       [  __  ]
-  (_____/             |_|               '-vvvv-'        [______]
-                                                         |    |
-
- cache crow        shell turtle      duck              goose
-     ___              _,--._             __                 (°>
-    (° °)            ( °  ° )          <(° )___             ||
-   /| V |\          /[______]\          ( ._>             _(__)_
-  / |   | \           ``  ``             `--´              ^^^^
-    ^^ ^^
-
- blob              octopus           owl               penguin
-    .----.            .----.            ,___,            .---.
-   ( °  ° )          ( °  ° )          ( °v° )           (°>°)
-   (      )          (______)          /)   (\          /(   )\
-    `----´           /\/\/\/\          \_____/           `- -'
-                                        "   "
-
- snail             ghost             axolotl           capybara
-    \°^^/             .----.         }~(______)~{        n______n
-      \  .--.        / °  ° \        }~(° .. °)~{       ( °    ° )
-       \( @ )        |      |          ( .--. )         (   oo   )
-        \'--'        ~`~``~`~          (_/  \_)          `------´
-             ~
-
- cactus            robot             rabbit            mushroom
-     ____             .[||].           (\   /)          .-o-OO-o-.
-  n |°  °| n         [ °  ° ]          (\_._/)         (__________)
-  |_|    |_|         [ ==== ]          ( °.° )            |°  °|
-    |    |           `------´           > ^ <             |____|
-                                       (") (")
-
- chonk
-   /\    /\
-  ( °    ° )
-  (   ..   )
-   `------´
-```
-
 <details>
 <summary><strong>See the full Buddy species sheet</strong></summary>
 
