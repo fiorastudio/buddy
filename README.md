@@ -132,6 +132,7 @@ The installer will guide you through onboarding:
 
 ## What Makes Buddy Different
 
+- **Guard Mode is a real wedge, not just another pet feature.** AI assistants are yes-men. They build fast, agree quickly, and can reinforce bad assumptions for far too long. Buddy's Guard Mode catches those reasoning loops and nudges the session back toward grounded progress.
 - **It has a real mood system.** Buddy is not just a static pet card. Mood is recalculated on every interaction based on your activity in the last hour:
 
   | Mood | Interactions (last hr) | What it looks like |
@@ -494,7 +495,7 @@ There is also a 1% shiny chance on any hatch.
 <details>
 <summary><strong>See the core tools and commands</strong></summary>
 
-These stay tucked away by default, but Buddy exposes a real MCP surface for companion state, reactions, and progression.
+These stay tucked away by default, but Buddy exposes a real MCP surface for companion state, reactions, and progression. That same surface is what lets Buddy travel beyond terminal-only clients into chat-oriented environments like WhatsApp and Telegram through [OpenClaw](https://github.com/openclaw/openclaw) and other claw variants.
 
 ### MCP tools
 
