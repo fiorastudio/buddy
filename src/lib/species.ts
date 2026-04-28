@@ -587,9 +587,9 @@ function renderPenguinTemplateFrame(frame: PenguinMotionKeyframe): string[] {
   const face = frame.blink
     ? '(->-)'
     : frame.bodyYaw === -1
-      ? '({E}>.)'
+      ? '({E}>-)'
       : frame.bodyYaw === 1
-        ? '(.<{E})'
+        ? '(-<{E})'
         : '({E}>{E})';
 
   let body = '/(   )\\';
