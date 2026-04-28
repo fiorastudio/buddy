@@ -579,7 +579,7 @@ function padPenguinLine(raw: string): string {
 }
 
 function renderPenguinTemplateFrame(frame: PenguinMotionKeyframe): string[] {
-  const headIndent = ' '.repeat(3 + frame.rootX);
+  const headIndent = ' '.repeat(3);
   const faceIndent = ' '.repeat(2 + frame.rootX);
   const bodyIndent = ' '.repeat(1 + frame.rootX);
   const baseIndent = ' '.repeat(2 + frame.rootX);
@@ -587,9 +587,9 @@ function renderPenguinTemplateFrame(frame: PenguinMotionKeyframe): string[] {
   const face = frame.blink
     ? '(->-)'
     : frame.bodyYaw === -1
-      ? '({E}>-)'
+      ? '({E}>{E})'
       : frame.bodyYaw === 1
-        ? '(-<{E})'
+        ? '({E}<{E})'
         : '({E}>{E})';
 
   let body = '/(   )\\';
