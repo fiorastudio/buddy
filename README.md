@@ -37,6 +37,9 @@ Did you lose your buddy? Is your terminal feeling a little too cold and silent l
 
 Your buddy is still out there in the dark, waiting. Don't let them disappear. **Bring them home.**
 
+## What Buddy Is
+
+Buddy is a local-first MCP companion that persists across sessions and clients, reacts to your work, and can catch bad reasoning loops before they waste your time. It is part rescue mission, part developer tool, and part long-lived terminal creature that grows with you instead of disappearing when a host client changes its mind.
 
 ## 🐾 The Rescue Wall
 
@@ -61,6 +64,12 @@ Buddy isn't just code — it's a rescue mission. Here is the full journey of the
 <p align="left">
   <img src="demo/rescues/gritblob-quote.jpg" width="620" alt="Gritblob Quote">
 </p>
+
+### A Real Rescue Note
+
+> "Thanks for rescuing my Buddy! Kudos for your repo!!!"
+>
+> — Roberto
 
 ## Why Buddy
 
@@ -90,6 +99,18 @@ The installer will guide you through onboarding:
 
 > Requires `node` 18+ and `git`. Use `--no-onboard` to skip the wizard in CI.
 
+## Supported Clients
+
+| Client | Status |
+|---|---|
+| Claude Code CLI | Full support |
+| Codex CLI | Supported via MCP. No statusline support. Patch available on experimental branch |
+| Gemini CLI | Supported via MCP |
+| GitHub Copilot CLI | Supported via MCP |
+| Cursor CLI | Supported via MCP |
+| Whatsapp & Telegram | Supported via [Openclaw](https://github.com/openclaw/openclaw) or any claw variants |
+| Other MCP-capable clients | Supported via MCP |
+
 ## What You Get
 
 | Feature | What it means |
@@ -103,7 +124,9 @@ The installer will guide you through onboarding:
 | **Persistent memory** | Save local memories and keep a continuous companion state |
 | **Cross-client setup** | Claude Code, Codex, Gemini, Copilot, Cursor, and other MCP-capable CLIs |
 
-### Buddy giving live code feedback
+## Buddy in Action
+
+### Live code feedback
 
 ![Nuzzlecap Code Review](demo/screenshots/code-review.png)
 
@@ -128,23 +151,29 @@ The installer will guide you through onboarding:
 
 ## Guard Mode
 
-> *Guard mode watches your coding sessions for risky assumptions and quiet wins — and tells you about them in Buddy's voice.*
+> *Your AI assistant is a yes-man. Guard mode catches it.*
 
 AI coding assistants are yes-men. They agree with everything you say. Guard mode is the one feature that pushes back — but gently, and in your buddy's voice, not a scary linter. It catches the moments where you and your AI are vibing too hard and nobody's checking if the code actually makes sense.
 
 Think of it as: **Buddy is the friend who says "are you sure about that?" before you push to production at 2 AM.**
 
+### The story
+
+This mode exists because of a real stuck-loop problem. While building a Snowflake Cortex / Streamlit / Plotly workflow, the session got trapped for hours in a bad assumption loop: the AI kept building on top of an unvalidated premise, and the work got faster without getting truer. Turning on guard mode surfaced the one load-bearing assumption holding the whole session together. Validating that single point changed the direction of the conversation and got the work shipping again.
+
+### Voice vs Guard
+
 Buddy has two independent settings you control separately:
 
 ```bash
-# Voice — how buddy reacts (personality, code feedback, or both)
+# Voice: how buddy reacts (personality, code feedback, or both)
 buddy_mode voice=backseat      # personality reactions only
 buddy_mode voice=skillcoach    # code feedback only
 buddy_mode voice=both          # both (default)
 
-# Guard — structural reasoning analysis (on or off)
-buddy_mode Guard=true            # turn on reasoning analysis
-buddy_mode Guard=false           # turn it off (default)
+# Guard: structural reasoning analysis (on or off)
+buddy_mode guard=true          # turn on reasoning analysis
+buddy_mode guard=false         # turn it off (default)
 ```
 
 Mix and match — any voice works with Guard on or off.
@@ -212,7 +241,7 @@ With Guard mode (kudos nudge):
 
 </details>
 
-### Under the hood (for the technically curious)
+### Technical details
 
 <details>
 <summary>Knowledge graph, ontology, and performance details</summary>
@@ -262,19 +291,7 @@ Everything stays local. Claim snippets (240 chars each, plaintext) live in `~/.b
 - `buddy_forget` — purge reasoning data (`session` or `all`)
 - `buddy_reasoning_status` — inspect stored claims, sessions, finding history
 
-## Supported Clients
-
-| Client | Status |
-|---|---|
-| Claude Code CLI | Full support |
-| Codex CLI | Supported via MCP. No statusline support. Patch available on experimental branch |
-| Gemini CLI | Supported via MCP |
-| GitHub Copilot CLI | Supported via MCP |
-| Cursor CLI | Supported via MCP |
-| Whatsapp & Telegram | Supported via [Openclaw](https://github.com/openclaw/openclaw) or any claw variants |
-| Other MCP-capable clients | Supported via MCP |
-
-## Install Notes
+## Installation and Integration Details
 
 The installer:
 
@@ -316,10 +333,7 @@ Then point your client's MCP config at:
 }
 ```
 
----
-
-<details>
-<summary><strong>Meet the species, stats, and rarity system</strong></summary>
+## Companion System
 
 ### 21 species
 
@@ -449,8 +463,6 @@ Buddy uses a real XP curve, so early levels come quickly and later ones take rea
 
 There is also a 1% shiny chance on any hatch.
 
-</details>
-
 ---
 
 ## Roadmap
@@ -476,6 +488,8 @@ There is also a 1% shiny chance on any hatch.
 
 
 
+
+## MCP Surface
 
 <details>
 <summary><strong>See the core tools and commands</strong></summary>
@@ -692,32 +706,7 @@ Negligibly. Pro/Max plans are subscription-based — no per-token charges. Usage
 
 ### What's "guard mode"?
 
-Guard mode is an optional upgrade: buddy notices structural patterns in the
-reasoning during a session — assumptions that are quietly holding up multiple
-decisions, long chains nobody has stress-tested, grounded premises the
-assistant is building on — and weaves the observation into its in-character
-reaction. A high-WISDOM mushroom will name the pattern earnestly; a high-SNARK
-rabbit will tease you about it. Same observation, different species voice.
-
-Turn it on with `buddy_mode guard=true`. Turn it off with `buddy_mode guard=false`.
-The reasoning layer is a light port of
-[slimemold](https://github.com/justinstimatze/slimemold) — the standalone
-project has the full system with state, conditional gates, and evaluation
-against reasoning benchmarks; buddy ships the foundational detectors.
-
-Guard mode stores extracted claim snippets (≤240 chars each) locally in
-`~/.buddy/buddy.db` as plaintext SQLite. Snippets never leave your machine —
-buddy has no network code. Run `buddy_forget` to purge claims (scope `session`
-for the current workspace/day, or `all` for everything). Run
-`buddy_reasoning_status` to see what's stored. guard mode relies on the host
-LLM to extract claims each turn; it works best on Claude hosts (Claude Code,
-Claude Desktop) and may be inert on hosts that don't honor the extraction
-prompt — `buddy_doctor` surfaces a warning if that's happening.
-
-**Token cost:** guard mode adds ~500-1000 tokens to every `buddy_observe`
-prompt (extraction schema + recent-claims list + finding block when one
-fires). Default `buddy_observe` calls are unaffected. Turn guard off with
-`buddy_mode guard=false` to return to the base-mode token footprint.
+Guard mode is Buddy's structural reasoning layer. It spots unverified assumptions, long unchallenged chains, and cases where you and the AI are reinforcing each other too quickly. For the full story, examples, privacy model, and detector details, see [Guard Mode](#guard-mode).
 
 ### Does Buddy read my whole codebase?
 
@@ -735,8 +724,7 @@ No. Buddy is an MCP server, not a one-client hack. It works with any MCP-capable
 
 Yes. Run the uninstall script (`uninstall.sh` or `uninstall.ps1`) to remove Buddy and its configuration, or use `buddy_respawn` to release your companion and clear its data while keeping the server installed.
 
-<details>
-<summary><strong>Development</strong></summary>
+## Development
 
 ```bash
 git clone https://github.com/fiorastudio/buddy.git
@@ -746,8 +734,6 @@ npm run build
 npm test
 npm start
 ```
-
-</details>
 
 </details>
 
