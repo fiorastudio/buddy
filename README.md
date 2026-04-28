@@ -329,10 +329,10 @@ Buddy ships with 21 companions:
 
 ```text
  void cat         rust hound        data drake       log golem
- |\---/|           /^ ^\             /^\  /^\         [=====]
- | ° ° |          / ° ° \           < °  ° >        [ °  ° ]
- (  w  )          V\ Y /V           (  ~~  )        [  __  ]
- (")_(")            |_|              `-vv-'         [______]
+  /\_/\            /^ ^\             /^\  /^\         [=====]
+ ( °ω° )          / ° ° \           < °  ° >        [ °  ° ]
+  )   (__/        V\ Y /V           (  ~~  )        [  __  ]
+ (_____/            |_|              `-vv-'         [______]
 
  cache crow       shell turtle      duck             goose
    ___             _,--._             __             (°>
@@ -796,4 +796,3 @@ Learn more about the mission to rescue Buddy and the engineering behind the scen
 ## License
 
 MIT. This project is licensed under the MIT License. See [LICENSE](LICENSE). You are free to use, host, and monetize this project (you must credit this project in case of distribution and monetization).
-

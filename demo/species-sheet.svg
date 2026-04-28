@@ -29,10 +29,10 @@
     <g transform="translate(0,0)">
       <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
       <text class="name" x="20" y="30">Void Cat</text>
-      <text class="ascii" x="20" y="66"> |\---/|</text>
-      <text class="ascii" x="20" y="88"> | ° ° |</text>
-      <text class="ascii" x="20" y="110"> (  w  )</text>
-      <text class="ascii" x="20" y="132"> (")_(")</text>
+      <text class="ascii" x="20" y="66">  /\_/\</text>
+      <text class="ascii" x="20" y="88"> ( °ω° )</text>
+      <text class="ascii" x="20" y="110">  )   (__/</text>
+      <text class="ascii" x="20" y="132"> (_____/</text>
     </g>
     <g transform="translate(268,0)">
       <rect class="card" x="0" y="0" width="250" height="180" rx="18"/>
