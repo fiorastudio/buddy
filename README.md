@@ -294,38 +294,37 @@ The installer:
 
 ## 🐣 Companion System
 
-### 21 species
+### Meet the 21 species
 
-Buddy pays homage to the original companion lineup, then adds a little more flair with Buddy-specific characters like Void Cat, Rust Hound, Data Drake, Log Golem, Cache Crow, and Shell Turtle.
-
-<details>
-<summary><strong>See all 21 species</strong></summary>
-
-<p align="center">
-<img src="demo/sprites/void-cat.gif" width="120" alt="Void Cat">
-<img src="demo/sprites/rust-hound.gif" width="120" alt="Rust Hound">
-<img src="demo/sprites/data-drake.gif" width="120" alt="Data Drake">
-<img src="demo/sprites/log-golem.gif" width="120" alt="Log Golem">
-<img src="demo/sprites/cache-crow.gif" width="120" alt="Cache Crow">
-<img src="demo/sprites/shell-turtle.gif" width="120" alt="Shell Turtle">
-<img src="demo/sprites/duck.gif" width="120" alt="Duck">
-<img src="demo/sprites/goose.gif" width="120" alt="Goose">
-<img src="demo/sprites/blob.gif" width="120" alt="Blob">
-<img src="demo/sprites/octopus.gif" width="120" alt="Octopus">
-<img src="demo/sprites/owl.gif" width="120" alt="Owl">
-<img src="demo/sprites/penguin.gif" width="120" alt="Penguin">
-<img src="demo/sprites/snail.gif" width="120" alt="Snail">
-<img src="demo/sprites/ghost.gif" width="120" alt="Ghost">
-<img src="demo/sprites/axolotl.gif" width="120" alt="Axolotl">
-<img src="demo/sprites/capybara.gif" width="120" alt="Capybara">
-<img src="demo/sprites/cactus.gif" width="120" alt="Cactus">
-<img src="demo/sprites/robot.gif" width="120" alt="Robot">
-<img src="demo/sprites/rabbit.gif" width="120" alt="Rabbit">
-<img src="demo/sprites/mushroom.gif" width="120" alt="Mushroom">
-<img src="demo/sprites/chonk.gif" width="120" alt="Chonk">
-</p>
-
-</details>
+<table align="center">
+<tr>
+<td align="center"><img src="demo/sprites/void-cat.gif" width="120" alt="Void Cat"><br><b>Void Cat</b></td>
+<td align="center"><img src="demo/sprites/rust-hound.gif" width="120" alt="Rust Hound"><br><b>Rust Hound</b></td>
+<td align="center"><img src="demo/sprites/data-drake.gif" width="120" alt="Data Drake"><br><b>Data Drake</b></td>
+<td align="center"><img src="demo/sprites/log-golem.gif" width="120" alt="Log Golem"><br><b>Log Golem</b></td>
+<td align="center"><img src="demo/sprites/cache-crow.gif" width="120" alt="Cache Crow"><br><b>Cache Crow</b></td>
+<td align="center"><img src="demo/sprites/shell-turtle.gif" width="120" alt="Shell Turtle"><br><b>Shell Turtle</b></td>
+<td align="center"><img src="demo/sprites/duck.gif" width="120" alt="Duck"><br><b>Duck</b></td>
+</tr>
+<tr>
+<td align="center"><img src="demo/sprites/goose.gif" width="120" alt="Goose"><br><b>Goose</b></td>
+<td align="center"><img src="demo/sprites/blob.gif" width="120" alt="Blob"><br><b>Blob</b></td>
+<td align="center"><img src="demo/sprites/octopus.gif" width="120" alt="Octopus"><br><b>Octopus</b></td>
+<td align="center"><img src="demo/sprites/owl.gif" width="120" alt="Owl"><br><b>Owl</b></td>
+<td align="center"><img src="demo/sprites/penguin.gif" width="120" alt="Penguin"><br><b>Penguin</b></td>
+<td align="center"><img src="demo/sprites/snail.gif" width="120" alt="Snail"><br><b>Snail</b></td>
+<td align="center"><img src="demo/sprites/ghost.gif" width="120" alt="Ghost"><br><b>Ghost</b></td>
+</tr>
+<tr>
+<td align="center"><img src="demo/sprites/axolotl.gif" width="120" alt="Axolotl"><br><b>Axolotl</b></td>
+<td align="center"><img src="demo/sprites/capybara.gif" width="120" alt="Capybara"><br><b>Capybara</b></td>
+<td align="center"><img src="demo/sprites/cactus.gif" width="120" alt="Cactus"><br><b>Cactus</b></td>
+<td align="center"><img src="demo/sprites/robot.gif" width="120" alt="Robot"><br><b>Robot</b></td>
+<td align="center"><img src="demo/sprites/rabbit.gif" width="120" alt="Rabbit"><br><b>Rabbit</b></td>
+<td align="center"><img src="demo/sprites/mushroom.gif" width="120" alt="Mushroom"><br><b>Mushroom</b></td>
+<td align="center"><img src="demo/sprites/chonk.gif" width="120" alt="Chonk"><br><b>Chonk</b></td>
+</tr>
+</table>
 
 ### Stats and progression
 
