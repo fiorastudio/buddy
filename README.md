@@ -156,54 +156,16 @@ buddy_mode guard=false         # turn it off (default)
 Mix and match — any voice works with Guard on or off.
 
 <details>
-<summary><strong>🧠 &nbsp; How it works, caution &amp; kudos nudges, and examples</strong></summary>
+<summary><strong>🧠 &nbsp; The 6 patterns guard mode catches</strong></summary>
 <br>
 
-### How it works (the Lego version)
+Guard mode watches your coding conversation and spots 6 patterns — 3 caution (something's off) and 3 kudos (something's solid). Each caution has a matching kudos counterpart:
 
-Imagine you're building a Lego castle with a friend. Your friend says "we should make the tower tall because tall towers look cool." You say "yeah totally" and start building it tall. Then you put a heavy dragon on top and... it falls over. Nobody stopped to ask "wait, can the base actually hold a tall tower with a dragon?"
-
-That's what guard mode catches. It watches your coding conversation and spots 6 patterns:
-
-### 3 types of Caution Nudges
-
-**1. Load-Bearing Vibes** 🧱
-
-*"You're building on top of a guess."*
-
-You said something like "this API probably returns JSON" and then built 5 things on top of that assumption — but nobody actually checked. If that guess is wrong, everything on top of it breaks. Like building your whole Lego castle on a wobbly plate and hoping it holds.
-
-**2. Unchallenged Chain** 🔗
-
-*"You went 4+ steps without anyone pushing back."*
-
-You said A, which led to B, which led to C, which led to D — and nobody questioned any step. That's like following a chain of "because" without ever stopping to ask "wait, is that actually true?" The longer the chain without a check, the more likely something's off.
-
-**3. Echo Chamber** 🪞
-
-*"You and the AI are just agreeing with each other."*
-
-You say "let's use Redis." AI says "great idea, Redis is perfect." You say "yeah Redis is fast." AI says "absolutely, Redis is the way to go." Nobody brought up alternatives or tradeoffs. You're both just high-fiving in a mirror.
-
-### 3 types of Kudos Nudges
-
-**4. Well-Sourced Load Bearer** ✅
-
-*"You built on solid ground."*
-
-Same as #1, except this time you actually checked — you read the docs, tested it, or cited a source. Now the 5 things built on top are safe. Buddy celebrates this because good foundations deserve recognition.
-
-**5. Productive Stress Test** 💪
-
-*"Someone pushed back and the idea survived."*
-
-You had a chain of reasoning, someone challenged a step in the middle ("wait, does that actually work?"), and after checking, it held up. The idea is now *stronger* because it got questioned. Like testing your Lego tower by shaking it — if it survives, you trust it more.
-
-**6. Grounded Premise Adopted** 🌱
-
-*"You started with a real fact and it became foundational."*
-
-You cited real documentation, a real test result, or a real measurement — and that fact became the base for other decisions. That's how good engineering works. Start with real evidence, build from there.
+| | ⚠️ Caution Nudge | ✅ Kudos Nudge |
+|---|---|---|
+| **Foundation** | **Load-Bearing Vibes** 🧱 — You're building on an unchecked guess. 3+ things depend on an assumption nobody validated. "This API probably returns JSON" → 5 things built on top → nobody checked. | **Well-Sourced Load Bearer** ✅ — Same structure, but the foundation is cited, tested, or measured. Buddy celebrates solid ground because good foundations deserve recognition. |
+| **Chain** | **Unchallenged Chain** 🔗 — 4+ reasoning steps with zero pushback. A → B → C → D and nobody questioned any step. The longer the chain without a check, the more likely something's off. | **Productive Stress Test** 💪 — A chain that got challenged mid-way and survived. The idea is *stronger* because it was questioned and held up. |
+| **Agreement** | **Echo Chamber** 🪞 — You and the AI keep agreeing without exploring alternatives or tradeoffs. "Let's use Redis." / "Great idea!" / "Redis is fast." / "Absolutely!" — mutual reinforcement, zero scrutiny. | **Grounded Premise Adopted** 🌱 — A real fact (docs, test result, measurement) became the base for other decisions. Evidence-first engineering instead of vibes-first. |
 
 ### What it feels like in practice
 
