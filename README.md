@@ -159,7 +159,9 @@ Mix and match — any voice works with Guard on or off.
 <summary><strong>🧠 &nbsp; The 6 patterns guard mode catches</strong></summary>
 <br>
 
-Guard mode watches your coding conversation and spots 6 patterns — 3 caution (something's off) and 3 kudos (something's solid). Each caution has a matching kudos counterpart:
+Imagine you're building a Lego castle with a friend. Your friend says "we should make the tower tall because tall towers look cool." You say "yeah totally" and start building it tall. Then you put a heavy dragon on top and... it falls over. Nobody stopped to ask "wait, can the base actually hold a tall tower with a dragon?"
+
+That's what guard mode catches. It watches your coding conversation and spots 6 patterns — 3 caution (something's off) and 3 kudos (something's solid). Each caution has a matching kudos counterpart:
 
 | | ⚠️ Caution Nudge | ✅ Kudos Nudge |
 |---|---|---|
