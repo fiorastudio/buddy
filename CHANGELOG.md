@@ -2,7 +2,7 @@
 
 All notable changes to this project will follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — targeting 1.0.7
+## [Unreleased] — targeting 1.0.6
 
 ### Added
 - **Non-Claude host hook auto-configuration** (PR #96): The installer now wires up Buddy's post-tool hook on Codex CLI, Cursor, and GitHub Copilot CLI automatically when those tools are detected — no manual config needed.
