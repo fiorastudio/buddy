@@ -646,19 +646,13 @@ npm start
 
 Thank you to everyone who helped bring buddies back to life.
 
-<a href="https://github.com/fiorastudio/buddy/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=fiorastudio/buddy" alt="Contributors" />
-</a>
+<p>
+  <a href="https://github.com/fiorastudio/buddy/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=fiorastudio/buddy" alt="Contributors" />
+  </a>
+</p>
 
 <sub>Automatically generated via <a href="https://contrib.rocks">contrib.rocks</a></sub>
-
-<p>
-  <a href="https://github.com/gupta3681"><img src="https://github.com/gupta3681.png?size=64" width="48" height="48" alt="@gupta3681" /></a>
-  <a href="https://github.com/kevinwei00"><img src="https://github.com/kevinwei00.png?size=64" width="48" height="48" alt="@kevinwei00" /></a>
-  <a href="https://github.com/whaterFalls"><img src="https://github.com/whaterFalls.png?size=64" width="48" height="48" alt="@whaterFalls" /></a>
-  <a href="https://github.com/longestpath"><img src="https://github.com/longestpath.png?size=64" width="48" height="48" alt="@longestpath" /></a>
-  <a href="https://github.com/DKev"><img src="https://github.com/DKev.png?size=64" width="48" height="48" alt="@DKev" /></a>
-</p>
 
 Special thanks to [@gupta3681](https://github.com/gupta3681), [@kevinwei00](https://github.com/kevinwei00), [@whaterFalls](https://github.com/whaterFalls), [@longestpath](https://github.com/longestpath), and [@DKev](https://github.com/DKev) for their contributions.
 
