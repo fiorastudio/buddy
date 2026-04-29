@@ -52,7 +52,7 @@ export function inferReaction(summary: string): ReactionResult {
 
 // --- Prompt Builder ---
 
-export type InsightModeInjection = {
+export type GuardModeInjection = {
   finding: Finding | null;
   stressedVoice: string | null;
   extractionInstruction: string | null;
@@ -102,7 +102,7 @@ export function buildObserverPrompt(
   companion: Companion,
   mode: 'backseat' | 'skillcoach' | 'both',
   summary: string,
-  insightInjection?: InsightModeInjection,
+  guardInjection?: GuardModeInjection,
 ): ObserverResult {
   const peakStat = getPeakStat(companion.stats);
   const dumpStat = getDumpStat(companion.stats);
@@ -161,23 +161,23 @@ ${FORMAT_INSTRUCTION}
 What happened: ${summary}`;
   }
 
-  // Max-mode augmentation: finding block, then extraction instruction.
-  if (insightInjection?.finding && insightInjection?.stressedVoice) {
-    prompt += '\n\n' + buildFindingBlock(insightInjection.finding, insightInjection.stressedVoice);
+  // Guard-mode augmentation: finding block, then extraction instruction.
+  if (guardInjection?.finding && guardInjection?.stressedVoice) {
+    prompt += '\n\n' + buildFindingBlock(guardInjection.finding, guardInjection.stressedVoice);
   }
-  if (insightInjection?.extractionInstruction) {
-    prompt += '\n\n' + insightInjection.extractionInstruction;
+  if (guardInjection?.extractionInstruction) {
+    prompt += '\n\n' + guardInjection.extractionInstruction;
   }
 
   // Template fallback: if a finding is present, weave its phrasing in.
   // Scrub the result through the mechanism/tone filter as a runtime
   // second line of defense beyond the phrasings-tone review-time test.
   let templateFallback = templateReaction(companion, mode, summary, reaction.state);
-  if (insightInjection?.finding) {
+  if (guardInjection?.finding) {
     const findingPhrase = phraseFinding(
-      insightInjection.finding.type,
+      guardInjection.finding.type,
       reaction.state,
-      insightInjection.finding.claim_text,
+      guardInjection.finding.claim_text,
       summary.length,
     );
     templateFallback = `${templateFallback} ${findingPhrase}`;
@@ -200,7 +200,7 @@ What happened: ${summary}`;
     summary,
     reaction,
     templateFallback,
-    finding: insightInjection?.finding ?? null,
+    finding: guardInjection?.finding ?? null,
   };
 }
 

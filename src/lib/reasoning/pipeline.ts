@@ -1,6 +1,6 @@
 // src/lib/reasoning/pipeline.ts
 //
-// Self-contained insight-mode pipeline. Accepts a DB handle and the raw inputs
+// Self-contained guard-mode pipeline. Accepts a DB handle and the raw inputs
 // from buddy_observe; returns the finding to inject (or null) + an
 // extraction instruction to append to the observer prompt.
 //
@@ -66,7 +66,7 @@ function defaultMeasure<T>(fn: () => T): { value: T; ms: number } {
   return { value, ms: performance.now() - start };
 }
 
-export function runInsightPipeline(
+export function runGuardPipeline(
   db: Database.Database,
   inputs: PipelineInputs,
   options: PipelineOptions = {},

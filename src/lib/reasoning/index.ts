@@ -1,6 +1,6 @@
 // src/lib/reasoning/index.ts
 //
-// Public API for buddy's insight-mode reasoning layer. Keeps the surface thin:
+// Public API for buddy's guard-mode reasoning layer. Keeps the surface thin:
 // everything that callers outside this folder need is re-exported here so
 // the implementation files can be reshuffled without touching the rest
 // of the codebase.
@@ -22,7 +22,7 @@ export { getAndBumpObserveSeq } from './observe-seq.js';
 export { resolveProjectRoot, resetProjectRootMemo, type ResolvedRoot, type RootSource } from './project-root.js';
 export { scrubReactionText, detectLeaks } from './scrub.js';
 export {
-  runInsightPipeline,
+  runGuardPipeline,
   type PipelineInputs, type PipelineOutputs, type PipelineOptions,
 } from './pipeline.js';
 export { planModeChange, formatModeResponse, type ModeInput, type ModePlan, type CurrentState } from './mode-handler.js';

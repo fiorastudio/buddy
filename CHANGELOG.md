@@ -2,6 +2,13 @@
 
 All notable changes to this project will follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — targeting 1.0.8
+
+### Changed
+- **"Insight mode" renamed to "guard mode"** — `buddy_mode guard=true` replaces `buddy_mode insight=true`. The `insight` parameter is accepted as a deprecated alias (as is `max`). The DB column is automatically renamed on first startup. The `buddy_observe` JSON response emits both `guardMode` and `insightMode` fields during the transition period.
+
+---
+
 ## [Unreleased] — targeting 1.0.7
 
 ### Added

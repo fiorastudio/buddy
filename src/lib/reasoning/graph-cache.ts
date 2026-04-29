@@ -5,7 +5,7 @@
 // the session's claims/edges. writeClaims bumps; loadSessionGraphCached
 // checks the generation before returning a cached graph.
 //
-// Simple bounded LRU (~20 entries) — insight mode across many workspaces in
+// Simple bounded LRU (~20 entries) — guard mode across many workspaces in
 // one long-lived server is uncommon, and a cache miss is just the old
 // non-cached behavior. No correctness risk.
 

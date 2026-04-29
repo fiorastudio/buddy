@@ -1,7 +1,7 @@
 // src/lib/reasoning/stressed-voice.ts
 //
 // Second thin slice from effigy: per-species "stressed" voice. Used only in
-// insight mode when a finding fires, to signal that the pet has noticed
+// guard mode when a finding fires, to signal that the pet has noticed
 // something it considers worth naming.
 //
 // Pattern: stressed voice = baseline voice + heightened attention + willing

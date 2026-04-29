@@ -1,6 +1,6 @@
 # Reasoning Layer — Design Notes
 
-This folder contains buddy's insight-mode reasoning layer: a light port of
+This folder contains buddy's guard-mode reasoning layer: a light port of
 [slimemold](https://github.com/justinstimatze/slimemold) that gives buddy
 the ability to notice structural patterns in a coding conversation —
 load-bearing assumptions, unchallenged chains, grounded premises — and
@@ -12,14 +12,14 @@ thresholds.
 
 ## Core principle: sycophancy as a tool
 
-Insight mode is built on a deliberate inversion of LLM sycophancy.
+Guard mode is built on a deliberate inversion of LLM sycophancy.
 
 Sycophancy works on users because warmth feels validating. It's a failure
 mode because the warmth isn't tied to truth — "great question!" validates
-no matter what the question was. Insight mode takes the same linguistic warmth
+no matter what the question was. Guard mode takes the same linguistic warmth
 and points it at structural reasoning facts. The pet is warm (that's
 buddy's default state, carried by the species voice + NEVER constraints
-ported from effigy-lite) and in insight mode that warmth lands on concrete
+ported from effigy-lite) and in guard mode that warmth lands on concrete
 observations about the reasoning graph:
 
 - "That 'we need auth' assumption is holding up three things — worth
@@ -30,7 +30,7 @@ observations about the reasoning graph:
 
 Users engage with rigor because it feels the way validation feels.
 
-Break this principle and insight mode becomes either a scold (warmth → critique,
+Break this principle and guard mode becomes either a scold (warmth → critique,
 bad) or sycophancy (warmth → nothing, bad). Every prompt, threshold, and
 template phrasing decision in this folder should reinforce the principle:
 **warmth must be about something real, phrased gain-framed, filtered through
@@ -55,12 +55,12 @@ Consequences:
   detectors run on claims from all prior turns. Fine — detectors need
   graph depth anyway, and cold-start gating covers the early frames.
 - Extraction quality floats with the host. A Claude host will do this
-  well. Other hosts may need the doctor check for inert insight mode to
-  alert users (see `checkReasoningInsightMode` in `doctor.ts`).
+  well. Other hosts may need the doctor check for inert guard mode to
+  alert users (see `checkReasoningGuardMode` in `doctor.ts`).
 
 ## Why three caution + three kudos (and not the full eight)
 
-Slimemold ships eight detectors. Insight mode runs six. The omissions:
+Slimemold ships eight detectors. Guard mode runs six. The omissions:
 
 - **Coverage imbalance** — needs a notion of "foundational importance"
   that's fuzzy on a small graph.
@@ -92,7 +92,7 @@ Three tables, all additive (see `schema.ts`):
 
 Plus `reasoning_observe_seq` — per-companion observe counter so cooldown
 windows can be measured in observes, not wall-clock time, and one more
-column (`insight_mode`) on the existing `companions` table.
+column (`guard_mode`) on the existing `companions` table.
 
 ### Why no `findings` storage table
 
@@ -118,7 +118,7 @@ Priority rules live in `findings.ts`:
 1. Drop candidates on per-anchor cooldown (different windows for caution
    vs kudos — kudos is less annoying if repeated, so shorter window).
 2. If the recent window has ≥ KUDOS_BIAS_CAUTION_THRESHOLD caution findings
-   and zero kudos, kudos wins this round (avoid turning insight mode into
+   and zero kudos, kudos wins this round (avoid turning guard mode into
    a structural scold).
 3. Otherwise, tie-break with caution weighted slightly heavier than kudos.
 4. Never fabricate a finding to fill silence. If no detector fires (or
@@ -130,13 +130,13 @@ Priority rules live in `findings.ts`:
 
 When a finding is selected, it is **injected into the observer prompt
 unconditionally** via `buildObserverPrompt(companion, mode, summary,
-insightInjection)`. The prompt explicitly instructs the host:
+guardInjection)`. The prompt explicitly instructs the host:
 
 > Work this observation into your reaction. Phrasing is yours; landing
 > the point is required.
 
 This is the counterpoint to the "tone is carried by the species voice"
-point above. Character shapes *how* the finding is phrased; insight mode
+point above. Character shapes *how* the finding is phrased; guard mode
 decides *that* it is phrased.
 
 The `NEVER name the mechanism` line in the prompt is what keeps the
@@ -154,8 +154,8 @@ base reaction.
 
 ## Failure handling: strictly additive
 
-Insight mode is **never allowed to break observe**. The server's `buddy_observe`
-handler wraps the entire insight-mode pipeline in a try/catch and falls
+Guard mode is **never allowed to break observe**. The server's `buddy_observe`
+handler wraps the entire guard-mode pipeline in a try/catch and falls
 through to a normal (finding-less) reaction on any failure. Specific
 failure modes:
 
@@ -168,16 +168,16 @@ failure modes:
 - Detector budget exceeded (>30 ms) → finding is skipped for this
   observe; graph is still persisted.
 
-Observe's contract stays "always returns a reaction." Insight mode can only
+Observe's contract stays "always returns a reaction." Guard mode can only
 *add* a finding; it cannot take a reaction away.
 
 ## Telemetry
 
 `telemetry.ts` keeps in-process counters (no persistence, resets on
 restart). Read by `buddy_reasoning_status` and the doctor check for
-inert insight mode. Counters track observe rate, claim receipt rate, write
+inert guard mode. Counters track observe rate, claim receipt rate, write
 vs drop split, finding rate by type, and detector latency distribution.
-If claims received is zero after 10 observes with insight on, the doctor
+If claims received is zero after 10 observes with guard on, the doctor
 warns that the host may not be honoring the extraction prompt.
 
 ## Privacy
@@ -198,7 +198,7 @@ attacker who controls the host.
 All threshold numbers live in `config.ts` (not scattered through detector
 code). To tune after seeing real user data:
 
-1. Turn insight mode on in a few workspaces and let it accumulate claims
+1. Turn guard mode on in a few workspaces and let it accumulate claims
    naturally over a week.
 2. Point `buddy_doctor` and `buddy_reasoning_status` at those installs —
    the counters `findings_surfaced_total`, `findings_by_type`, and the
@@ -208,7 +208,7 @@ code). To tune after seeing real user data:
    threshold is too loose — raise `*_MIN_DOWNSTREAM` or `*_MIN_LENGTH`
    by one. If it never fires, lower it by one.
 4. `KUDOS_BIAS_CAUTION_THRESHOLD` and `KUDOS_TIE_BREAK_WEIGHT` control
-   the caution/kudos ratio. If users complain insight mode is a scold, raise
+   the caution/kudos ratio. If users complain guard mode is a scold, raise
    the weight or lower the bias threshold. If kudos findings feel
    like empty pats-on-the-head, inverse.
 5. `COLD_START_MIN_CLAIMS` is the single biggest false-positive lever.
@@ -249,7 +249,7 @@ closed in v1. What follows is the current state.
 3. **Mechanism-leak / tone enforcement (in buddy's own output).**
    `scrubReactionText` in `scrub.ts` runs on every `templateFallback`
    before it leaves buddy. It rewrites mechanism vocabulary ("the
-   graph" → "the reasoning", "I detected" → "I noticed", "[insight mode]"
+   graph" → "the reasoning", "I detected" → "I noticed", "[guard mode]"
    → "", etc.) and softens scold patterns ("you're wrong" →
    "there's another angle", "you made an error" → "worth another
    look"). The review-time `phrasings-tone` test still catches the

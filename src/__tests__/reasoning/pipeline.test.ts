@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initReasoningSchema } from '../../lib/reasoning/schema.js';
-import { runInsightPipeline } from '../../lib/reasoning/pipeline.js';
+import { runGuardPipeline } from '../../lib/reasoning/pipeline.js';
 import { telemetry, resetGraphCache } from '../../lib/reasoning/index.js';
 import { REASONING_CONFIG } from '../../lib/reasoning/config.js';
 
@@ -33,12 +33,12 @@ function primingPayload() {
   return { claims, edges };
 }
 
-describe('runInsightPipeline', () => {
+describe('runGuardPipeline', () => {
   beforeEach(() => { telemetry.reset(); resetGraphCache(); });
 
   it('happy path: writes claims, fires finding, bumps observe seq', () => {
     const db = memDb();
-    const out = runInsightPipeline(db, {
+    const out = runGuardPipeline(db, {
       companionId: 'c1',
       cwd: '/project',
       ...primingPayload(),
@@ -47,7 +47,7 @@ describe('runInsightPipeline', () => {
     expect(out.writeResult.edgesWritten).toBe(3);
     expect(out.finding).not.toBeNull();
     expect(out.finding!.type).toBe('load_bearing_vibes');
-    expect(out.extractionInstruction).toContain('[insight mode]');
+    expect(out.extractionInstruction).toContain('[guard mode]');
     const stats = telemetry.snapshot();
     expect(stats.claims_received_total).toBe(6);
     expect(stats.findings_surfaced_total).toBe(1);
@@ -56,11 +56,11 @@ describe('runInsightPipeline', () => {
   it('skips finding injection when detector budget is exceeded', () => {
     const db = memDb();
     // Seed the graph so a finding would normally fire.
-    runInsightPipeline(db, { companionId: 'c1', cwd: '/p', ...primingPayload() });
+    runGuardPipeline(db, { companionId: 'c1', cwd: '/p', ...primingPayload() });
     telemetry.reset();
 
     // Force the detector step to "take" more time than the budget allows.
-    const out = runInsightPipeline(db, {
+    const out = runGuardPipeline(db, {
       companionId: 'c1',
       cwd: '/p',
       claims: [],
@@ -76,7 +76,7 @@ describe('runInsightPipeline', () => {
 
   it('handles malformed claims gracefully — no throw, no writes', () => {
     const db = memDb();
-    const out = runInsightPipeline(db, {
+    const out = runGuardPipeline(db, {
       companionId: 'c1',
       cwd: '/p',
       claims: [
@@ -93,13 +93,13 @@ describe('runInsightPipeline', () => {
   it('records telemetry on observe seq and claims receipt', () => {
     const db = memDb();
     // Observe 1: no claims sent — seq advances, lastClaims stays 0.
-    runInsightPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] });
+    runGuardPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] });
     const seq1 = db.prepare('SELECT seq, last_claims_received_seq FROM reasoning_observe_seq WHERE companion_id = ?').get('c1') as any;
     expect(seq1.seq).toBe(1);
     expect(seq1.last_claims_received_seq).toBe(0);
 
     // Observe 2: claims sent — lastClaims bumps to 2.
-    runInsightPipeline(db, { companionId: 'c1', cwd: '/p', ...primingPayload() });
+    runGuardPipeline(db, { companionId: 'c1', cwd: '/p', ...primingPayload() });
     const seq2 = db.prepare('SELECT seq, last_claims_received_seq FROM reasoning_observe_seq WHERE companion_id = ?').get('c1') as any;
     expect(seq2.seq).toBe(2);
     expect(seq2.last_claims_received_seq).toBe(2);
@@ -109,8 +109,8 @@ describe('runInsightPipeline', () => {
     const db = memDb();
     const now = Date.UTC(2026, 3, 22, 5, 0, 0);
     const later = Date.UTC(2026, 3, 22, 20, 0, 0);
-    const a = runInsightPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => now });
-    const b = runInsightPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => later });
+    const a = runGuardPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => now });
+    const b = runGuardPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => later });
     expect(a.sessionId).toBe(b.sessionId);
   });
 
@@ -118,8 +118,8 @@ describe('runInsightPipeline', () => {
     const db = memDb();
     const beforeMidnight = Date.UTC(2026, 3, 22, 23, 59);
     const afterMidnight = Date.UTC(2026, 3, 23, 0, 1);
-    const a = runInsightPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => beforeMidnight });
-    const b = runInsightPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => afterMidnight });
+    const a = runGuardPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => beforeMidnight });
+    const b = runGuardPipeline(db, { companionId: 'c1', cwd: '/p', claims: [], edges: [] }, { now: () => afterMidnight });
     expect(a.sessionId).not.toBe(b.sessionId);
   });
 });

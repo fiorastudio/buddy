@@ -1,6 +1,6 @@
 // src/lib/reasoning/telemetry.ts
 //
-// Lightweight in-process counters. Doctor reads these to report insight-mode
+// Lightweight in-process counters. Doctor reads these to report guard-mode
 // health. Not persisted; resets on restart.
 
 import type { FindingType, Basis } from './types.js';
@@ -8,7 +8,7 @@ import type { RootSource } from './project-root.js';
 
 type Counters = {
   observes_total: number;
-  observes_insight_mode: number;
+  observes_guard_mode: number;
   claims_received_total: number;
   edges_received_total: number;
   claims_written: number;
@@ -38,7 +38,7 @@ const BASIS_WINDOW_SIZE = 50;
 function zero(): Counters {
   return {
     observes_total: 0,
-    observes_insight_mode: 0,
+    observes_guard_mode: 0,
     claims_received_total: 0,
     edges_received_total: 0,
     claims_written: 0,
@@ -68,9 +68,9 @@ function zero(): Counters {
 
 let counters: Counters = zero();
 
-export function incObserve(insightMode: boolean): void {
+export function incObserve(guardMode: boolean): void {
   counters.observes_total++;
-  if (insightMode) counters.observes_insight_mode++;
+  if (guardMode) counters.observes_guard_mode++;
   counters.last_observe_at = Date.now();
 }
 

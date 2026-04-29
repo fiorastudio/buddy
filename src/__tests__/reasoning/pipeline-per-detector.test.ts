@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { initReasoningSchema } from '../../lib/reasoning/schema.js';
-import { runInsightPipeline } from '../../lib/reasoning/pipeline.js';
+import { runGuardPipeline } from '../../lib/reasoning/pipeline.js';
 import { writeClaims } from '../../lib/reasoning/writer.js';
 import { telemetry, resetGraphCache } from '../../lib/reasoning/index.js';
 import type { FindingType } from '../../lib/reasoning/types.js';
@@ -28,7 +28,7 @@ function seedAndRun(fixture: { claims: any[]; edges: any[] }): FindingType | nul
   // the pipeline derives from cwd + today's UTC day. We work around by
   // passing a fixed `now` and using the cwd that hashes to the same prefix.
   // Simpler: just call the pipeline twice — first seeds, second detects.
-  const pipelineSeed = runInsightPipeline(db, {
+  const pipelineSeed = runGuardPipeline(db, {
     companionId: 'c1', cwd: '/proj',
     claims: fixture.claims, edges: fixture.edges,
   });

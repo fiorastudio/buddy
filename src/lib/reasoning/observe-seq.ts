@@ -1,7 +1,7 @@
 // src/lib/reasoning/observe-seq.ts
 //
 // Per-companion observe counter. Persists across server restarts so the
-// doctor's inert-insight-mode check keeps working after a relaunch.
+// doctor's inert-guard-mode check keeps working after a relaunch.
 
 import type Database from 'better-sqlite3';
 

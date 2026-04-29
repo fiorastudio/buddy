@@ -2,7 +2,7 @@
 //
 // Ported from github.com/justinstimatze/slimemold (Apache-2.0) by the original
 // author and contributed here under MIT. See src/lib/reasoning/DESIGN.md for
-// the design rationale and the sycophancy-as-tool principle that makes insight
+// the design rationale and the sycophancy-as-tool principle that makes guard
 // mode an inversion of typical LLM sycophancy rather than a symmetric scold.
 
 export const BASIS_VALUES = [

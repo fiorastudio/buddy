@@ -1,6 +1,6 @@
 // src/lib/reasoning/schema.ts
 //
-// Additive schema for claims + edges + insight_mode column. Called from initDb()
+// Additive schema for claims + edges + guard_mode column. Called from initDb()
 // so it lands on startup alongside buddy's existing migrations.
 //
 // Pattern: CREATE TABLE IF NOT EXISTS for new tables; PRAGMA-then-ALTER for
@@ -67,15 +67,31 @@ export function initReasoningSchema(db: Database.Database): void {
     );
   `);
 
-  // Add insight_mode column to companions (PRAGMA-then-alter for idempotency).
-  // Three-way branch: fresh install → add directly; v1.0.5/6 upgrade → rename
-  // max_mode; already migrated → no-op.
+  // Add guard_mode column to companions (PRAGMA-then-alter for idempotency).
+  // Four-way branch with mutually exclusive precedence:
+  //   guard_mode + insight_mode both exist → copy insight_mode value, drop old column
+  //   guard_mode exists alone → no-op (already migrated)
+  //   insight_mode exists → rename to guard_mode
+  //   max_mode exists → rename to guard_mode
+  //   none exist → add guard_mode fresh
   const cols = db.prepare(`PRAGMA table_info(companions)`).all() as Array<{ name: string }>;
-  const hasMaxMode = cols.some(c => c.name === 'max_mode');
-  const hasInsightMode = cols.some(c => c.name === 'insight_mode');
-  if (!hasInsightMode && !hasMaxMode) {
-    db.exec(`ALTER TABLE companions ADD COLUMN insight_mode INTEGER DEFAULT 0`);
-  } else if (hasMaxMode && !hasInsightMode) {
-    db.exec(`ALTER TABLE companions RENAME COLUMN max_mode TO insight_mode`);
+  const hasGuardMode = cols.some(c => c.name === 'guard_mode');
+  if (hasGuardMode) {
+    // Edge case: both columns exist from a partial migration. Preserve the
+    // user's insight_mode=1 setting by copying it into guard_mode.
+    const hasInsightMode = cols.some(c => c.name === 'insight_mode');
+    if (hasInsightMode) {
+      db.exec(`UPDATE companions SET guard_mode = insight_mode WHERE guard_mode = 0 AND insight_mode != 0`);
+    }
+  } else {
+    const hasInsightMode = cols.some(c => c.name === 'insight_mode');
+    const hasMaxMode = cols.some(c => c.name === 'max_mode');
+    if (hasInsightMode) {
+      db.exec(`ALTER TABLE companions RENAME COLUMN insight_mode TO guard_mode`);
+    } else if (hasMaxMode) {
+      db.exec(`ALTER TABLE companions RENAME COLUMN max_mode TO guard_mode`);
+    } else {
+      db.exec(`ALTER TABLE companions ADD COLUMN guard_mode INTEGER DEFAULT 0`);
+    }
   }
 }

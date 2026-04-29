@@ -79,6 +79,6 @@ export function initDb() {
     db.exec(`ALTER TABLE companions ADD COLUMN cc_rescue INTEGER DEFAULT 0`);
   } catch { /* column already exists */ }
 
-  // Reasoning-layer migration (claims/edges tables + insight_mode column).
+  // Reasoning-layer migration (claims/edges tables + guard_mode column).
   initReasoningSchema(db);
 }

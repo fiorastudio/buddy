@@ -4,7 +4,7 @@ import {
   formatModeResponse,
 } from '../../lib/reasoning/mode-handler.js';
 
-const CURRENT = { observer_mode: 'both', insight_mode: 0 as const };
+const CURRENT = { observer_mode: 'both', guard_mode: 0 as const };
 
 describe('planModeChange', () => {
   it('status when no args', () => {
@@ -18,29 +18,29 @@ describe('planModeChange', () => {
     expect(plan.kind).toBe('update');
     if (plan.kind !== 'update') throw new Error('unreachable');
     expect(plan.newVoice).toBe('skillcoach');
-    expect(plan.newInsight).toBeUndefined();
+    expect(plan.newGuard).toBeUndefined();
     expect(plan.legacyAliasUsed).toBe(false);
   });
 
-  it('insight on', () => {
-    const plan = planModeChange({ insight: true });
+  it('guard on', () => {
+    const plan = planModeChange({ guard: true });
     expect(plan.kind).toBe('update');
     if (plan.kind !== 'update') throw new Error('unreachable');
-    expect(plan.newInsight).toBe(1);
+    expect(plan.newGuard).toBe(1);
     expect(plan.newVoice).toBeUndefined();
   });
 
-  it('insight off', () => {
-    const plan = planModeChange({ insight: false });
+  it('guard off', () => {
+    const plan = planModeChange({ guard: false });
     if (plan.kind !== 'update') throw new Error('unreachable');
-    expect(plan.newInsight).toBe(0);
+    expect(plan.newGuard).toBe(0);
   });
 
-  it('voice + insight together, orthogonal', () => {
-    const plan = planModeChange({ voice: 'backseat', insight: true });
+  it('voice + guard together, orthogonal', () => {
+    const plan = planModeChange({ voice: 'backseat', guard: true });
     if (plan.kind !== 'update') throw new Error('unreachable');
     expect(plan.newVoice).toBe('backseat');
-    expect(plan.newInsight).toBe(1);
+    expect(plan.newGuard).toBe(1);
     expect(plan.changed).toHaveLength(2);
   });
 
@@ -65,33 +65,55 @@ describe('planModeChange', () => {
     expect(plan.message).toMatch(/Invalid voice/);
   });
 
-  it('invalid insight (not boolean) → error', () => {
-    const plan = planModeChange({ insight: 'yes' as any });
+  it('invalid guard (not boolean) → error', () => {
+    const plan = planModeChange({ guard: 'yes' as any });
     expect(plan.kind).toBe('error');
   });
 
-  it('legacy `max` aliases to insight with deprecation flag', () => {
-    const plan = planModeChange({ max: true });
+  it('legacy `insight` aliases to guard with deprecation flag', () => {
+    const plan = planModeChange({ insight: true });
     expect(plan.kind).toBe('update');
     if (plan.kind !== 'update') throw new Error('unreachable');
-    expect(plan.newInsight).toBe(1);
+    expect(plan.newGuard).toBe(1);
     expect(plan.legacyAliasUsed).toBe(true);
   });
 
-  it('when both insight and max given, insight wins', () => {
+  it('legacy `max` aliases to guard with deprecation flag', () => {
+    const plan = planModeChange({ max: true });
+    expect(plan.kind).toBe('update');
+    if (plan.kind !== 'update') throw new Error('unreachable');
+    expect(plan.newGuard).toBe(1);
+    expect(plan.legacyAliasUsed).toBe(true);
+  });
+
+  it('guard beats insight when both given', () => {
+    const plan = planModeChange({ guard: false, insight: true });
+    if (plan.kind !== 'update') throw new Error('unreachable');
+    expect(plan.newGuard).toBe(0);
+    expect(plan.legacyAliasUsed).toBe(false);
+  });
+
+  it('guard beats max when both given', () => {
+    const plan = planModeChange({ guard: true, max: false });
+    if (plan.kind !== 'update') throw new Error('unreachable');
+    expect(plan.newGuard).toBe(1);
+    expect(plan.legacyAliasUsed).toBe(false);
+  });
+
+  it('insight beats max when both given (no guard)', () => {
     const plan = planModeChange({ insight: false, max: true });
     if (plan.kind !== 'update') throw new Error('unreachable');
-    expect(plan.newInsight).toBe(0);
-    expect(plan.legacyAliasUsed).toBe(false);
+    expect(plan.newGuard).toBe(0);
+    expect(plan.legacyAliasUsed).toBe(true);
   });
 });
 
 describe('formatModeResponse', () => {
-  it('status includes current voice and insight', () => {
+  it('status includes current voice and guard', () => {
     const plan = planModeChange({});
     const text = formatModeResponse(plan, CURRENT);
-    expect(text).toContain('voice:   both');
-    expect(text).toContain('insight: off');
+    expect(text).toContain('voice: both');
+    expect(text).toContain('guard: off');
   });
 
   it('legacy alias note attached to status', () => {
@@ -101,16 +123,28 @@ describe('formatModeResponse', () => {
   });
 
   it('update includes `Updated:` line', () => {
-    const plan = planModeChange({ insight: true });
-    const text = formatModeResponse(plan, { observer_mode: 'both', insight_mode: 1 });
+    const plan = planModeChange({ guard: true });
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1 });
     expect(text).toMatch(/^Updated:/);
-    expect(text).toContain('insight → on');
-    expect(text).toContain('voice=both, insight=on');
+    expect(text).toContain('guard → on');
+    expect(text).toContain('voice=both, guard=on');
   });
 
   it('error format passes through', () => {
     const plan = planModeChange({ voice: 'bad' });
     const text = formatModeResponse(plan, CURRENT);
     expect(text).toMatch(/Invalid voice/);
+  });
+
+  it('deprecation note mentions insight and max when insight alias used', () => {
+    const plan = planModeChange({ insight: true });
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1 });
+    expect(text).toMatch(/insight.*deprecated/);
+  });
+
+  it('deprecation note mentions max when max alias used', () => {
+    const plan = planModeChange({ max: true });
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1 });
+    expect(text).toMatch(/max.*deprecated/i);
   });
 });

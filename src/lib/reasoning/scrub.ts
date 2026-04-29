@@ -25,6 +25,8 @@ const MECHANISM_PATTERNS: Array<[RegExp, string]> = [
   [/\[max mode\]/gi, ''],
   [/\binsight[- ]mode\b/gi, ''],
   [/\[insight mode\]/gi, ''],
+  [/\bguard[- ]mode\b/gi, ''],
+  [/\[guard mode\]/gi, ''],
 ];
 
 const SCOLD_PATTERNS: Array<[RegExp, string]> = [

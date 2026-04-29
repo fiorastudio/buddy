@@ -44,9 +44,9 @@ export const REASONING_CONFIG = {
   // edge into prior-turn claims. Bounded for prompt size.
   RECENT_CLAIMS_CONTEXT: 10,
 
-  // Doctor check: insight mode on but zero claims received in the last N observes
+  // Doctor check: guard mode on but zero claims received in the last N observes
   // triggers a "host may not be honoring extraction" warning.
-  INERT_INSIGHT_WARN_OBSERVES: 10,
+  INERT_GUARD_WARN_OBSERVES: 10,
 
   // Detector latency budget. If detectors exceed this, skip finding injection
   // for this observe (budget measured per-observe, reset each call).
