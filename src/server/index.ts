@@ -25,6 +25,7 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
+import { captureSnapshot } from "../lib/snapshot.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
 import { runDiagnostics, formatReport } from "../lib/doctor.js";
 import {
@@ -145,17 +146,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             importance: { type: "number" }
           },
           required: ["content"]
-        },
-      },
-      {
-        name: "buddy_dream",
-        description: "Trigger memory consolidation (Dreaming).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            depth: { type: "string", enum: ["light", "deep"] }
-          },
-          required: ["depth"]
         },
       },
       {
@@ -296,6 +286,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "Run diagnostics on your Buddy installation. Checks companion state, database, MCP registration, statusline, hooks, and prompt injection. Returns a report you can paste into bug reports. IMPORTANT: Include the full diagnostic report verbatim in a code block in your response.",
         inputSchema: { type: "object", properties: {} },
       },
+      {
+        name: "buddy_share",
+        description: "Generate a beautiful shareable snapshot of your Buddy's current status and card. Returns the local path to the generated image.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            user_id: { type: "string", description: "Optional user ID for bones." }
+          },
+        },
+      },
     ],
   };
 });
@@ -357,14 +357,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     return {
       content: [{ type: "text", text: "Memory stored. I'll dream about this later." }],
-    };
-  }
-
-  if (name === "buddy_dream") {
-    const { depth } = args as { depth: 'light' | 'deep' };
-    // Placeholder for actual consolidation logic
-    return {
-      content: [{ type: "text", text: `Consolidation (${depth} dream) started. Checking patterns...` }],
     };
   }
 
@@ -707,6 +699,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const checks = runDiagnostics();
     const report = formatReport(checks);
     return { content: [{ type: "text", text: '```\n' + report + '\n```' }] };
+  }
+
+  if (name === "buddy_share") {
+    const { user_id } = args as { user_id?: string };
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) return { content: [{ type: "text", text: "Hatch a buddy first!" }] };
+
+    const companion = loadCompanion(row, user_id || row.user_id)!;
+    const outPath = join(homedir(), '.buddy', `share_${companion.name.toLowerCase()}.png`);
+    
+    await captureSnapshot(companion, outPath);
+
+    return {
+      content: [
+        { type: "text", text: `📸 Snapshot generated for ${companion.name}!` },
+        { type: "text", text: `Path: ${outPath}` }
+      ],
+    };
   }
 
   throw new Error(`Tool not found: ${name}`);
