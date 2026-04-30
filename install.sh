@@ -31,13 +31,50 @@ echo -e "${NC}"
 
 # Check prerequisites
 if ! command -v node &> /dev/null; then
-  echo -e "${YELLOW}Node.js is required but not found. Install it from https://nodejs.org${NC}"
-  exit 1
+  echo -e "  ${YELLOW}Node.js is required but not found.${NC}"
+  # Default to "n" (safe for CI/non-interactive). Try /dev/tty for interactive shells.
+  REPLY="n"
+  if printf "  Install it automatically? [Y/n]: " >/dev/tty 2>/dev/null && read -r REPLY </dev/tty 2>/dev/null; then
+    :
+  fi
+  if [[ "$REPLY" =~ ^[Nn] ]]; then
+    echo -e "  Install Node.js from https://nodejs.org then re-run."
+    exit 1
+  fi
+  echo -e "  Installing Node.js..."
+  set +e  # allow install attempts to fail without aborting the script
+  if [ -s "$HOME/.nvm/nvm.sh" ]; then
+    source "$HOME/.nvm/nvm.sh"
+    nvm install --lts --silent
+  elif command -v brew &>/dev/null; then
+    brew install node --quiet
+  elif command -v apt-get &>/dev/null; then
+    sudo apt-get install -y nodejs npm >/dev/null 2>&1
+  elif command -v dnf &>/dev/null; then
+    sudo dnf install -y nodejs >/dev/null 2>&1
+  else
+    echo -e "  Installing nvm..."
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    # shellcheck source=/dev/null
+    [ -s "$HOME/.nvm/nvm.sh" ] && source "$HOME/.nvm/nvm.sh"
+    command -v nvm &>/dev/null && nvm install --lts --silent
+  fi
+  set -e
+  if ! command -v node &>/dev/null; then
+    echo -e "${YELLOW}  Could not install Node.js. Please install from https://nodejs.org${NC}"
+    exit 1
+  fi
+  echo -e "${GREEN}  ✓ Node.js installed${NC}"
 fi
 
-NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+NODE_BIN="$(command -v node)"
+NODE_VERSION=$("$NODE_BIN" -v | cut -d'v' -f2 | cut -d'.' -f1)
+# Always pin the absolute Node path in generated configs so GUI-launched clients
+# (e.g. Claude desktop on macOS) find the correct binary regardless of shell init.
+# nvm/asdf/fnm users: re-run the installer after upgrading Node.
+CONFIG_NODE_BIN="$NODE_BIN"
 if [ "$NODE_VERSION" -lt 18 ]; then
-  echo -e "${YELLOW}Node.js 18+ required. You have $(node -v). Please upgrade.${NC}"
+  echo -e "${YELLOW}Node.js 18+ required. You have $("$NODE_BIN" -v). Please upgrade.${NC}"
   exit 1
 fi
 
@@ -50,8 +87,6 @@ fi
 if [ -d "$INSTALL_DIR" ]; then
   echo "  Updating existing installation..."
   cd "$INSTALL_DIR"
-  # Reset generated files that block git pull (e.g. package-lock.json modified by npm install)
-  git checkout -- package-lock.json 2>/dev/null
   git pull origin master --quiet
 else
   echo "  Cloning Buddy MCP Server..."
@@ -68,6 +103,7 @@ npm run build --quiet 2>/dev/null
 SERVER_PATH="$INSTALL_DIR/dist/server/index.js"
 CODEX_CONFIGURED=0
 HOOK_PATH="$INSTALL_DIR/dist/hooks/post-tool-handler.js"
+HOOK_COMMAND=$(printf '%q %q' "$CONFIG_NODE_BIN" "$HOOK_PATH")
 CLAUDE_CONFIGURED=0
 CURSOR_CONFIGURED=0
 COPILOT_CONFIGURED=0
@@ -80,7 +116,12 @@ configure_claude_code() {
   local user_file="$HOME/.claude.json"
   local stop_hook_path="$INSTALL_DIR/dist/hooks/stop-handler.js"
   local prompt_hook_path="$INSTALL_DIR/dist/hooks/prompt-handler.js"
-  local statusline_command="node $INSTALL_DIR/dist/statusline-wrapper.js"
+  local stop_hook_command
+  local prompt_hook_command
+  local statusline_command
+  stop_hook_command=$(printf '%q %q' "$CONFIG_NODE_BIN" "$stop_hook_path")
+  prompt_hook_command=$(printf '%q %q' "$CONFIG_NODE_BIN" "$prompt_hook_path")
+  statusline_command=$(printf '%q %q' "$CONFIG_NODE_BIN" "$INSTALL_DIR/dist/statusline-wrapper.js")
 
   mkdir -p "$config_dir"
 
@@ -90,7 +131,7 @@ configure_claude_code() {
       echo -e "  ${GREEN}✓${NC} Claude Code MCP already registered"
       registered=1
     else
-      if claude mcp add buddy -s user -- node "$SERVER_PATH" >/dev/null 2>&1; then
+      if claude mcp add buddy -s user -- "$CONFIG_NODE_BIN" "$SERVER_PATH" >/dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC} Claude Code MCP registered via claude CLI"
         registered=1
       else
@@ -100,34 +141,30 @@ configure_claude_code() {
   fi
 
   if [ "$registered" -ne 1 ]; then
-    if command -v node &> /dev/null; then
-      if CLAUDE_USER_FILE="$user_file" SERVER_PATH="$SERVER_PATH" node <<'EOJS' 2>/dev/null; then
+    if CLAUDE_USER_FILE="$user_file" SERVER_PATH="$SERVER_PATH" NODE_BIN="$CONFIG_NODE_BIN" "$NODE_BIN" <<'EOJS' 2>/dev/null; then
 const fs = require('fs');
 const path = process.env.CLAUDE_USER_FILE;
 const serverPath = process.env.SERVER_PATH;
+const nodeBin = process.env.NODE_BIN;
 let data = {};
 try { data = JSON.parse(fs.readFileSync(path, 'utf-8')); } catch {}
 if (!data.mcpServers) data.mcpServers = {};
 data.mcpServers.buddy = {
   type: 'stdio',
-  command: 'node',
+  command: nodeBin,
   args: [serverPath]
 };
 fs.writeFileSync(path, JSON.stringify(data, null, 2));
 EOJS
-        echo -e "  ${GREEN}✓${NC} Claude Code MCP config written ${DIM}($user_file)${NC}"
-      else
-        echo -e "  ${YELLOW}!${NC} Could not write MCP config to $user_file"
-      fi
+      echo -e "  ${GREEN}✓${NC} Claude Code MCP config written ${DIM}($user_file)${NC}"
     else
-      echo -e "  ${YELLOW}!${NC} node not found — cannot configure Claude Code MCP"
+      echo -e "  ${YELLOW}!${NC} Could not write MCP config to $user_file"
     fi
   fi
 
   # Configure hook + statusline in a single settings.json write
-  if command -v node &> /dev/null; then
-    local settings_result
-    settings_result=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="node $HOOK_PATH" STOP_HOOK_COMMAND="node $stop_hook_path" PROMPT_HOOK_COMMAND="node $prompt_hook_path" STATUSLINE_COMMAND="$statusline_command" node <<'EOJS'
+  local settings_result
+  settings_result=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="$HOOK_COMMAND" STOP_HOOK_COMMAND="$stop_hook_command" PROMPT_HOOK_COMMAND="$prompt_hook_command" STATUSLINE_COMMAND="$statusline_command" "$NODE_BIN" <<'EOJS'
 const fs = require('fs');
 const settingsPath = process.env.CLAUDE_SETTINGS;
 const hookCommand = process.env.HOOK_COMMAND;
@@ -142,11 +179,17 @@ const result = [];
 if (!config.hooks) config.hooks = {};
 
 // PostToolUse — error detection (Bash only)
+// Match on script path suffix to also recognise legacy "node <path>" entries from older installs.
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const stopHookScript = stopHookCommand.split(/\s+/).slice(-1)[0];
+const promptHookScript = promptHookCommand.split(/\s+/).slice(-1)[0];
+const statuslineScript = statuslineCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd, current, script) => cmd === current || (cmd && cmd.endsWith(script));
 if (!Array.isArray(config.hooks.PostToolUse)) config.hooks.PostToolUse = [];
 const hasPostHook = config.hooks.PostToolUse.some(entry =>
   entry.matcher === 'Bash' &&
   Array.isArray(entry.hooks) &&
-  entry.hooks.some(h => h.command === hookCommand)
+  entry.hooks.some(h => matchesHook(h.command, hookCommand, hookScript))
 );
 if (!hasPostHook) {
   config.hooks.PostToolUse.push({
@@ -163,7 +206,7 @@ if (!hasPostHook) {
 if (!Array.isArray(config.hooks.Stop)) config.hooks.Stop = [];
 const hasStopHook = config.hooks.Stop.some(entry =>
   Array.isArray(entry.hooks) &&
-  entry.hooks.some(h => h.command === stopHookCommand)
+  entry.hooks.some(h => matchesHook(h.command, stopHookCommand, stopHookScript))
 );
 if (!hasStopHook) {
   config.hooks.Stop.push({
@@ -179,7 +222,7 @@ if (!hasStopHook) {
 if (!Array.isArray(config.hooks.UserPromptSubmit)) config.hooks.UserPromptSubmit = [];
 const hasPromptHook = config.hooks.UserPromptSubmit.some(entry =>
   Array.isArray(entry.hooks) &&
-  entry.hooks.some(h => h.command === promptHookCommand)
+  entry.hooks.some(h => matchesHook(h.command, promptHookCommand, promptHookScript))
 );
 if (!hasPromptHook) {
   config.hooks.UserPromptSubmit.push({
@@ -194,7 +237,7 @@ if (!hasPromptHook) {
 // Statusline
 const needsStatusline = !config.statusLine ||
   config.statusLine.type !== 'command' ||
-  config.statusLine.command !== statuslineCommand ||
+  !matchesHook(config.statusLine.command, statuslineCommand, statuslineScript) ||
   config.statusLine.refreshInterval !== 2;
 if (needsStatusline) {
   config.statusLine = { type: 'command', command: statuslineCommand, padding: 1, refreshInterval: 2 };
@@ -210,25 +253,22 @@ if (changed) {
 process.stdout.write(result.join(','));
 EOJS
 )
-    case "$settings_result" in
-      *hook:updated*) echo -e "  ${GREEN}✓${NC} PostToolUse hook configured" ;;
-      *)              echo -e "  ${GREEN}✓${NC} PostToolUse hook already configured" ;;
-    esac
-    case "$settings_result" in
-      *stop:updated*) echo -e "  ${GREEN}✓${NC} Stop hook configured" ;;
-      *)              echo -e "  ${GREEN}✓${NC} Stop hook already configured" ;;
-    esac
-    case "$settings_result" in
-      *prompt:updated*) echo -e "  ${GREEN}✓${NC} UserPromptSubmit hook configured" ;;
-      *)                echo -e "  ${GREEN}✓${NC} UserPromptSubmit hook already configured" ;;
-    esac
-    case "$settings_result" in
-      *statusline:updated*) echo -e "  ${GREEN}✓${NC} Claude Code statusline configured" ;;
-      *)                    echo -e "  ${GREEN}✓${NC} Claude Code statusline already configured" ;;
-    esac
-  else
-    echo -e "  ${YELLOW}!${NC} node not found — cannot configure hooks or statusline"
-  fi
+  case "$settings_result" in
+    *hook:updated*) echo -e "  ${GREEN}✓${NC} PostToolUse hook configured" ;;
+    *)              echo -e "  ${GREEN}✓${NC} PostToolUse hook already configured" ;;
+  esac
+  case "$settings_result" in
+    *stop:updated*) echo -e "  ${GREEN}✓${NC} Stop hook configured" ;;
+    *)              echo -e "  ${GREEN}✓${NC} Stop hook already configured" ;;
+  esac
+  case "$settings_result" in
+    *prompt:updated*) echo -e "  ${GREEN}✓${NC} UserPromptSubmit hook configured" ;;
+    *)                echo -e "  ${GREEN}✓${NC} UserPromptSubmit hook already configured" ;;
+  esac
+  case "$settings_result" in
+    *statusline:updated*) echo -e "  ${GREEN}✓${NC} Claude Code statusline configured" ;;
+    *)                    echo -e "  ${GREEN}✓${NC} Claude Code statusline already configured" ;;
+  esac
 
   CLAUDE_CONFIGURED=1
 }
@@ -240,13 +280,8 @@ configure_cursor_hooks() {
     return 0
   fi
 
-  if ! command -v node &> /dev/null; then
-    echo -e "  ${YELLOW}!${NC} Cursor CLI: node not found, could not configure hooks"
-    return 1
-  fi
-
   local result
-  result=$(CURSOR_HOOKS_FILE="$config_file" HOOK_COMMAND="node $HOOK_PATH" node <<'EOJS'
+  result=$(CURSOR_HOOKS_FILE="$config_file" HOOK_COMMAND="$HOOK_COMMAND" "$NODE_BIN" <<'EOJS'
 const fs = require('fs');
 const path = process.env.CURSOR_HOOKS_FILE;
 const hookCommand = process.env.HOOK_COMMAND;
@@ -256,7 +291,9 @@ if (!config.version) config.version = 1;
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.afterShellExecution)) config.hooks.afterShellExecution = [];
 const hooks = config.hooks.afterShellExecution;
-const hasHook = hooks.some(h => typeof h?.command === 'string' && h.command === hookCommand);
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
+const hasHook = hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
   hooks.push({ command: hookCommand });
   fs.mkdirSync(require('path').dirname(path), { recursive: true });
@@ -281,13 +318,8 @@ configure_copilot_hooks() {
     return 0
   fi
 
-  if ! command -v node &> /dev/null; then
-    echo -e "  ${YELLOW}!${NC} GitHub Copilot CLI: node not found, could not configure hooks"
-    return 1
-  fi
-
   local result
-  result=$(COPILOT_SETTINGS="$settings_file" BASH_COMMAND="node $HOOK_PATH" POWERSHELL_COMMAND="node $HOOK_PATH" node <<'EOJS'
+  result=$(COPILOT_SETTINGS="$settings_file" BASH_COMMAND="$HOOK_COMMAND" POWERSHELL_COMMAND="$HOOK_COMMAND" "$NODE_BIN" <<'EOJS'
 const fs = require('fs');
 const path = require('path');
 const settingsPath = process.env.COPILOT_SETTINGS;
@@ -298,7 +330,9 @@ try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.postToolUse)) config.hooks.postToolUse = [];
 const hooks = config.hooks.postToolUse;
-const hasHook = hooks.some(h => h?.bash === bashCommand || h?.powershell === powershellCommand);
+const hookScript = bashCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd) => cmd === bashCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
+const hasHook = hooks.some(h => matchesHook(h?.bash) || matchesHook(h?.powershell));
 if (!hasHook) {
   hooks.push({
     type: 'command',
@@ -331,20 +365,27 @@ configure_cursor() {
 {
   "mcpServers": {
     "buddy": {
-      "command": "node",
+      "command": "$CONFIG_NODE_BIN",
       "args": ["$SERVER_PATH"]
     }
   }
 }
 EOJSON
-    elif ! grep -q '"buddy"' "$config_file" 2>/dev/null; then
-      node -e "
-        const fs = require('fs');
-        const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-        if (!config.mcpServers) config.mcpServers = {};
-        config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
-        fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
-      " 2>/dev/null
+    else
+      if ! CURSOR_MCP_CONFIG="$config_file" NODE_BIN="$CONFIG_NODE_BIN" SERVER_PATH="$SERVER_PATH" "$NODE_BIN" <<'EOJS' 2>/dev/null
+const fs = require('fs');
+const configPath = process.env.CURSOR_MCP_CONFIG;
+const nodeBin = process.env.NODE_BIN;
+const serverPath = process.env.SERVER_PATH;
+const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+if (!config.mcpServers) config.mcpServers = {};
+config.mcpServers.buddy = { command: nodeBin, args: [serverPath] };
+fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+EOJS
+      then
+        echo -e "  ${YELLOW}!${NC} Cursor: could not update existing MCP config ${DIM}($config_file)${NC}"
+        return 1
+      fi
     fi
     echo -e "  ${GREEN}✓${NC} Cursor configured ${DIM}($config_file)${NC}"
     CURSOR_CONFIGURED=1
@@ -360,23 +401,25 @@ configure_copilot() {
 {
   "mcpServers": {
     "buddy": {
-      "command": "node",
+      "command": "$CONFIG_NODE_BIN",
       "args": ["$SERVER_PATH"]
     }
   }
 }
 EOJSON
-    elif ! grep -q '"buddy"' "$config_file" 2>/dev/null; then
-      if command -v node &> /dev/null; then
-        node -e "
-          const fs = require('fs');
-          const config = JSON.parse(fs.readFileSync('$config_file', 'utf-8'));
-          if (!config.mcpServers) config.mcpServers = {};
-          config.mcpServers.buddy = { command: 'node', args: ['$SERVER_PATH'] };
-          fs.writeFileSync('$config_file', JSON.stringify(config, null, 2));
-        " 2>/dev/null
-      else
-        echo -e "  ${YELLOW}!${NC} GitHub Copilot CLI: node not found, could not merge into existing config"
+    else
+      if ! COPILOT_MCP_CONFIG="$config_file" NODE_BIN="$CONFIG_NODE_BIN" SERVER_PATH="$SERVER_PATH" "$NODE_BIN" <<'EOJS' 2>/dev/null
+const fs = require('fs');
+const configPath = process.env.COPILOT_MCP_CONFIG;
+const nodeBin = process.env.NODE_BIN;
+const serverPath = process.env.SERVER_PATH;
+const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+if (!config.mcpServers) config.mcpServers = {};
+config.mcpServers.buddy = { command: nodeBin, args: [serverPath] };
+fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+EOJS
+      then
+        echo -e "  ${YELLOW}!${NC} GitHub Copilot CLI: could not update existing MCP config ${DIM}($config_file)${NC}"
         return 1
       fi
     fi
@@ -396,7 +439,7 @@ configure_codex() {
     return 0
   fi
 
-  if codex mcp add buddy -- node "$SERVER_PATH" >/dev/null 2>&1; then
+  if codex mcp add buddy -- "$CONFIG_NODE_BIN" "$SERVER_PATH" >/dev/null 2>&1; then
     CODEX_CONFIGURED=1
     echo -e "  ${GREEN}✓${NC} Codex CLI configured"
     return 0
@@ -413,13 +456,8 @@ configure_codex_hooks() {
     return 0
   fi
 
-  if ! command -v node &> /dev/null; then
-    echo -e "  ${YELLOW}!${NC} Codex CLI: node not found, could not configure hooks"
-    return 1
-  fi
-
   local result
-  result=$(CODEX_HOOKS_FILE="$config_file" HOOK_COMMAND="node $HOOK_PATH" node <<'EOJS'
+  result=$(CODEX_HOOKS_FILE="$config_file" HOOK_COMMAND="$HOOK_COMMAND" "$NODE_BIN" <<'EOJS'
 const fs = require('fs');
 const path = require('path');
 const hooksPath = process.env.CODEX_HOOKS_FILE;
@@ -434,7 +472,9 @@ if (!group) {
   group = { matcher: 'Bash', hooks: [] };
   groups.push(group);
 }
-const hasHook = group.hooks.some(h => typeof h?.command === 'string' && h.command === hookCommand);
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
+const hasHook = group.hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
   group.hooks.push({
     type: 'command',

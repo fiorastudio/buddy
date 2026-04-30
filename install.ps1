@@ -36,8 +36,6 @@ catch {
 if (Test-Path $INSTALL_DIR) {
   Write-Host "  Updating existing installation..."
   Push-Location $INSTALL_DIR
-  # Reset generated files that block git pull (e.g. package-lock.json modified by npm install)
-  git checkout -- package-lock.json 2>$null
   git pull origin master --quiet
   Pop-Location
 } else {
@@ -175,12 +173,18 @@ const result = [];
 
 if (!config.hooks) config.hooks = {};
 
+// Match on script path suffix to recognise legacy "node <path>" entries from older installs.
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const stopHookScript = stopHookCommand.split(/\s+/).slice(-1)[0];
+const promptHookScript = promptHookCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd, current, script) => cmd === current || (cmd && cmd.endsWith(script));
+
 // PostToolUse — error detection (Bash only)
 if (!Array.isArray(config.hooks.PostToolUse)) config.hooks.PostToolUse = [];
 const hasPostHook = config.hooks.PostToolUse.some(entry =>
   entry.matcher === 'Bash' &&
   Array.isArray(entry.hooks) &&
-  entry.hooks.some(h => h.command === hookCommand)
+  entry.hooks.some(h => matchesHook(h.command, hookCommand, hookScript))
 );
 if (!hasPostHook) {
   config.hooks.PostToolUse.push({
@@ -197,7 +201,7 @@ if (!hasPostHook) {
 if (!Array.isArray(config.hooks.Stop)) config.hooks.Stop = [];
 const hasStopHook = config.hooks.Stop.some(entry =>
   Array.isArray(entry.hooks) &&
-  entry.hooks.some(h => h.command === stopHookCommand)
+  entry.hooks.some(h => matchesHook(h.command, stopHookCommand, stopHookScript))
 );
 if (!hasStopHook) {
   config.hooks.Stop.push({
@@ -213,7 +217,7 @@ if (!hasStopHook) {
 if (!Array.isArray(config.hooks.UserPromptSubmit)) config.hooks.UserPromptSubmit = [];
 const hasPromptHook = config.hooks.UserPromptSubmit.some(entry =>
   Array.isArray(entry.hooks) &&
-  entry.hooks.some(h => h.command === promptHookCommand)
+  entry.hooks.some(h => matchesHook(h.command, promptHookCommand, promptHookScript))
 );
 if (!hasPromptHook) {
   config.hooks.UserPromptSubmit.push({
@@ -284,7 +288,9 @@ if (!config.version) config.version = 1;
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.afterShellExecution)) config.hooks.afterShellExecution = [];
 const hooks = config.hooks.afterShellExecution;
-const hasHook = hooks.some(h => typeof h?.command === 'string' && h.command === hookCommand);
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
+const hasHook = hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
   hooks.push({ command: hookCommand });
   fs.mkdirSync(require('path').dirname(path), { recursive: true });
@@ -322,7 +328,9 @@ try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.postToolUse)) config.hooks.postToolUse = [];
 const hooks = config.hooks.postToolUse;
-const hasHook = hooks.some(h => h?.bash === bashCommand || h?.powershell === powershellCommand);
+const hookScript = bashCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd) => cmd === bashCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
+const hasHook = hooks.some(h => matchesHook(h?.bash) || matchesHook(h?.powershell));
 if (!hasHook) {
   hooks.push({
     type: 'command',
@@ -380,7 +388,9 @@ if (!group) {
   group = { matcher: 'Bash', hooks: [] };
   groups.push(group);
 }
-const hasHook = group.hooks.some(h => typeof h?.command === 'string' && h.command === hookCommand);
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
+const hasHook = group.hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
   group.hooks.push({
     type: 'command',
