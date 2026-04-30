@@ -22,6 +22,12 @@ export function initDb() {
       mood TEXT DEFAULT 'happy',
       personality_bio TEXT DEFAULT '',
       user_id TEXT,
+      stat_debugging INTEGER,
+      stat_patience INTEGER,
+      stat_chaos INTEGER,
+      stat_wisdom INTEGER,
+      stat_snark INTEGER,
+      stat_points_available INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -78,6 +84,14 @@ export function initDb() {
   try {
     db.exec(`ALTER TABLE companions ADD COLUMN cc_rescue INTEGER DEFAULT 0`);
   } catch { /* column already exists */ }
+
+  // Migration: add stat columns for growth
+  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_debugging INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_patience INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_chaos INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_wisdom INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_snark INTEGER`); } catch {}
+  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_points_available INTEGER DEFAULT 0`); } catch {}
 
   // Reasoning-layer migration (claims/edges tables + guard_mode column).
   initReasoningSchema(db);

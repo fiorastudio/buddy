@@ -66,12 +66,19 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
   db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)").run(id, companionId, eventType, xp);
 
   // Get current total XP
-  const row = db.prepare("SELECT xp, level FROM companions WHERE id = ?").get(companionId) as any;
+  const row = db.prepare("SELECT xp, level, stat_points_available FROM companions WHERE id = ?").get(companionId) as any;
   const newXp = (row?.xp || 0) + xp;
   const newLevel = levelFromXp(newXp);
   const leveledUp = newLevel > (row?.level || 1);
 
-  db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
+  // Award +2 stat points per level gained
+  if (leveledUp) {
+    const levelsGained = newLevel - (row?.level || 1);
+    const newPoints = (row?.stat_points_available || 0) + (levelsGained * 2);
+    db.prepare("UPDATE companions SET xp = ?, level = ?, stat_points_available = ? WHERE id = ?").run(newXp, newLevel, newPoints, companionId);
+  } else {
+    db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
+  }
 
   return { newXp, newLevel, leveledUp };
 }
@@ -294,6 +301,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             user_id: { type: "string", description: "Optional user ID for bones." }
           },
+        },
+      },
+      {
+        name: "buddy_spec",
+        description: "Allocate available stat points to increase your Buddy's stats. Each level up grants +2 points.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            stat: {
+              type: "string",
+              enum: ["DEBUGGING", "PATIENCE", "CHAOS", "WISDOM", "SNARK"],
+              description: "The stat to increase."
+            },
+            points: {
+              type: "number",
+              description: "Number of points to allocate (default: 1)."
+            }
+          },
+          required: ["stat"]
         },
       },
     ],
@@ -715,6 +741,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [
         { type: "text", text: `📸 Snapshot generated for ${companion.name}!` },
         { type: "text", text: `Path: ${outPath}` }
+      ],
+    };
+  }
+
+  if (name === "buddy_spec") {
+    const { stat, points = 1 } = args as { stat: string; points?: number };
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) return { content: [{ type: "text", text: "Hatch a buddy first!" }] };
+
+    const available = row.stat_points_available || 0;
+    if (available < points) {
+      return { content: [{ type: "text", text: `Not enough points! You have ${available} points available.` }] };
+    }
+
+    const statColumn = `stat_${stat.toLowerCase()}`;
+    const currentValue = row[statColumn] ?? 0;
+    const newValue = Math.min(100, currentValue + points);
+
+    db.prepare(`UPDATE companions SET ${statColumn} = ?, stat_points_available = ? WHERE id = ?`)
+      .run(newValue, available - points, row.id);
+
+    return {
+      content: [
+        { type: "text", text: `✨ Allocated ${points} point(s) to ${stat}!` },
+        { type: "text", text: `${stat} is now ${newValue}. (${available - points} points remaining)` }
       ],
     };
   }
