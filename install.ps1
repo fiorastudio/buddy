@@ -428,6 +428,8 @@ At the start of each conversation, call ``buddy_status`` to check on your buddy.
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
 After calling buddy_observe, relay the buddy's reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
+
+When guard mode is on, also pass ``claims`` (key assertions from the turn, ≤240 chars each, with ``basis``, ``confidence``, ``speaker``, ``external_id``), ``edges`` (relationships between claims), and ``cwd`` (absolute path to the project root) to ``buddy_observe``.
 <!-- /buddy-companion v2 -->
 "@
 
