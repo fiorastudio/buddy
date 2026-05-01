@@ -1,21 +1,21 @@
 import puppeteer from 'puppeteer';
 import { type Companion, RARITY_STARS } from '../lib/types.js';
-import { renderShareHtml } from '../lib/share.js';
+import { renderShareHtml, type ShareDelta } from '../lib/share.js';
 import { renderSprite } from '../lib/species.js';
 import { join } from 'path';
 import { writeFileSync } from 'fs';
 
-export async function captureSnapshot(companion: Companion, outPath: string) {
+export async function captureSnapshot(companion: Companion, outPath: string, message?: string, delta?: ShareDelta) {
   const browser = await puppeteer.launch({ 
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
   
-  // Set viewport to card size plus padding
-  await page.setViewport({ width: 600, height: 600, deviceScaleFactor: 2 });
+  // Set viewport to card size plus padding (increased height to ensure bottom isn't cut)
+  await page.setViewport({ width: 600, height: 900, deviceScaleFactor: 2 });
 
-  let html = renderShareHtml(companion);
+  let html = renderShareHtml(companion, message, delta);
   
   // Inject the actual sprite
   const spriteLines = renderSprite(companion);
@@ -33,10 +33,17 @@ export async function captureSnapshot(companion: Companion, outPath: string) {
 
   const cardElement = await page.$('.card');
   if (cardElement) {
-    await cardElement.screenshot({ path: outPath });
+    // If bubble is present, we need a larger bounding box or just screenshot the page
+    const bubble = await page.$('.bubble-container');
+    if (bubble) {
+      await page.screenshot({ path: outPath, fullPage: false });
+    } else {
+      await cardElement.screenshot({ path: outPath });
+    }
   } else {
     await page.screenshot({ path: outPath });
   }
 
   await browser.close();
 }
+

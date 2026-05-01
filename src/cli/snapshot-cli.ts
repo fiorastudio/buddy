@@ -17,9 +17,14 @@ async function main() {
 
   const companion = loadCompanion(row)!;
   const outPath = process.argv[2] || join(process.cwd(), 'buddy_snapshot.png');
+  const message = process.argv[3];
+  
+  const deltaStat = process.argv[4];
+  const deltaPoints = parseInt(process.argv[5] || '0');
+  const delta = deltaStat ? { stat: deltaStat, points: deltaPoints } : undefined;
   
   console.log(`Generating snapshot for ${companion.name}...`);
-  await captureSnapshot(companion, outPath);
+  await captureSnapshot(companion, outPath, message, delta);
   console.log(`Snapshot saved to: ${outPath}`);
 }
 

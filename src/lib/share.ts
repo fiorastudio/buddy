@@ -1,178 +1,270 @@
 import { type Companion, STAT_NAMES, RARITY_STARS } from './types.js';
 import { levelProgress } from './leveling.js';
 
-export function renderShareHtml(companion: Companion): string {
+export type ShareDelta = {
+  stat: string;
+  points: number;
+};
+
+export function renderShareHtml(companion: Companion, message?: string, delta?: ShareDelta): string {
   const stars = RARITY_STARS[companion.rarity];
   const { level, currentXp, neededXp } = levelProgress(companion.xp);
-  const xpPercent = Math.min(100, Math.floor((currentXp / neededXp) * 100));
-
-  const statsHtml = STAT_NAMES.map(s => `
-    <div class="stat-row">
-      <span class="stat-name">${s}</span>
-      <div class="bar-bg">
-        <div class="bar-fill" style="width: ${companion.stats[s]}%"></div>
+  
+  const statsHtml = STAT_NAMES.map(s => {
+    const isDelta = delta && delta.stat.toUpperCase() === s;
+    const baseValue = isDelta ? Math.max(0, companion.stats[s] - delta.points) : companion.stats[s];
+    const displayValue = companion.stats[s];
+    
+    return `
+      <div class="stat-row ${isDelta ? 'has-delta' : ''}">
+        <span class="stat-name">${s}</span>
+        <div class="bar-bg">
+          <div class="bar-fill" style="width: ${baseValue}%"></div>
+          ${isDelta ? `<div class="bar-delta" style="width: ${delta.points}%"></div>` : ''}
+        </div>
+        <div class="stat-value-container">
+          ${isDelta ? `<span class="delta-badge">+${delta.points}</span>` : ''}
+          <span class="stat-value">${displayValue}</span>
+        </div>
       </div>
-      <span class="stat-value">${companion.stats[s]}</span>
+    `;
+  }).join('');
+
+  const bubbleHtml = message ? `
+    <div class="bubble-container">
+      <div class="bubble">
+        ${message}
+      </div>
+      <div class="bubble-tail"></div>
     </div>
-  `).join('');
+  ` : '';
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Fira+Code:wght@400;600&display=swap');
+    
     :root {
-      --bg: #0f0c29;
-      --card-bg: rgba(20, 20, 40, 0.9);
+      --bg: #030014;
+      --card-bg: rgba(13, 12, 34, 0.95);
       --accent: #00ff00;
+      --accent-glow: rgba(0, 255, 0, 0.2);
       --text: #ffffff;
-      --dim: #888899;
-      --border: #333344;
+      --dim: #a0a0c0;
+      --border: rgba(255, 255, 255, 0.1);
+      --surface-highlight: rgba(255, 255, 255, 0.03);
+      --delta-color: #00ffff;
     }
+    
     body {
       margin: 0;
       padding: 40px;
       background: var(--bg);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Inter', sans-serif;
       display: flex;
       justify-content: center;
       align-items: center;
-      min-height: 500px;
+      min-height: 800px;
     }
+    
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 20px;
-      width: 500px;
+      width: 460px;
       padding: 30px;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+      box-shadow: 0 30px 60px rgba(0,0,0,0.8);
       position: relative;
-      overflow: hidden;
     }
-    .card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0; height: 2px;
-      background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    }
+    
+    /* Header */
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 30px;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
     }
     .rarity {
       color: var(--accent);
-      font-size: 12px;
-      font-weight: 800;
+      font-size: 10px;
+      font-weight: 900;
       letter-spacing: 2px;
       text-transform: uppercase;
     }
     .species {
       color: var(--dim);
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 10px;
+      font-weight: 700;
       letter-spacing: 1px;
       text-transform: uppercase;
     }
-    .main-area {
-      display: flex;
-      gap: 30px;
-      margin-bottom: 30px;
-    }
-    .sprite-box {
-      width: 140px;
-      height: 140px;
-      background: rgba(0,0,0,0.3);
-      border-radius: 15px;
+
+    /* ROW 1: Sprite + Bubble */
+    .row-sprite {
       display: flex;
       justify-content: center;
-      align-items: center;
-      border: 1px solid var(--border);
+      align-items: flex-end;
+      margin-bottom: 5px;
+      position: relative;
+      height: 140px;
     }
     .sprite-box pre {
       margin: 0;
       color: var(--accent);
-      font-family: 'Cascadia Code', 'Fira Code', monospace;
-      font-size: 16px;
-      line-height: 1.2;
+      font-family: 'Fira Code', 'Courier New', monospace;
+      font-size: 18px;
+      line-height: 1.15;
+      text-align: center;
+      text-shadow: 0 0 10px var(--accent-glow);
     }
-    .info-box {
-      flex: 1;
+    
+    .bubble-container {
+      position: absolute;
+      top: 5px;
+      left: 62%; /* Moved slightly right */
+      max-width: 170px;
+      z-index: 10;
+    }
+    .bubble {
+      background: rgba(0, 15, 0, 0.9);
+      color: var(--accent);
+      padding: 12px 16px;
+      border-radius: 18px; /* Rounded bubble shape */
+      border: 1.5px dashed var(--accent); /* "Broken off" look kept */
+      font-family: 'Fira Code', monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    .bubble-tail {
+      position: absolute;
+      bottom: 12px;
+      left: -8px;
+      width: 0;
+      height: 0;
+      border-top: 8px solid transparent;
+      border-bottom: 8px solid transparent;
+      border-right: 8px solid var(--accent);
+    }
+    .bubble-tail::after {
+      content: '';
+      position: absolute;
+      top: -8px;
+      left: 1.5px;
+      border-top: 8px solid transparent;
+      border-bottom: 8px solid transparent;
+      border-right: 8px solid rgba(0, 15, 0, 1);
+    }
+
+    /* ROW 2: Bio */
+    .row-bio {
+      text-align: center;
+      margin-bottom: 25px;
+      padding: 15px;
+      background: var(--surface-highlight);
+      border: 1px solid var(--border);
+      border-radius: 16px;
     }
     .name {
-      font-size: 32px;
+      font-size: 24px;
       font-weight: 800;
-      margin: 0 0 10px 0;
+      margin: 0 0 8px 0;
       color: var(--text);
     }
     .bio {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--dim);
       font-style: italic;
-      line-height: 1.5;
+      line-height: 1.4;
     }
-    .stats-container {
-      background: rgba(0,0,0,0.2);
-      padding: 20px;
-      border-radius: 15px;
+
+    /* ROW 3: Stats */
+    .row-stats {
       margin-bottom: 20px;
     }
     .stat-row {
       display: flex;
       align-items: center;
-      gap: 15px;
-      margin-bottom: 12px;
+      gap: 12px;
+      margin-bottom: 10px;
     }
-    .stat-row:last-child { margin-bottom: 0; }
     .stat-name {
-      width: 90px;
-      font-size: 10px;
-      font-weight: 700;
+      width: 80px;
+      font-size: 9px;
+      font-weight: 800;
       color: var(--dim);
       text-transform: uppercase;
     }
     .bar-bg {
       flex: 1;
       height: 6px;
-      background: #222233;
+      background: rgba(255,255,255,0.05);
       border-radius: 3px;
       overflow: hidden;
+      display: flex;
     }
     .bar-fill {
       height: 100%;
       background: var(--accent);
-      box-shadow: 0 0 10px var(--accent);
+    }
+    .bar-delta {
+      height: 100%;
+      background: var(--delta-color);
+    }
+    .stat-value-container {
+      width: 65px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: flex-end;
     }
     .stat-value {
-      width: 30px;
       font-size: 12px;
-      font-family: monospace;
-      color: var(--accent);
-      text-align: right;
+      font-weight: 700;
+      font-family: 'Fira Code', monospace;
+      color: var(--text);
     }
+    .delta-badge {
+      font-size: 9px;
+      font-weight: 900;
+      color: var(--delta-color);
+      background: rgba(0, 255, 255, 0.15);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    /* Footer */
     .footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
     }
     .level-badge {
       background: var(--accent);
       color: #000;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-weight: 800;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-weight: 900;
+      font-size: 11px;
     }
     .xp-info {
       color: var(--dim);
+      font-size: 11px;
+      font-weight: 600;
     }
     .repo-link {
       margin-top: 20px;
       text-align: center;
-      font-size: 10px;
+      font-size: 8px;
       color: var(--dim);
-      letter-spacing: 1px;
+      letter-spacing: 1.5px;
+      opacity: 0.4;
     }
   </style>
 </head>
@@ -183,22 +275,24 @@ export function renderShareHtml(companion: Companion): string {
       <div class="species">${companion.species}</div>
     </div>
     
-    <div class="main-area">
+    <div class="row-sprite">
       <div class="sprite-box">
         <pre>RENDER_SPRITE_HERE</pre>
       </div>
-      <div class="info-box">
-        <h1 class="name">${companion.name}</h1>
-        <div class="bio">"${companion.personalityBio}"</div>
-      </div>
+      ${bubbleHtml}
     </div>
     
-    <div class="stats-container">
+    <div class="row-bio">
+      <h1 class="name">${companion.name}</h1>
+      <div class="bio">"${companion.personalityBio}"</div>
+    </div>
+    
+    <div class="row-stats">
       ${statsHtml}
     </div>
     
     <div class="footer">
-      <div class="level-badge">LVL ${level}</div>
+      <div class="level-badge">LEVEL ${level}</div>
       <div class="xp-info">${currentXp} / ${neededXp} XP</div>
     </div>
     
