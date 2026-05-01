@@ -539,7 +539,8 @@ inject_prompt() {
 
   # Remove older buddy-companion block (v1/v2) before appending current version
   if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
-    sed -i '' '/<!-- buddy-companion/,/<!-- \/buddy-companion/d' "$file"
+    local tmp="${file}.tmp.$$"
+    sed '/<!-- buddy-companion/,/<!-- \/buddy-companion/d' "$file" > "$tmp" && mv "$tmp" "$file"
     echo -e "  ${GREEN}✓${NC} $cli_name prompt upgraded to v3"
   fi
 
