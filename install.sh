@@ -508,7 +508,7 @@ configure_codex_hooks
 
 # ── Inject buddy instructions into CLI prompt files ──
 
-BUDDY_INSTRUCTIONS='<!-- buddy-companion v2 -->
+BUDDY_INSTRUCTIONS='<!-- buddy-companion v3 -->
 ## Buddy Companion
 
 You have a coding companion available via the buddy MCP server.
@@ -520,7 +520,9 @@ At the start of each conversation, call `buddy_status` to check on your buddy.
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
 After calling buddy_observe, relay the buddy'\''s reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
-<!-- /buddy-companion v2 -->'
+
+When guard mode is on, also pass `claims` (key assertions from the turn, ≤240 chars each, with `basis`, `confidence`, `speaker`, `external_id`), `edges` (relationships between claims), and `cwd` (absolute path to the project root) to `buddy_observe`.
+<!-- /buddy-companion v3 -->'
 
 inject_prompt() {
   local file="$1"
@@ -530,9 +532,16 @@ inject_prompt() {
 
   mkdir -p "$dir"
 
-  if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
+  if [ -f "$file" ] && grep -q "buddy-companion v3" "$file" 2>/dev/null; then
     echo -e "  ${GREEN}✓${NC} $cli_name prompt already has buddy instructions"
     return 0
+  fi
+
+  # Remove older buddy-companion block (v1/v2) before appending current version
+  if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
+    local tmp="${file}.tmp.$$"
+    sed '/<!-- buddy-companion/,/<!-- \/buddy-companion/d' "$file" > "$tmp" && mv "$tmp" "$file"
+    echo -e "  ${GREEN}✓${NC} $cli_name prompt upgraded to v3"
   fi
 
   # Append to existing file or create new one

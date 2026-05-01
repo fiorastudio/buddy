@@ -14,6 +14,7 @@ import { basisDistributionHealth } from './reasoning/telemetry.js';
 
 // Shared sentinel — keep in sync with install.sh / install.ps1
 export const PROMPT_SENTINEL_V2 = 'buddy-companion v2';
+export const PROMPT_SENTINEL_V3 = 'buddy-companion v3';
 
 /** Default clone/build root from install.sh (INSTALL_DIR) */
 export function canonicalBuddyInstallDir(): string {
@@ -571,7 +572,7 @@ function checkPromptInjection(): DiagnosticCheck {
   for (const file of hostPromptFiles()) {
     const content = readTextSafe(file.path);
     if (!content) continue;
-    if (content.includes(PROMPT_SENTINEL_V2)) found.push(`${file.host} (${file.path})`);
+    if (content.includes(PROMPT_SENTINEL_V3)) found.push(`${file.host} (${file.path})`);
     else if (content.includes('buddy-companion')) legacy.push(`${file.host} (${file.path})`);
   }
 
@@ -579,7 +580,7 @@ function checkPromptInjection(): DiagnosticCheck {
     return { id: 'prompt.injected', status: 'ok', label: 'Prompt injection', detail: `\u2713 ${formatPathList(found)}` };
   }
   if (legacy.length > 0) {
-    return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: `v1 sentinel found in ${formatPathList(legacy)}`, suggestion: 'Re-run install script to upgrade prompt instructions' };
+    return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: `older sentinel found in ${formatPathList(legacy)}`, suggestion: 'Re-run install script to upgrade prompt instructions' };
   }
   return { id: 'prompt.injected', status: 'warn', label: 'Prompt injection', detail: '\u2717 no buddy instructions found in supported host prompt files', suggestion: 'Re-run install script to inject buddy instructions' };
 }
