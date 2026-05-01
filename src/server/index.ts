@@ -297,16 +297,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "Run diagnostics on your Buddy installation. Checks companion state, database, MCP registration, statusline, hooks, and prompt injection. Returns a report you can paste into bug reports. IMPORTANT: Include the full diagnostic report verbatim in a code block in your response.",
         inputSchema: { type: "object", properties: {} },
       },
-      {
-        name: "buddy_share",
-        description: "Generate a beautiful shareable snapshot of your Buddy's current status and card. Returns the local path to the generated image.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            user_id: { type: "string", description: "Optional user ID for bones." }
-          },
-        },
-      },
     ],
   };
 });
@@ -718,24 +708,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const checks = runDiagnostics();
     const report = formatReport(checks);
     return { content: [{ type: "text", text: '```\n' + report + '\n```' }] };
-  }
-
-  if (name === "buddy_share") {
-    const { user_id } = args as { user_id?: string };
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
-    if (!row) return { content: [{ type: "text", text: "Hatch a buddy first!" }] };
-
-    const companion = loadCompanion(row, user_id || row.user_id)!;
-    const outPath = join(homedir(), '.buddy', `share_${companion.name.toLowerCase()}.png`);
-    
-    await captureSnapshot(companion, outPath);
-
-    return {
-      content: [
-        { type: "text", text: `📸 Snapshot generated for ${companion.name}!` },
-        { type: "text", text: `Path: ${outPath}` }
-      ],
-    };
   }
 
   throw new Error(`Tool not found: ${name}`);
