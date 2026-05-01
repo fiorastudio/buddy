@@ -12,8 +12,9 @@ import { levelProgress } from './leveling.js';
 import { REASONING_CONFIG, telemetry } from './reasoning/index.js';
 import { basisDistributionHealth } from './reasoning/telemetry.js';
 
-// Shared sentinel — keep in sync with install.sh / install.ps1
+// Shared sentinels — keep in sync with install.sh / install.ps1
 export const PROMPT_SENTINEL_V2 = 'buddy-companion v2';
+export const PROMPT_SENTINEL_V3 = 'buddy-companion v3';
 
 /** Default clone/build root from install.sh (INSTALL_DIR) */
 export function canonicalBuddyInstallDir(): string {
@@ -571,7 +572,7 @@ function checkPromptInjection(): DiagnosticCheck {
   for (const file of hostPromptFiles()) {
     const content = readTextSafe(file.path);
     if (!content) continue;
-    if (content.includes(PROMPT_SENTINEL_V2)) found.push(`${file.host} (${file.path})`);
+    if (content.includes(PROMPT_SENTINEL_V3) || content.includes(PROMPT_SENTINEL_V2)) found.push(`${file.host} (${file.path})`);
     else if (content.includes('buddy-companion')) legacy.push(`${file.host} (${file.path})`);
   }
 

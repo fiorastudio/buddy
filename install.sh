@@ -508,19 +508,25 @@ configure_codex_hooks
 
 # ── Inject buddy instructions into CLI prompt files ──
 
-BUDDY_INSTRUCTIONS='<!-- buddy-companion v2 -->
+BUDDY_INSTRUCTIONS='<!-- buddy-companion v3 -->
 ## Buddy Companion
 
 You have a coding companion available via the buddy MCP server.
 
 **After completing any coding task** (writing code, fixing bugs, refactoring, deploying, running tests), **automatically call `buddy_observe`** with a 1-sentence summary of what you did. This gives your companion XP and triggers a personality-flavored reaction. Do this every time — the user expects it.
 
+**When insight mode is on**, also pass `claims`, `edges`, and `cwd` on every `buddy_observe` call:
+- `claims`: 1-4 substantive assertions from the turn that just ended. Each claim needs `text` (≤240 chars), `basis` (research/empirical/deduction/analogy/definition/llm_output/assumption/vibes), `speaker` (user/assistant), `confidence` (low/medium/high), and `external_id` (e.g. c1).
+- `edges`: relationships between claims — `{ from, to, type }` where type is supports/depends_on/contradicts/questions.
+- `cwd`: absolute path of the current project root for workspace isolation.
+Skip claims/edges if the turn had no substantive structure. Check `buddy_status` or `buddy_reasoning_status` to see if insight mode is on.
+
 At the start of each conversation, call `buddy_status` to check on your buddy.
 
 If the user addresses the buddy by name, respond briefly in character before your normal response.
 
 After calling buddy_observe, relay the buddy'\''s reaction to the user. The first text content is an ASCII speech bubble — include it verbatim.
-<!-- /buddy-companion v2 -->'
+<!-- /buddy-companion v3 -->'
 
 inject_prompt() {
   local file="$1"
@@ -530,9 +536,20 @@ inject_prompt() {
 
   mkdir -p "$dir"
 
-  if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
-    echo -e "  ${GREEN}✓${NC} $cli_name prompt already has buddy instructions"
+  if [ -f "$file" ] && grep -q "buddy-companion v3" "$file" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} $cli_name prompt already has buddy instructions (v3)"
     return 0
+  fi
+
+  # Upgrade from older version: strip the old block before appending new one
+  if [ -f "$file" ] && grep -q "buddy-companion" "$file" 2>/dev/null; then
+    if grep -q "<!-- /buddy-companion" "$file" 2>/dev/null; then
+      sed -i '/<!-- buddy-companion/,/<!-- \/buddy-companion/d' "$file"
+    else
+      # Malformed block (no closing marker) — remove just the opening line
+      sed -i '/<!-- buddy-companion/d' "$file"
+    fi
+    echo -e "  ${GREEN}↑${NC} $cli_name prompt upgrading buddy instructions to v3"
   fi
 
   # Append to existing file or create new one
