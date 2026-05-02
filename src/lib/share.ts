@@ -1,6 +1,10 @@
 import { type Companion, STAT_NAMES, RARITY_STARS } from './types.js';
 import { levelProgress } from './leveling.js';
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export type ShareDelta = {
   stat: string;
   points: number;
@@ -19,8 +23,8 @@ export function renderShareHtml(companion: Companion, message?: string, delta?: 
       <div class="stat-row ${isDelta ? 'has-delta' : ''}">
         <span class="stat-name">${s}</span>
         <div class="bar-bg">
-          <div class="bar-fill" style="width: ${baseValue}%"></div>
-          ${isDelta ? `<div class="bar-delta" style="width: ${delta.points}%"></div>` : ''}
+          <div class="bar-fill" style="width: ${Math.min(baseValue, 100)}%"></div>
+          ${isDelta ? `<div class="bar-delta" style="width: ${Math.min(delta.points, 100 - baseValue)}%"></div>` : ''}
         </div>
         <div class="stat-value-container">
           ${isDelta ? `<span class="delta-badge">+${delta.points}</span>` : ''}
@@ -33,7 +37,7 @@ export function renderShareHtml(companion: Companion, message?: string, delta?: 
   const bubbleHtml = message ? `
     <div class="bubble-container">
       <div class="bubble">
-        ${message}
+        ${escapeHtml(message)}
       </div>
       <div class="bubble-tail"></div>
     </div>
