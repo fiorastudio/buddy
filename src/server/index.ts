@@ -25,7 +25,6 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
-import { captureSnapshot } from "../lib/snapshot.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
 import { runDiagnostics, formatReport } from "../lib/doctor.js";
 import {

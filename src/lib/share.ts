@@ -110,7 +110,8 @@ export function renderShareHtml(companion: Companion, message?: string, delta?: 
       align-items: flex-end;
       margin-bottom: 5px;
       position: relative;
-      height: 140px;
+      min-height: 140px;
+      overflow: visible;
     }
     .sprite-box pre {
       margin: 0;
@@ -125,7 +126,7 @@ export function renderShareHtml(companion: Companion, message?: string, delta?: 
     .bubble-container {
       position: absolute;
       top: 5px;
-      left: 62%; /* Moved slightly right */
+      right: -10px;
       max-width: 170px;
       z-index: 10;
     }
