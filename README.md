@@ -219,7 +219,7 @@ Kudos nudges are slightly favored — after 3 caution findings with zero kudos, 
 
 **Token cost:** ~500-1000 extra tokens per `buddy_observe` when on. Default calls with guard mode off are unaffected.
 
-**Host compatibility:** Works best on Claude hosts where the extraction prompt is reliably honored. Run `buddy_doctor` to check.
+**Host compatibility:** Works best on Claude hosts where the extraction prompt is reliably honored. Run `buddy-doctor` to check.
 
 </details>
 

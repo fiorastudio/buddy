@@ -97,8 +97,21 @@ cd "$INSTALL_DIR"
 
 echo "  Installing dependencies..."
 npm install --quiet 2>/dev/null
+npm rebuild --quiet 2>/dev/null
 echo "  Building..."
 npm run build --quiet 2>/dev/null
+
+# ── Symlink CLI binaries onto PATH ──
+for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js; do
+  bin_name="${bin_entry%%:*}"
+  bin_file="$INSTALL_DIR/dist/cli/${bin_entry##*:}"
+  if [ -f "$bin_file" ]; then
+    chmod +x "$bin_file"
+    ln -sf "$bin_file" "/usr/local/bin/$bin_name" 2>/dev/null \
+      || sudo ln -sf "$bin_file" "/usr/local/bin/$bin_name" 2>/dev/null \
+      || echo "  ${YELLOW}Could not symlink $bin_name to /usr/local/bin — add $INSTALL_DIR/dist/cli to your PATH${NC}"
+  fi
+done
 
 SERVER_PATH="$INSTALL_DIR/dist/server/index.js"
 CODEX_CONFIGURED=0
@@ -164,17 +177,30 @@ EOJS
 
   # Configure hook + statusline in a single settings.json write
   local settings_result
-  settings_result=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="$HOOK_COMMAND" STOP_HOOK_COMMAND="$stop_hook_command" PROMPT_HOOK_COMMAND="$prompt_hook_command" STATUSLINE_COMMAND="$statusline_command" "$NODE_BIN" <<'EOJS'
+  settings_result=$(CLAUDE_SETTINGS="$settings_file" HOOK_COMMAND="$HOOK_COMMAND" STOP_HOOK_COMMAND="$stop_hook_command" PROMPT_HOOK_COMMAND="$prompt_hook_command" STATUSLINE_COMMAND="$statusline_command" SERVER_PATH="$SERVER_PATH" NODE_BIN="$CONFIG_NODE_BIN" "$NODE_BIN" <<'EOJS'
 const fs = require('fs');
 const settingsPath = process.env.CLAUDE_SETTINGS;
 const hookCommand = process.env.HOOK_COMMAND;
 const stopHookCommand = process.env.STOP_HOOK_COMMAND;
 const promptHookCommand = process.env.PROMPT_HOOK_COMMAND;
 const statuslineCommand = process.env.STATUSLINE_COMMAND;
+const serverPath = process.env.SERVER_PATH;
+const nodeBin = process.env.NODE_BIN;
 let config = {};
 try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
 let changed = false;
 const result = [];
+
+// MCP server registration
+if (!config.mcpServers) config.mcpServers = {};
+const existing = config.mcpServers.buddy;
+if (!existing || existing.command !== nodeBin || !Array.isArray(existing.args) || existing.args[0] !== serverPath) {
+  config.mcpServers.buddy = { type: 'stdio', command: nodeBin, args: [serverPath] };
+  changed = true;
+  result.push('mcp:updated');
+} else {
+  result.push('mcp:noop');
+}
 
 if (!config.hooks) config.hooks = {};
 
@@ -253,6 +279,10 @@ if (changed) {
 process.stdout.write(result.join(','));
 EOJS
 )
+  case "$settings_result" in
+    *mcp:updated*) echo -e "  ${GREEN}✓${NC} MCP server registered in settings.json" ;;
+    *)             echo -e "  ${GREEN}✓${NC} MCP server already in settings.json" ;;
+  esac
   case "$settings_result" in
     *hook:updated*) echo -e "  ${GREEN}✓${NC} PostToolUse hook configured" ;;
     *)              echo -e "  ${GREEN}✓${NC} PostToolUse hook already configured" ;;

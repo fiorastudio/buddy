@@ -26,7 +26,6 @@ import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
-import { runDiagnostics, formatReport } from "../lib/doctor.js";
 import {
   deriveSessionId,
   formatModeResponse,
@@ -289,11 +288,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "buddy_reasoning_status",
         description: "Inspect what guard mode has stored: claim count, findings history, graph size per session. Useful for users who want to audit what's in buddy.db or debug guard-mode behavior.",
-        inputSchema: { type: "object", properties: {} },
-      },
-      {
-        name: "buddy_doctor",
-        description: "Run diagnostics on your Buddy installation. Checks companion state, database, MCP registration, statusline, hooks, and prompt injection. Returns a report you can paste into bug reports. IMPORTANT: Include the full diagnostic report verbatim in a code block in your response.",
         inputSchema: { type: "object", properties: {} },
       },
     ],
@@ -701,12 +695,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     lines.push(`Purge with buddy_forget (scope: session | all).`);
 
     return { content: [{ type: "text", text: lines.join('\n') }] };
-  }
-
-  if (name === "buddy_doctor") {
-    const checks = runDiagnostics();
-    const report = formatReport(checks);
-    return { content: [{ type: "text", text: '```\n' + report + '\n```' }] };
   }
 
   throw new Error(`Tool not found: ${name}`);
