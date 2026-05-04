@@ -4,6 +4,7 @@
   "description": "Persistent AI coding companion - MCP server with 21 species, personality stats, and code feedback",
   "main": "dist/server/index.js",
   "bin": {
+    "buddy": "dist/cli/buddy.js",
     "buddy-statusline": "dist/statusline-wrapper.js",
     "buddy-onboard": "dist/cli/onboard.js",
     "buddy-doctor": "dist/cli/doctor-cli.js"

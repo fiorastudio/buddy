@@ -47,8 +47,18 @@ Push-Location $INSTALL_DIR
 
 Write-Host "  Installing dependencies..."
 npm install --quiet 2>$null
+npm rebuild --quiet 2>$null
 Write-Host "  Building..."
 npm run build --quiet 2>$null
+
+# ── Add CLI binaries to PATH ──
+$BIN_DIR = "$INSTALL_DIR\dist\cli"
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$BIN_DIR*") {
+  [Environment]::SetEnvironmentVariable("Path", "$userPath;$BIN_DIR", "User")
+  $env:Path = "$env:Path;$BIN_DIR"
+  Write-Host "  Added $BIN_DIR to user PATH"
+}
 
 $SERVER_PATH = "$INSTALL_DIR\dist\server\index.js"
 $SERVER_PATH_UNIX = $SERVER_PATH -replace '\\', '/'
@@ -159,6 +169,8 @@ $env:HOOK_COMMAND = "node $HOOK_PATH_UNIX"
 $env:STOP_HOOK_COMMAND = "node $STOP_HOOK_PATH_UNIX"
 $env:PROMPT_HOOK_COMMAND = "node $PROMPT_HOOK_PATH_UNIX"
 $env:STATUSLINE_COMMAND = $statuslineCommand
+$env:SERVER_PATH = $SERVER_PATH_UNIX
+$env:NODE_BIN = "node"
 $settingsResult = node -e @'
 const fs = require('fs');
 const settingsPath = process.env.CLAUDE_SETTINGS;
@@ -166,10 +178,23 @@ const hookCommand = process.env.HOOK_COMMAND;
 const stopHookCommand = process.env.STOP_HOOK_COMMAND;
 const promptHookCommand = process.env.PROMPT_HOOK_COMMAND;
 const statuslineCommand = process.env.STATUSLINE_COMMAND;
+const serverPath = process.env.SERVER_PATH;
+const nodeBin = process.env.NODE_BIN;
 let config = {};
 try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
 let changed = false;
 const result = [];
+
+// MCP server registration
+if (!config.mcpServers) config.mcpServers = {};
+const existing = config.mcpServers.buddy;
+if (!existing || existing.command !== nodeBin || !Array.isArray(existing.args) || existing.args[0] !== serverPath) {
+  config.mcpServers.buddy = { type: 'stdio', command: nodeBin, args: [serverPath] };
+  changed = true;
+  result.push('mcp:updated');
+} else {
+  result.push('mcp:noop');
+}
 
 if (!config.hooks) config.hooks = {};
 
@@ -248,6 +273,11 @@ if (changed) {
 process.stdout.write(result.join(','));
 '@ 2>$null
 
+if ($settingsResult -match 'mcp:updated') {
+  Write-Host "  ✓ MCP server registered in settings.json" -ForegroundColor Green
+} else {
+  Write-Host "  ✓ MCP server already in settings.json" -ForegroundColor Green
+}
 if ($settingsResult -match 'hook:updated') {
   Write-Host "  ✓ PostToolUse hook configured" -ForegroundColor Green
 } else {
