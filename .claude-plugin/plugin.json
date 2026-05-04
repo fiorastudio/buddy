@@ -1,0 +1,23 @@
+{
+  "name": "Buddy",
+  "version": "1.0.6",
+  "description": "Persistent AI coding companion with 21 species and personality stats.",
+  "mcp": {
+    "server": "dist/server/index.js"
+  },
+  "commands": [
+    {
+      "name": "/buddy",
+      "description": "Interact with your Buddy companion",
+      "skill": "skills/buddy/SKILL.md"
+    },
+    {
+      "name": "/buddy-status",
+      "description": "Check your Buddy's current status and personality",
+      "tool": "buddy_status"
+    }
+  ],
+  "hooks": {
+    "PostToolUse": "hooks/buddy-observer.js"
+  }
+}
