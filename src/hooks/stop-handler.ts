@@ -2,10 +2,13 @@
 // src/hooks/stop-handler.ts
 //
 // Stop hook handler for Buddy MCP.
-// Fires after every Claude response. Detects task-completion signals
-// and writes an encouraging statusline reaction — zero token cost.
-//
-// Pure Node.js — only fs imports.
+// Fires after every Claude response. Two responsibilities:
+//   1. Detect task-completion signals → encouraging statusline reaction
+//      (zero token cost, pattern-matched).
+//   2. Hook-driven claim extraction when guard mode is on and an extraction
+//      key resolves. The transcript is read, sent to Anthropic, and the
+//      structured output is fed into runGuardPipeline. Errors are swallowed
+//      so a hook process can never crash the host.
 
 import { readFileSync, writeFileSync } from "fs";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
@@ -95,14 +98,155 @@ export function handleStop(input: StopInput, statusPath: string = BUDDY_STATUS_P
   return writeCompletionReaction(statusPath);
 }
 
+// ─── extraction (guard-mode only) ──────────────────────────────────────────
+
+/**
+ * Resolve the active companion + check guard mode + run hook-driven extraction
+ * if a key is available. Returns silently — extraction failures must never
+ * crash the host. Logs to stderr for debugging.
+ *
+ * Imports are dynamic so the existing synchronous statusline path (and its
+ * tests) don't pay a startup cost from SQLite/SDK initialization unless
+ * extraction is actually attempted.
+ */
+export async function runExtractionForStop(input: StopInput): Promise<void> {
+  if (!input.transcript_path) return;
+
+  const { resolveExtractionKey, resolveExtractionModel } = await import("../lib/reasoning/extraction-key.js");
+  const resolved = resolveExtractionKey();
+  if (!resolved.key) return; // no key → fall back to model-driven extraction
+  const model = resolveExtractionModel() ?? undefined; // undefined → SDK default
+
+  const { db, initDb } = await import("../db/schema.js");
+  initDb();
+
+  const companion = db.prepare(
+    "SELECT id, guard_mode, mood FROM companions LIMIT 1",
+  ).get() as { id: string; guard_mode: number | null; mood: string | null } | undefined;
+  if (!companion) return;
+  if ((companion.guard_mode ?? 0) === 0) return;
+  // While muted, skip extraction entirely. User is paying API costs they
+  // explicitly opted out of receiving output for. The cursor doesn't
+  // advance, so post-unmute the next Stop hook resumes processing from
+  // the muted period — no claims permanently lost.
+  if (companion.mood === 'muted') return;
+
+  const {
+    readRecentTranscript, extractClaims, toBuddyShape,
+  } = await import("../lib/reasoning/transcript-extractor.js");
+  const { runGuardPipeline } = await import("../lib/reasoning/pipeline.js");
+  const telemetry = await import("../lib/reasoning/telemetry.js");
+  const state = await import("../lib/reasoning/extraction-state.js");
+  const { loadRecentClaims } = await import("../lib/reasoning/writer.js");
+  const { resolveProjectRoot } = await import("../lib/reasoning/project-root.js");
+  const { deriveSessionId } = await import("../lib/reasoning/session.js");
+  const { REASONING_CONFIG } = await import("../lib/reasoning/config.js");
+
+  // Backoff: if recent extractions have been failing, skip this one. Counter
+  // resets on any successful extraction, so transient outages naturally
+  // un-stall. Stderr log is BUDDY_DEBUG-gated — every Stop hook while in
+  // backoff would emit one line otherwise, and Claude Code captures hook
+  // stderr to a debug log; non-engineer maintainers seeing 50+ "extraction
+  // in backoff" lines would assume the system is broken when it's
+  // actually gracefully degrading. The doctor + buddy_reasoning_status
+  // surfaces communicate this state more accessibly.
+  const stats = state.getStats(db, companion.id);
+  if (state.shouldBackoff(stats)) {
+    if (process.env.BUDDY_DEBUG) {
+      process.stderr.write(`[buddy] extraction in backoff (${stats.consecutiveFailures} consecutive failures, last ${stats.lastFailureReason ?? 'unknown'})\n`);
+    }
+    return;
+  }
+
+  // Incremental cursor: only process turns we haven't seen. Without this the
+  // hook re-extracts the last 50 turns every fire, populating the graph with
+  // duplicates of the same claims under fresh UUIDs.
+  const hostSessionId = state.deriveHostKey(input.session_id, input.transcript_path);
+  if (!hostSessionId) return; // can't track without a stable key
+  const cursor = state.getCursor(db, hostSessionId);
+  // Single-pass read: chunk + total turn count come from one parse, so the
+  // cursor-bump below can never advance past turns the LLM didn't see.
+  const { chunk, totalTurns } = readRecentTranscript(input.transcript_path, cursor.lastExtractedTurnCount);
+  if (!chunk.trim()) return;
+
+  // Cross-batch context: hand the LLM recent claims from this workspace's
+  // session graph so it can edge into them via `_existing` IDs (8-char UUID
+  // prefixes resolved by writeClaims). Without this, every extraction is an
+  // island and the workspace graph stays fragmented across turns.
+  const projectRoot = resolveProjectRoot(process.env.CLAUDE_PROJECT_DIR ?? null);
+  const buddySessionId = deriveSessionId(projectRoot.path);
+  const recentClaims = loadRecentClaims(db, buddySessionId, REASONING_CONFIG.RECENT_CLAIMS_CONTEXT);
+  const existing = recentClaims.map(c => ({
+    id: c.id.slice(0, 8),
+    text: c.text,
+    basis: c.basis,
+  }));
+
+  telemetry.recordExtractionAttempt();
+  state.recordAttempt(db, companion.id);
+
+  const resp = await extractClaims(chunk, existing, { apiKey: resolved.key, model });
+  if (!resp.ok) {
+    const bucket = telemetry.bucketFailureReason(resp.reason);
+    telemetry.recordExtractionFailure(resp.reason);
+    state.recordFailure(db, companion.id, bucket, resp.reason);
+    // Failure is captured in persistent stats + bucketed for the doctor;
+    // stderr is the engineer-debug path only.
+    if (process.env.BUDDY_DEBUG) {
+      process.stderr.write(`[buddy] extraction failed: ${resp.reason}\n`);
+    }
+    return;
+  }
+  telemetry.recordExtractionSuccess();
+  state.recordSuccess(db, companion.id);
+
+  // Bump the cursor so the next Stop hook reads only what's been added since.
+  // We do this BEFORE writing claims to the pipeline — even if the pipeline
+  // throws on this batch, we don't want to re-process the same turns next
+  // time and pay the API cost again. Worst case: one batch lost.
+  // Uses the total-turns figure from the same read that produced the chunk,
+  // so the cursor can't outpace what was actually extracted.
+  state.bumpCursor(db, hostSessionId, totalTurns);
+
+  const shaped = toBuddyShape(resp.result);
+  if (shaped.claims.length === 0) return;
+
+  try {
+    runGuardPipeline(db, {
+      companionId: companion.id,
+      cwd: process.env.CLAUDE_PROJECT_DIR ?? null,
+      claims: shaped.claims,
+      edges: shaped.edges,
+    });
+  } catch (err: any) {
+    // Pipeline failures lose a batch silently — the cursor was already bumped
+    // above so we won't retry. This is rare (the pipeline is in-process DB
+    // writes against a schema we control) but worth a visible warning when it
+    // does happen, not a BUDDY_DEBUG-only line. Other Stop-hook stderr stays
+    // gated because those events (backoff, API failures already in stats)
+    // are expected/recoverable; a pipeline throw is neither.
+    process.stderr.write(`[buddy] warn: pipeline failed after extraction (batch lost): ${err?.message ?? String(err)}\n`);
+  }
+}
+
 // --- CLI entry point ---
 const isDirectRun = process.argv[1]?.includes("stop-handler");
 if (isDirectRun) {
-  try {
-    const stdin = readFileSync(0, "utf-8");
-    const input: StopInput = JSON.parse(stdin);
-    handleStop(input);
-  } catch {
-    // Silent failure — hooks must never crash the host.
-  }
+  (async () => {
+    let input: StopInput | null = null;
+    try {
+      const stdin = readFileSync(0, "utf-8");
+      input = JSON.parse(stdin);
+    } catch {
+      // Silent failure on stdin parse — hooks must never crash the host.
+      return;
+    }
+    if (!input) return;
+
+    // Statusline reaction first (synchronous, zero-cost).
+    try { handleStop(input); } catch { /* swallow */ }
+
+    // Extraction second (async, gated on guard mode + key).
+    try { await runExtractionForStop(input); } catch { /* swallow */ }
+  })();
 }

@@ -117,14 +117,58 @@ export function handlePromptSubmit(
   return false;
 }
 
+// ─── findings delivery (guard-mode only) ───────────────────────────────────
+
+/**
+ * Drain pending findings from `reasoning_findings_log` to stdout so they
+ * appear as system-reminder context in the next assistant turn.
+ *
+ * Imports are dynamic so the synchronous mood-pattern path doesn't pay
+ * SQLite startup unless guard mode is actually active for this companion.
+ */
+export async function deliverFindingsForPrompt(): Promise<void> {
+  const { db, initDb } = await import("../db/schema.js");
+  initDb();
+
+  // Read mood too — buddy_mute sets mood='muted' to silence the companion.
+  // The rest of buddy's mute enforcement is incomplete today (mood is set
+  // but rarely read), but it would be incoherent for a *new* feature to
+  // ignore the user's explicit "be quiet" signal. If the maintainer later
+  // strengthens mute across the rest of buddy, this gate is already in line.
+  const companion = db.prepare(
+    "SELECT id, guard_mode, mood FROM companions LIMIT 1",
+  ).get() as { id: string; guard_mode: number | null; mood: string | null } | undefined;
+  if (!companion) return;
+  if ((companion.guard_mode ?? 0) === 0) return;
+  if (companion.mood === 'muted') return;
+
+  const { deliverPendingFindings } = await import("../lib/reasoning/delivery.js");
+  try {
+    deliverPendingFindings(db, companion.id);
+  } catch (err: any) {
+    if (process.env.BUDDY_DEBUG) {
+      process.stderr.write(`[buddy] delivery failed: ${err?.message ?? String(err)}\n`);
+    }
+  }
+}
+
 // --- CLI entry point ---
 const isDirectRun = process.argv[1]?.includes("prompt-handler");
 if (isDirectRun) {
-  try {
-    const stdin = readFileSync(0, "utf-8");
-    const input: PromptInput = JSON.parse(stdin);
-    handlePromptSubmit(input);
-  } catch {
-    // Silent failure — hooks must never crash the host.
-  }
+  (async () => {
+    let input: PromptInput | null = null;
+    try {
+      const stdin = readFileSync(0, "utf-8");
+      input = JSON.parse(stdin);
+    } catch {
+      return;
+    }
+    if (!input) return;
+
+    // Findings delivery first — its stdout output becomes prompt context.
+    try { await deliverFindingsForPrompt(); } catch { /* swallow */ }
+
+    // Statusline mood reaction second (synchronous).
+    try { handlePromptSubmit(input); } catch { /* swallow */ }
+  })();
 }

@@ -41,6 +41,19 @@ import {
   type PurgeScope,
 } from "../lib/reasoning/index.js";
 
+/**
+ * One-line shape descriptor for BUDDY_DEBUG diagnostics. Distinguishes
+ * arrays, null, primitives, and objects so the maintainer can quickly
+ * spot a transport-level shape mismatch (host sent a string instead of
+ * an array, host sent null where the schema expected []…).
+ */
+function describeKind(v: unknown): string {
+  if (Array.isArray(v)) return `array(${v.length})`;
+  if (v === null) return 'null';
+  if (typeof v !== 'object') return typeof v;  // 'undefined', 'string', 'number', etc.
+  return `object:${Object.keys(v as object).length} keys`;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const VERSION: string = JSON.parse(
@@ -431,6 +444,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let guardWorkspaceSource: string | null = null;
     if (guardModeOn) {
       try {
+        if (process.env.BUDDY_DEBUG) {
+          // One-line snapshot of what the MCP transport actually delivered
+          // — type + length, not contents — so the maintainer can spot
+          // "host sent null", "host sent a string", "host sent {} instead
+          // of []", etc. before the pipeline silently drops them.
+          console.error(`[buddy] buddy_observe inputs: claims=${describeKind(claims)} edges=${describeKind(edges)} cwd=${typeof cwd === 'string' ? `"${cwd}"` : String(cwd)}`);
+        }
+
+        // Precise-mode coexistence: when an extraction key resolves and the
+        // Stop hook is doing transcript-driven extraction, the model
+        // re-doing extraction here via buddy_observe would double-write the
+        // same logical claims under fresh UUIDs (no text-dedupe in
+        // writeClaims). That inflates downstream counts, burns cooldowns
+        // early, and wastes ~500-1000 prompt tokens per call on the
+        // extractionInstruction the model would now be following pointlessly.
+        // Detect and suppress: ignore model-supplied claims/edges, skip the
+        // instruction. Findings still flow — selectFinding pulls from the
+        // existing graph (which the hook is keeping fresh).
+        //
+        // Graceful degradation: if the hook is in backoff (consecutive
+        // failures crossed the BACKOFF threshold), suppressing model
+        // claims would leave the graph completely dead — hook isn't
+        // writing AND model is being silenced. So we treat backoff as
+        // "precise temporarily inactive" and let model claims flow as
+        // fallback. consecutive_failures resets on any successful
+        // extraction, so suppression auto-resumes when the hook recovers.
+        const { resolveExtractionKey } = await import('../lib/reasoning/extraction-key.js');
+        const { getStats: getExtractionStats, preciseModeActiveForObserve } = await import('../lib/reasoning/extraction-state.js');
+        const keyResolved = resolveExtractionKey().key !== null;
+        const preciseModeActive = preciseModeActiveForObserve(getExtractionStats(db, row.id), keyResolved);
+
         // Pass the caller's hint as-is (undefined if absent). The pipeline's
         // resolveProjectRoot tries env vars and project-marker walk-up
         // before falling back to process.cwd(). Passing process.cwd() here
@@ -438,13 +482,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const out = runGuardPipeline(db, {
           companionId: row.id,
           cwd: typeof cwd === 'string' && cwd ? cwd : undefined,
-          claims,
-          edges,
+          claims: preciseModeActive ? [] : claims,
+          edges: preciseModeActive ? [] : edges,
         });
         guardInjection = {
           finding: out.finding,
           stressedVoice: out.finding ? getStressedVoice(companion.species) : null,
-          extractionInstruction: out.extractionInstruction,
+          // Precise mode: skip the instruction entirely. The model would
+          // try to comply on its next call but its work would be discarded
+          // by the suppression above, so feeding it the instruction is
+          // pure prompt-token waste.
+          extractionInstruction: preciseModeActive ? '' : out.extractionInstruction,
         };
         guardSessionId = out.sessionId;
         guardWorkspace = out.resolvedRoot.path;
@@ -612,9 +660,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       writeBuddyStatus(companion);
     }
 
+    const guardOnNow = ((row.guard_mode ?? 0) === 1 ? 1 : 0) as 0 | 1;
+    let extractionMode: 'precise' | 'lossy' | 'n/a' = 'n/a';
+    if (guardOnNow === 1) {
+      const { resolveExtractionKey } = await import('../lib/reasoning/extraction-key.js');
+      extractionMode = resolveExtractionKey().key ? 'precise' : 'lossy';
+    }
     const text = formatModeResponse(plan, {
       observer_mode: row.observer_mode ?? null,
-      guard_mode: ((row.guard_mode ?? 0) === 1 ? 1 : 0),
+      guard_mode: guardOnNow,
+      extraction_mode: extractionMode,
+      muted: row.mood === 'muted',
     });
     return { content: [{ type: "text", text }] };
   }
@@ -663,10 +719,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const stats = telemetry.snapshot();
     const guardOn = row && (row.guard_mode ?? 0) === 1 ? 'on' : 'off';
+    const isMuted = row?.mood === 'muted';
     const currentRoot = resolveProjectRoot(undefined);
+    const { resolveExtractionKey } = await import('../lib/reasoning/extraction-key.js');
+    const extraction = resolveExtractionKey();
+    let extractionMode: string;
+    if (guardOn === 'off') {
+      extractionMode = 'n/a';
+    } else if (extraction.key) {
+      extractionMode = isMuted
+        ? `precise (${extraction.source}, paused: muted)`
+        : `precise (${extraction.source})`;
+    } else {
+      extractionMode = isMuted
+        ? 'lossy fallback (no key, paused: muted)'
+        : 'lossy fallback (no key)';
+    }
 
     const lines: string[] = [];
-    lines.push(`Reasoning layer (guard mode: ${guardOn})`);
+    lines.push(`Reasoning layer (guard mode: ${guardOn} · extraction: ${extractionMode})`);
     lines.push(`  workspace (this process): ${currentRoot.path} [${currentRoot.source}${currentRoot.envVar ? ':' + currentRoot.envVar : currentRoot.markerFound ? ':' + currentRoot.markerFound : ''}]`);
     lines.push(`  stored:   ${totalClaims} claim(s), ${totalEdges} edge(s), ${totalFindings} finding(s)`);
     if (sessionRows.length > 0) {
@@ -695,6 +766,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     if (stats.pipeline_failures_total > 0) {
       lines.push(`  pipeline failures: ${stats.pipeline_failures_total} (set BUDDY_DEBUG=1 for stderr traces)`);
+    }
+    // Extraction stats from the persistent table — these survive process
+    // restart and aggregate across MCP-server and Stop-hook processes,
+    // unlike the in-memory `stats` block above.
+    if (row?.id) {
+      const { getStats: getExtractionStats } = await import('../lib/reasoning/extraction-state.js');
+      const ex = getExtractionStats(db, row.id);
+      if (ex.attemptsTotal > 0 || ex.findingsDeliveredTotal > 0) {
+        lines.push(`  extractions:      ${ex.succeededTotal} ok / ${ex.failedTotal} failed (of ${ex.attemptsTotal} attempts, ${ex.consecutiveFailures} consecutive failures now)`);
+        const reasons = Object.entries(ex.failureReasons);
+        if (reasons.length > 0) {
+          lines.push(`  failure reasons:  ${reasons.map(([k, n]) => `${k}=${n}`).join(', ')}`);
+        }
+        lines.push(`  findings delivered (UserPromptSubmit): ${ex.findingsDeliveredTotal}`);
+      }
     }
     lines.push('');
     lines.push(`Stored in: ~/.buddy/buddy.db (plaintext SQLite, never leaves your machine).`);

@@ -11,6 +11,8 @@ import { STAT_NAMES, RARITY_STARS } from './types.js';
 import { levelProgress } from './leveling.js';
 import { REASONING_CONFIG, telemetry } from './reasoning/index.js';
 import { basisDistributionHealth } from './reasoning/telemetry.js';
+import { resolveExtractionKey } from './reasoning/extraction-key.js';
+import { getStats as getExtractionStats, BACKOFF as EXTRACTION_BACKOFF } from './reasoning/extraction-state.js';
 
 // Shared sentinel — keep in sync with install.sh / install.ps1
 export const PROMPT_SENTINEL_V2 = 'buddy-companion v2';
@@ -610,12 +612,18 @@ function checkReasoningGuardMode(): DiagnosticCheck {
     }
 
     // If we've had INERT_GUARD_WARN_OBSERVES observes and never received claims,
-    // the host isn't honoring the extraction prompt.
-    if (totalObserves >= REASONING_CONFIG.INERT_GUARD_WARN_OBSERVES && lastClaimsSeq === 0) {
+    // the host isn't honoring the extraction prompt — UNLESS precise mode is
+    // active, in which case discarding model-supplied claims is by design and
+    // the hook is the actual claim source. Check persistent extraction stats:
+    // if attempts > 0, the hook IS extracting and guard mode is healthy
+    // regardless of last_claims_received_seq.
+    const extractionStats = getExtractionStats(db, row.id);
+    const hookIsExtracting = extractionStats.attemptsTotal > 0;
+    if (totalObserves >= REASONING_CONFIG.INERT_GUARD_WARN_OBSERVES && lastClaimsSeq === 0 && !hookIsExtracting) {
       return {
         id: 'reasoning.guard', status: 'warn', label: 'Guard mode',
         detail: `on, but 0 claims received in ${totalObserves} observes`,
-        suggestion: 'Host may not be honoring the guard-mode extraction prompt. Verified hosts: Claude Code (Sonnet/Opus). See README for host requirements.',
+        suggestion: 'Host may not be honoring the guard-mode extraction prompt. Verified hosts: Claude Code (Sonnet/Opus). See README for host requirements. Or: set BUDDY_EXTRACTION_KEY for hook-driven extraction independent of host attention.',
       };
     }
 
@@ -625,12 +633,110 @@ function checkReasoningGuardMode(): DiagnosticCheck {
     const extra = stats.claims_received_total > 0
       ? ` · this run: ${stats.claims_received_total} claims, ${stats.findings_surfaced_total} findings`
       : '';
+    // Surface that the hook is the actual claim source when precise mode
+    // is active, so the user understands why lastClaimsSeq might be 0
+    // despite a healthy guard mode.
+    const hookNote = hookIsExtracting && lastClaimsSeq === 0
+      ? ` · hook-driven extraction (${extractionStats.attemptsTotal} attempts, ${extractionStats.succeededTotal} ok)`
+      : '';
     return {
       id: 'reasoning.guard', status: 'ok', label: 'Guard mode',
-      detail: `on · ${totalObserves} observes, last claims at seq ${lastClaimsSeq}${extra}`,
+      detail: `on · ${totalObserves} observes, last claims at seq ${lastClaimsSeq}${extra}${hookNote}`,
     };
   } catch {
     return { id: 'reasoning.guard', status: 'fail', label: 'Guard mode', detail: 'DB query failed' };
+  }
+}
+
+function checkReasoningExtractionKey(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT id, guard_mode, mood FROM companions LIMIT 1').get() as any;
+    if (!row) {
+      return { id: 'reasoning.extraction', status: 'skip', label: 'Extraction key', detail: 'No companion' };
+    }
+    const on = (row.guard_mode ?? 0) === 1;
+    if (!on) {
+      return { id: 'reasoning.extraction', status: 'skip', label: 'Extraction key', detail: 'Guard mode off' };
+    }
+    const isMuted = row.mood === 'muted';
+    const mutedSuffix = isMuted ? ' · paused (buddy is muted)' : '';
+
+    const resolved = resolveExtractionKey();
+
+    if (!resolved.key) {
+      return {
+        id: 'reasoning.extraction', status: 'warn', label: 'Extraction key',
+        detail: `guard mode is on but no extraction key found — running in lossy fallback mode${mutedSuffix}`,
+        suggestion: 'Set BUDDY_EXTRACTION_KEY (or ANTHROPIC_API_KEY) to enable hook-driven claim extraction. This is a separate key from your Claude Code subscription. Generate one at https://console.anthropic.com.',
+      };
+    }
+
+    // Persistent extraction stats — survive process restarts, see Stop-hook
+    // events the MCP server's in-memory telemetry can't.
+    const stats = getExtractionStats(db, row.id);
+    if (stats.attemptsTotal === 0) {
+      return {
+        id: 'reasoning.extraction', status: 'ok', label: 'Extraction key',
+        detail: `precise mode (source: ${resolved.source}) · no extractions yet${mutedSuffix}`,
+      };
+    }
+    const failureRate = stats.failedTotal / stats.attemptsTotal;
+    const inBackoff = stats.consecutiveFailures >= EXTRACTION_BACKOFF.FAILURE_THRESHOLD;
+    if (stats.attemptsTotal >= 3 && failureRate >= 0.5) {
+      const dominant = Object.entries(stats.failureReasons).sort((a, b) => b[1] - a[1])[0];
+      // Make the backoff/fallback state explicit. Without this the user sees
+      // "extractions failed" and might assume the graph is also dead — but
+      // buddy_observe falls back to model-supplied claims while the hook is
+      // in backoff, so guard mode keeps producing findings.
+      const backoffNote = inBackoff
+        ? ' · in backoff (model claims accepted as fallback in buddy_observe; auto-resumes when one extraction succeeds)'
+        : '';
+      return {
+        id: 'reasoning.extraction', status: 'warn', label: 'Extraction key',
+        detail: `precise mode (${resolved.source}) · ${stats.failedTotal}/${stats.attemptsTotal} extractions failed (${dominant ? dominant[0] : 'unknown'})${backoffNote}${mutedSuffix}`,
+        suggestion: dominant?.[0] === 'http_401'
+          ? 'Extraction key was rejected (401). Verify it at https://console.anthropic.com.'
+          : 'Recurring extraction failures — check stderr for details. Buddy auto-backs off after consecutive failures and resumes when one succeeds.',
+      };
+    }
+    return {
+      id: 'reasoning.extraction', status: 'ok', label: 'Extraction key',
+      detail: `precise mode (${resolved.source}) · ${stats.succeededTotal}/${stats.attemptsTotal} extractions ok · ${stats.findingsDeliveredTotal} findings delivered${mutedSuffix}`,
+    };
+  } catch {
+    return { id: 'reasoning.extraction', status: 'fail', label: 'Extraction key', detail: 'DB query failed' };
+  }
+}
+
+function checkReasoningExtractionConfigPerms(): DiagnosticCheck {
+  // Windows fs mode bits don't reliably reflect ACL permissions. Skip rather
+  // than emit false warnings; Windows users are protected by NTFS user-profile
+  // perms by default and shouldn't see this as a "warn" they can't act on.
+  if (process.platform === 'win32') {
+    return {
+      id: 'reasoning.extraction.perms', status: 'skip', label: 'Config file perms',
+      detail: 'POSIX mode bits — n/a on Windows (NTFS ACLs apply via your user profile by default)',
+    };
+  }
+  try {
+    const cfgPath = join(process.env.HOME ?? homedir(), '.buddy', 'config.json');
+    if (!fileExists(cfgPath)) {
+      return { id: 'reasoning.extraction.perms', status: 'skip', label: 'Config file perms', detail: 'No ~/.buddy/config.json' };
+    }
+    const mode = statSync(cfgPath).mode & 0o777;
+    if (mode & 0o077) {
+      return {
+        id: 'reasoning.extraction.perms', status: 'warn', label: 'Config file perms',
+        detail: `~/.buddy/config.json mode is ${mode.toString(8).padStart(3, '0')} — group/world readable`,
+        suggestion: 'If this file contains an extraction key, restrict it: chmod 600 ~/.buddy/config.json',
+      };
+    }
+    return {
+      id: 'reasoning.extraction.perms', status: 'ok', label: 'Config file perms',
+      detail: `~/.buddy/config.json mode ${mode.toString(8).padStart(3, '0')}`,
+    };
+  } catch {
+    return { id: 'reasoning.extraction.perms', status: 'skip', label: 'Config file perms', detail: 'stat failed' };
   }
 }
 
@@ -732,6 +838,8 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkPromptHook(),
     checkPromptInjection(),
     checkReasoningGuardMode(),
+    checkReasoningExtractionKey(),
+    checkReasoningExtractionConfigPerms(),
     checkReasoningStorage(),
     checkReasoningRootResolution(),
     checkReasoningBasisQuality(),

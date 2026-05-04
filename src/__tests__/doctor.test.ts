@@ -6,7 +6,7 @@ describe('Doctor — runDiagnostics', () => {
   it('returns an array of checks', () => {
     const checks = runDiagnostics();
     expect(Array.isArray(checks)).toBe(true);
-    expect(checks.length).toBe(23);
+    expect(checks.length).toBe(25);
   });
 
   it('every check has required fields', () => {
@@ -98,7 +98,7 @@ describe('Doctor — formatReport', () => {
   it('includes check count in header', () => {
     const checks = runDiagnostics();
     const report = formatReport(checks);
-    expect(report).toContain('23 checks:');
+    expect(report).toContain('25 checks:');
   });
 
   it('includes ISO timestamp', () => {
@@ -126,6 +126,120 @@ describe('Doctor — sentinel constant', () => {
     expect(installSh).toContain('<!-- /buddy-companion v3 -->');
     expect(installPs1).toContain('<!-- buddy-companion v3 -->');
     expect(installPs1).toContain('<!-- /buddy-companion v3 -->');
+  });
+});
+
+describe('Doctor — reasoning.extraction failure-rate escalation', () => {
+  // Regression test for a bug that lived for 5 commits before being caught:
+  // checkReasoningExtractionKey was running `SELECT guard_mode FROM companions
+  // LIMIT 1` and then calling `getExtractionStats(db, row.id)` — row.id was
+  // never in the projection, so it was always undefined, and the stats lookup
+  // always returned freshZeroStats(). The failure-rate escalation logic was
+  // structurally unreachable.
+  //
+  // This test seeds a high failure rate against the active companion and
+  // verifies the doctor actually escalates to warn — which it could not do
+  // before the SELECT was corrected to include `id`.
+  it('escalates to warn when persistent stats show high failure rate', async () => {
+    // Use the same db connection the doctor uses.
+    const { db } = await import('../db/schema.js');
+    const companion = db.prepare('SELECT id FROM companions LIMIT 1').get() as { id: string } | undefined;
+    if (!companion) {
+      // No companion in test DB → check returns 'No companion' skip.
+      // Test environment-dependent; just verify the structural fix instead.
+      return;
+    }
+
+    // Seed: guard_mode=1, key in env, 5 attempts, 4 failures (80% failure rate).
+    db.prepare('UPDATE companions SET guard_mode = 1 WHERE id = ?').run(companion.id);
+    db.prepare(`INSERT OR REPLACE INTO reasoning_extraction_stats
+      (companion_id, attempts_total, succeeded_total, failed_total,
+       consecutive_failures, failure_reasons_json, last_attempt_at,
+       last_failure_at, last_failure_reason, findings_delivered_total)
+      VALUES (?, 5, 1, 4, 4, ?, ?, ?, ?, 0)`)
+      .run(companion.id, JSON.stringify({ http_401: 4 }), Date.now(), Date.now(), 'http 401');
+
+    const previousKey = process.env.BUDDY_EXTRACTION_KEY;
+    process.env.BUDDY_EXTRACTION_KEY = 'sk-test-fake-key-for-resolver-only';
+
+    try {
+      const checks = runDiagnostics();
+      const extractionCheck = checks.find(c => c.id === 'reasoning.extraction');
+      expect(extractionCheck).toBeDefined();
+      expect(extractionCheck!.status).toBe('warn');
+      expect(extractionCheck!.detail).toMatch(/4\/5 extractions failed/);
+      expect(extractionCheck!.detail).toMatch(/http_401/);
+      expect(extractionCheck!.suggestion).toMatch(/401|console\.anthropic\.com/);
+    } finally {
+      // Restore env + clean state.
+      if (previousKey === undefined) delete process.env.BUDDY_EXTRACTION_KEY;
+      else process.env.BUDDY_EXTRACTION_KEY = previousKey;
+      db.prepare('DELETE FROM reasoning_extraction_stats WHERE companion_id = ?').run(companion.id);
+      db.prepare('UPDATE companions SET guard_mode = 0 WHERE id = ?').run(companion.id);
+    }
+  });
+});
+
+describe('Doctor — reasoning.guard precise-mode false-positive', () => {
+  // Regression test for round-12 finding: checkReasoningGuardMode used to
+  // warn "host may not be honoring extraction" whenever
+  // last_claims_received_seq stayed at 0 — but in precise mode, my round-6
+  // fix DISCARDS model-supplied claims by design. Hook-driven extraction
+  // would tick attempts_total without ever bumping last_claims_received_seq.
+  // Pre-fix, this falsely accused the host of breaking when actually the
+  // hook was extracting fine. Post-fix, the warn is suppressed when
+  // attempts_total > 0.
+  it('does NOT warn when hook is extracting even though lastClaimsSeq is 0', async () => {
+    const { db } = await import('../db/schema.js');
+    const companion = db.prepare('SELECT id FROM companions LIMIT 1').get() as { id: string } | undefined;
+    if (!companion) return;
+
+    db.prepare('UPDATE companions SET guard_mode = 1 WHERE id = ?').run(companion.id);
+    // Simulate: 50 observe calls (model asked to extract, sent nothing
+    // useful — or precise mode discarded its claims), 0 claims received.
+    db.prepare(`INSERT OR REPLACE INTO reasoning_observe_seq
+      (companion_id, seq, last_claims_received_seq, last_delivered_finding_id)
+      VALUES (?, 50, 0, 0)`).run(companion.id);
+    // But the hook IS extracting successfully.
+    db.prepare(`INSERT OR REPLACE INTO reasoning_extraction_stats
+      (companion_id, attempts_total, succeeded_total, failed_total,
+       consecutive_failures, failure_reasons_json, findings_delivered_total)
+      VALUES (?, 5, 5, 0, 0, '{}', 0)`).run(companion.id);
+
+    try {
+      const checks = runDiagnostics();
+      const guardCheck = checks.find(c => c.id === 'reasoning.guard');
+      expect(guardCheck).toBeDefined();
+      expect(guardCheck!.status).toBe('ok');  // <-- pre-fix this was 'warn'
+      expect(guardCheck!.detail).toMatch(/hook-driven extraction.*5 attempts.*5 ok/);
+    } finally {
+      db.prepare('DELETE FROM reasoning_observe_seq WHERE companion_id = ?').run(companion.id);
+      db.prepare('DELETE FROM reasoning_extraction_stats WHERE companion_id = ?').run(companion.id);
+      db.prepare('UPDATE companions SET guard_mode = 0 WHERE id = ?').run(companion.id);
+    }
+  });
+
+  it('still warns when neither model claims nor hook extraction are happening', async () => {
+    const { db } = await import('../db/schema.js');
+    const companion = db.prepare('SELECT id FROM companions LIMIT 1').get() as { id: string } | undefined;
+    if (!companion) return;
+
+    db.prepare('UPDATE companions SET guard_mode = 1 WHERE id = ?').run(companion.id);
+    db.prepare(`INSERT OR REPLACE INTO reasoning_observe_seq
+      (companion_id, seq, last_claims_received_seq, last_delivered_finding_id)
+      VALUES (?, 50, 0, 0)`).run(companion.id);
+    // No extraction stats row → attemptsTotal returns 0 from getExtractionStats.
+
+    try {
+      const checks = runDiagnostics();
+      const guardCheck = checks.find(c => c.id === 'reasoning.guard');
+      expect(guardCheck!.status).toBe('warn');
+      expect(guardCheck!.detail).toMatch(/0 claims received in 50 observes/);
+      expect(guardCheck!.suggestion).toMatch(/honoring|BUDDY_EXTRACTION_KEY/);
+    } finally {
+      db.prepare('DELETE FROM reasoning_observe_seq WHERE companion_id = ?').run(companion.id);
+      db.prepare('UPDATE companions SET guard_mode = 0 WHERE id = ?').run(companion.id);
+    }
   });
 });
 
