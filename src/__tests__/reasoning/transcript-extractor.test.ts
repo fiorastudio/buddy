@@ -4,7 +4,6 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   readRecentTranscript,
-  countTranscriptTurns,
   toBuddyShape,
   extractClaims,
 } from '../../lib/reasoning/transcript-extractor.js';
@@ -20,8 +19,10 @@ describe('readRecentTranscript', () => {
   });
   afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
-  it('returns empty string when file does not exist', () => {
-    expect(readRecentTranscript(join(tmp, 'missing.jsonl'))).toBe('');
+  it('returns empty chunk and zero count when file does not exist', () => {
+    const out = readRecentTranscript(join(tmp, 'missing.jsonl'));
+    expect(out.chunk).toBe('');
+    expect(out.totalTurns).toBe(0);
   });
 
   it('handles flat {role, content: string} format', () => {
@@ -30,8 +31,9 @@ describe('readRecentTranscript', () => {
       '{"role":"assistant","content":"hello"}',
     ].join('\n'));
     const out = readRecentTranscript(path);
-    expect(out).toContain('[user]: hi');
-    expect(out).toContain('[assistant]: hello');
+    expect(out.chunk).toContain('[user]: hi');
+    expect(out.chunk).toContain('[assistant]: hello');
+    expect(out.totalTurns).toBe(2);
   });
 
   it('handles nested {message:{role,content}} format', () => {
@@ -40,8 +42,9 @@ describe('readRecentTranscript', () => {
       JSON.stringify({ type: 'turn', message: { role: 'assistant', content: [{ type: 'text', text: 'second' }] } }),
     ].join('\n'));
     const out = readRecentTranscript(path);
-    expect(out).toContain('[user]: first');
-    expect(out).toContain('[assistant]: second');
+    expect(out.chunk).toContain('[user]: first');
+    expect(out.chunk).toContain('[assistant]: second');
+    expect(out.totalTurns).toBe(2);
   });
 
   it('extracts only text-type content blocks from arrays, ignoring tool_use', () => {
@@ -54,9 +57,9 @@ describe('readRecentTranscript', () => {
       ],
     }));
     const out = readRecentTranscript(path);
-    expect(out).toContain('visible');
-    expect(out).toContain('also visible');
-    expect(out).not.toContain('tool_use');
+    expect(out.chunk).toContain('visible');
+    expect(out.chunk).toContain('also visible');
+    expect(out.chunk).not.toContain('tool_use');
   });
 
   it('skips non-user/non-assistant entries (system, summaries)', () => {
@@ -65,8 +68,10 @@ describe('readRecentTranscript', () => {
       JSON.stringify({ role: 'user', content: 'kept' }),
     ].join('\n'));
     const out = readRecentTranscript(path);
-    expect(out).not.toContain('should be skipped');
-    expect(out).toContain('kept');
+    expect(out.chunk).not.toContain('should be skipped');
+    expect(out.chunk).toContain('kept');
+    // System entry shouldn't bump totalTurns either.
+    expect(out.totalTurns).toBe(1);
   });
 
   it('skips malformed JSON lines and continues', () => {
@@ -76,51 +81,40 @@ describe('readRecentTranscript', () => {
       '{broken',
     ].join('\n'));
     const out = readRecentTranscript(path);
-    expect(out).toContain('survived');
+    expect(out.chunk).toContain('survived');
+    expect(out.totalTurns).toBe(1);
   });
 
-  it('caps output at 50 messages even when transcript is longer', () => {
+  it('caps chunk at 50 messages but totalTurns reflects the full file', () => {
     const lines: string[] = [];
     for (let i = 0; i < 80; i++) {
       lines.push(JSON.stringify({ role: 'user', content: `msg-${i}` }));
     }
     writeFileSync(path, lines.join('\n'));
     const out = readRecentTranscript(path);
-    // Sliding-50 over 80: should keep msg-30 .. msg-79.
-    expect(out).toContain('msg-79');
-    expect(out).toContain('msg-30');
-    expect(out).not.toContain('msg-29');
+    // Sliding-50 over 80: chunk keeps msg-30 .. msg-79, but totalTurns is 80.
+    expect(out.chunk).toContain('msg-79');
+    expect(out.chunk).toContain('msg-30');
+    expect(out.chunk).not.toContain('msg-29');
+    expect(out.totalTurns).toBe(80);
   });
 
-  it('respects sinceTurn boundary', () => {
+  it('respects sinceTurn boundary while still counting the full file', () => {
     const lines: string[] = [];
     for (let i = 0; i < 10; i++) {
       lines.push(JSON.stringify({ role: 'user', content: `t${i}` }));
     }
     writeFileSync(path, lines.join('\n'));
     const out = readRecentTranscript(path, 5);
-    // sinceTurn=5 should yield t5..t9.
-    expect(out).not.toContain('t4');
-    expect(out).toContain('t5');
-    expect(out).toContain('t9');
-  });
-});
-
-describe('countTranscriptTurns', () => {
-  let tmp: string;
-  let path: string;
-
-  beforeEach(() => {
-    tmp = mkdtempSync(join(tmpdir(), 'buddy-tx-count-'));
-    path = join(tmp, 'transcript.jsonl');
-  });
-  afterEach(() => rmSync(tmp, { recursive: true, force: true }));
-
-  it('returns 0 for missing file', () => {
-    expect(countTranscriptTurns(join(tmp, 'missing.jsonl'))).toBe(0);
+    // sinceTurn=5 should yield t5..t9 in the chunk.
+    expect(out.chunk).not.toContain('t4');
+    expect(out.chunk).toContain('t5');
+    expect(out.chunk).toContain('t9');
+    // totalTurns counts everything, so the cursor advances to 10.
+    expect(out.totalTurns).toBe(10);
   });
 
-  it('counts user + assistant turns, ignoring system entries and malformed lines', () => {
+  it('counts user+assistant turns ignoring system/malformed lines', () => {
     writeFileSync(path, [
       JSON.stringify({ role: 'user', content: 'a' }),
       JSON.stringify({ role: 'system', content: 'should be skipped' }),
@@ -129,7 +123,7 @@ describe('countTranscriptTurns', () => {
       JSON.stringify({ message: { role: 'user', content: 'nested format c' } }),
       JSON.stringify({ role: 'assistant', content: 'd' }),
     ].join('\n'));
-    expect(countTranscriptTurns(path)).toBe(4);
+    expect(readRecentTranscript(path).totalTurns).toBe(4);
   });
 });
 

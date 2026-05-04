@@ -1,19 +1,21 @@
 // src/lib/reasoning/transcript-extractor.ts
 //
 // Hook-driven extraction. Reads a Claude Code transcript JSONL, slices recent
-// turns (with a tail-seek for large files), calls the Anthropic Messages API
-// with the v7 extraction prompt, and converts the structured output to
-// buddy's `ClaimInput[]` / `EdgeInput[]` shape — ready to feed straight into
-// `runGuardPipeline`.
+// turns, calls the Anthropic Messages API with the v7 extraction prompt, and
+// converts the structured output to buddy's `ClaimInput[]` / `EdgeInput[]`
+// shape — ready to feed straight into `runGuardPipeline`.
 //
 // Design notes:
-// - The reader is a TS port of slimemold's `readRecentTranscript` (2MB tail
-//   seek when sinceTurn==0; forward-scan-with-cap when sinceTurn>0).
+// - Single full read per fire: the reader returns both the LLM-bound chunk
+//   AND the total turn count from one parse. An earlier version did a
+//   tail-seek for the chunk and a separate full scan for the count; that
+//   left a race window where the file could grow between the two reads,
+//   advancing the cursor past turns the LLM never saw.
 // - `convention` (slimemold v7) maps to `definition` (buddy's nearest basis).
 // - Errors return `{ ok: false, reason }`; the hook wrapper logs and continues.
 //   Extraction must never crash a hook.
 
-import { openSync, readSync, statSync, closeSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   EXTRACTION_SYSTEM_PROMPT,
@@ -25,58 +27,43 @@ import {
 } from './extract-prompt-v7.js';
 import type { ClaimInput, EdgeInput, Basis, EdgeType } from './types.js';
 
-// 2MB tail covers several hundred turns in practice. Matches
-// slimemold/internal/extract/extract.go:209.
-const MAX_TAIL_BYTES = 2 * 1024 * 1024;
-
 // Cap the number of messages we hand to the LLM. Slimemold uses 50; same here.
 const MAX_MESSAGES = 50;
 
 // ─── transcript reader ───────────────────────────────────────────────
 
+export type TranscriptRead = {
+  /** `[role]: text` blocks, joined by blank lines. Capped at MAX_MESSAGES. */
+  chunk: string;
+  /** Total user+assistant turns observed in this read — for cursor advance. */
+  totalTurns: number;
+};
+
 /**
  * Read recent assistant/user messages from a Claude Code transcript JSONL.
- * When sinceTurn==0, seeks the last 2MB to avoid full I/O on large sessions.
- * When sinceTurn>0, forward-scans and stops `MAX_MESSAGES` past the boundary.
+ * Returns the LLM-bound chunk and the total turn count from a SINGLE pass —
+ * eliminates the read/count race window that existed when these were two
+ * separate calls. `sinceTurn` is the cursor: turns at or below it are skipped.
+ *
+ * Cost: O(file size) every fire. In practice transcripts top out in the low
+ * MBs and parse in <50ms; the prior tail-seek micro-optimization didn't apply
+ * once a cursor existed (sinceTurn>0 already did a full scan), so keeping it
+ * only complicated the cursor advance for marginal savings on the first fire.
  */
-export function readRecentTranscript(path: string, sinceTurn = 0): string {
-  let stat: ReturnType<typeof statSync>;
-  try {
-    stat = statSync(path);
-  } catch {
-    return '';
-  }
-
+export function readRecentTranscript(path: string, sinceTurn = 0): TranscriptRead {
   let raw: string;
-  let skipFirstLine = false;
-
-  if (sinceTurn === 0 && stat.size > MAX_TAIL_BYTES) {
-    // Tail-seek: open, position to the last 2MB, read forward. Discard the
-    // first (likely partial) line.
-    const fd = openSync(path, 'r');
-    try {
-      const buf = Buffer.allocUnsafe(MAX_TAIL_BYTES);
-      readSync(fd, buf, 0, MAX_TAIL_BYTES, stat.size - MAX_TAIL_BYTES);
-      raw = buf.toString('utf-8');
-      skipFirstLine = true;
-    } finally {
-      closeSync(fd);
-    }
-  } else {
-    raw = readFileSync(path, 'utf-8');
-  }
+  try { raw = readFileSync(path, 'utf-8'); } catch { return { chunk: '', totalTurns: 0 }; }
 
   const lines = raw.split('\n');
   const messages: string[] = [];
-  let turnCount = 0;
+  let totalTurns = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    if (i === 0 && skipFirstLine) continue;
-    const line = lines[i].trim();
-    if (!line) continue;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
     let entry: any;
-    try { entry = JSON.parse(line); } catch { continue; }
+    try { entry = JSON.parse(trimmed); } catch { continue; }
 
     // Two transcript formats observed: flat {role, content} and nested
     // {type, message: {role, content}}. Handle both.
@@ -88,21 +75,19 @@ export function readRecentTranscript(path: string, sinceTurn = 0): string {
     }
     if (role !== 'user' && role !== 'assistant') continue;
 
-    turnCount++;
-    if (sinceTurn > 0 && turnCount <= sinceTurn) continue;
+    totalTurns++;
+    if (sinceTurn > 0 && totalTurns <= sinceTurn) continue;
 
     const text = extractTextContent(content);
     if (text) messages.push(`[${role}]: ${text}`);
-
-    if (sinceTurn > 0 && messages.length >= MAX_MESSAGES) break;
   }
 
-  // Tail-seek path may have collected more than the cap; trim to the most recent.
+  // Trim to the most recent MAX_MESSAGES — older entries dropped first.
   if (messages.length > MAX_MESSAGES) {
     messages.splice(0, messages.length - MAX_MESSAGES);
   }
 
-  return messages.join('\n\n');
+  return { chunk: messages.join('\n\n'), totalTurns };
 }
 
 function extractTextContent(content: unknown): string {
@@ -118,28 +103,6 @@ function extractTextContent(content: unknown): string {
     return parts.join('\n');
   }
   return '';
-}
-
-/**
- * Count the total number of user/assistant turns in a transcript file. Used
- * after a successful extraction to advance the per-host-session cursor so the
- * next Stop hook only processes turns added since this extraction. Single
- * forward pass; cheap on transcripts up to a few MB.
- */
-export function countTranscriptTurns(path: string): number {
-  let raw: string;
-  try { raw = readFileSync(path, 'utf-8'); } catch { return 0; }
-  let count = 0;
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let entry: any;
-    try { entry = JSON.parse(trimmed); } catch { continue; }
-    let role: string | undefined = entry.role;
-    if (!role && entry.message?.role) role = entry.message.role;
-    if (role === 'user' || role === 'assistant') count++;
-  }
-  return count;
 }
 
 // ─── Anthropic API call (via SDK) ────────────────────────────────────

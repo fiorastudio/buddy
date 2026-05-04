@@ -19,7 +19,6 @@ import { join } from 'path';
 import { initReasoningSchema } from '../../lib/reasoning/schema.js';
 import {
   readRecentTranscript,
-  countTranscriptTurns,
   extractClaims,
   toBuddyShape,
 } from '../../lib/reasoning/transcript-extractor.js';
@@ -86,7 +85,7 @@ describe('multi-call extraction (incremental cursor + existing-claims)', () => {
     sessionId: string;
   }> {
     const cursor = getCursor(db, hostSessionId);
-    const chunk = readRecentTranscript(path, cursor.lastExtractedTurnCount);
+    const { chunk, totalTurns } = readRecentTranscript(path, cursor.lastExtractedTurnCount);
     if (!chunk.trim()) return { claimsWritten: 0, edgesWritten: 0, chunkContent: '', sessionId: knownSessionId ?? '' };
 
     // For existing-claims context we need to know the session id. On first
@@ -99,8 +98,7 @@ describe('multi-call extraction (incremental cursor + existing-claims)', () => {
     expect(resp.ok).toBe(true);
     if (!resp.ok) return { claimsWritten: 0, edgesWritten: 0, chunkContent: chunk, sessionId: sessionForLookup };
 
-    const newCount = countTranscriptTurns(path);
-    bumpCursor(db, hostSessionId, newCount);
+    bumpCursor(db, hostSessionId, totalTurns);
 
     const shaped = toBuddyShape(resp.result);
     if (shaped.claims.length === 0) return { claimsWritten: 0, edgesWritten: 0, chunkContent: chunk, sessionId: sessionForLookup };

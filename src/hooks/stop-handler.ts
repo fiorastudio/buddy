@@ -132,7 +132,7 @@ export async function runExtractionForStop(input: StopInput): Promise<void> {
   if (companion.mood === 'muted') return;
 
   const {
-    readRecentTranscript, extractClaims, toBuddyShape, countTranscriptTurns,
+    readRecentTranscript, extractClaims, toBuddyShape,
   } = await import("../lib/reasoning/transcript-extractor.js");
   const { runGuardPipeline } = await import("../lib/reasoning/pipeline.js");
   const telemetry = await import("../lib/reasoning/telemetry.js");
@@ -164,7 +164,9 @@ export async function runExtractionForStop(input: StopInput): Promise<void> {
   const hostSessionId = state.deriveHostKey(input.session_id, input.transcript_path);
   if (!hostSessionId) return; // can't track without a stable key
   const cursor = state.getCursor(db, hostSessionId);
-  const chunk = readRecentTranscript(input.transcript_path, cursor.lastExtractedTurnCount);
+  // Single-pass read: chunk + total turn count come from one parse, so the
+  // cursor-bump below can never advance past turns the LLM didn't see.
+  const { chunk, totalTurns } = readRecentTranscript(input.transcript_path, cursor.lastExtractedTurnCount);
   if (!chunk.trim()) return;
 
   // Cross-batch context: hand the LLM recent claims from this workspace's
@@ -202,8 +204,9 @@ export async function runExtractionForStop(input: StopInput): Promise<void> {
   // We do this BEFORE writing claims to the pipeline — even if the pipeline
   // throws on this batch, we don't want to re-process the same turns next
   // time and pay the API cost again. Worst case: one batch lost.
-  const newTurnCount = countTranscriptTurns(input.transcript_path);
-  state.bumpCursor(db, hostSessionId, newTurnCount);
+  // Uses the total-turns figure from the same read that produced the chunk,
+  // so the cursor can't outpace what was actually extracted.
+  state.bumpCursor(db, hostSessionId, totalTurns);
 
   const shaped = toBuddyShape(resp.result);
   if (shaped.claims.length === 0) return;

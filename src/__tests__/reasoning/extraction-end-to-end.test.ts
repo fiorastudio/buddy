@@ -96,7 +96,7 @@ describe('hook-driven extraction — end to end', () => {
 
   it('runs Stop-hook extraction → pipeline → UserPromptSubmit delivery', async () => {
     // ── Step 1: Stop hook reads transcript + calls API stub
-    const chunk = readRecentTranscript(path, 0);
+    const { chunk } = readRecentTranscript(path, 0);
     expect(chunk).toContain('we need auth');
     expect(chunk).toContain('rotating tokens');
 
