@@ -7,19 +7,6 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { initDb, db } from "../db/schema.js";
-
-/**
- * One-line shape descriptor for BUDDY_DEBUG diagnostics. Distinguishes
- * arrays, null, primitives, and objects so the maintainer can quickly
- * spot a transport-level shape mismatch (host sent a string instead of
- * an array, host sent null where the schema expected []…).
- */
-function describeKind(v: unknown): string {
-  if (Array.isArray(v)) return `array(${v.length})`;
-  if (v === null) return 'null';
-  if (typeof v !== 'object') return typeof v;  // 'undefined', 'string', 'number', etc.
-  return `object:${Object.keys(v as object).length} keys`;
-}
 import { fileURLToPath } from "url";
 import {
   SPECIES,
@@ -53,6 +40,19 @@ import {
   telemetry,
   type PurgeScope,
 } from "../lib/reasoning/index.js";
+
+/**
+ * One-line shape descriptor for BUDDY_DEBUG diagnostics. Distinguishes
+ * arrays, null, primitives, and objects so the maintainer can quickly
+ * spot a transport-level shape mismatch (host sent a string instead of
+ * an array, host sent null where the schema expected []…).
+ */
+function describeKind(v: unknown): string {
+  if (Array.isArray(v)) return `array(${v.length})`;
+  if (v === null) return 'null';
+  if (typeof v !== 'object') return typeof v;  // 'undefined', 'string', 'number', etc.
+  return `object:${Object.keys(v as object).length} keys`;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

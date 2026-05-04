@@ -219,9 +219,13 @@ export async function runExtractionForStop(input: StopInput): Promise<void> {
       edges: shaped.edges,
     });
   } catch (err: any) {
-    if (process.env.BUDDY_DEBUG) {
-      process.stderr.write(`[buddy] pipeline failed: ${err?.message ?? String(err)}\n`);
-    }
+    // Pipeline failures lose a batch silently — the cursor was already bumped
+    // above so we won't retry. This is rare (the pipeline is in-process DB
+    // writes against a schema we control) but worth a visible warning when it
+    // does happen, not a BUDDY_DEBUG-only line. Other Stop-hook stderr stays
+    // gated because those events (backoff, API failures already in stats)
+    // are expected/recoverable; a pipeline throw is neither.
+    process.stderr.write(`[buddy] warn: pipeline failed after extraction (batch lost): ${err?.message ?? String(err)}\n`);
   }
 }
 
