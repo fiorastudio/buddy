@@ -15,6 +15,61 @@
       "name": "/buddy-status",
       "description": "Check your Buddy's current status and personality",
       "tool": "buddy_status"
+    },
+    {
+      "name": "/buddy-hatch",
+      "description": "Hatch a new Buddy companion.",
+      "tool": "buddy_hatch"
+    },
+    {
+      "name": "/buddy-pet",
+      "description": "Pet your buddy!",
+      "tool": "buddy_pet"
+    },
+    {
+      "name": "/buddy-mute",
+      "description": "Mute your buddy.",
+      "tool": "buddy_mute"
+    },
+    {
+      "name": "/buddy-unmute",
+      "description": "Unmute your buddy.",
+      "tool": "buddy_unmute"
+    },
+    {
+      "name": "/buddy-mode",
+      "description": "Set buddy's voice mode and/or guard mode.",
+      "tool": "buddy_mode"
+    },
+    {
+      "name": "/buddy-forget",
+      "description": "Purge stored reasoning data.",
+      "tool": "buddy_forget"
+    },
+    {
+      "name": "/buddy-doctor",
+      "description": "Run diagnostics on your Buddy installation.",
+      "tool": "buddy_doctor"
+    },
+    {
+      "name": "/buddy-reasoning-status",
+      "description": "Inspect what guard mode has stored.",
+      "tool": "buddy_reasoning_status"
+    },
+    {
+      "name": "/buddy-remember",
+      "description": "Manually add a memory for your Buddy to observe.",
+      "tool": "buddy_remember"
+    },
+    {
+      "name": "/buddy-respawn",
+      "description": "Release your current Buddy companion and clear all data.",
+      "tool": "buddy_respawn"
+    },
+    {
+      "name": "/buddy-share",
+      "description": "Share a report of your recent progress and Buddy's status.",
+      "tool": "buddy_share"
     }
   ],
   "hooks": {
