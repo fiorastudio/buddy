@@ -73,6 +73,11 @@
     }
   ],
   "hooks": {
-    "PostToolUse": "hooks/buddy-observer.js"
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/buddy-observer.js"
+      }
+    ]
   }
 }

@@ -20,7 +20,7 @@ import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble, renderMarkdownBubble } from "../lib/bubble.js";
 import { XP_REWARDS, levelFromXp, levelBar } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
-import { readFileSync, unlinkSync } from "fs";
+import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
@@ -103,7 +103,11 @@ const server = new Server(
 );
 
 // Initialize DB
-initDb();
+try {
+  initDb();
+} catch (error) {
+  console.error("Failed to initialize database:", error);
+}
 
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -720,8 +724,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     try {
       // Ensure directory exists
-      const fs = await import("fs");
-      fs.mkdirSync(outDir, { recursive: true });
+      mkdirSync(outDir, { recursive: true });
       
       await captureSnapshot(companion, outPath);
 

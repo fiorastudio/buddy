@@ -13,15 +13,11 @@ When the user runs `/buddy`, you are interacting with their personal AI companio
 
 ## Slash Commands
 
-- `/buddy-status`: Check your Buddy's current status and personality.
-- `/buddy-hatch`: Hatch a new Buddy companion.
-- `/buddy-pet`: Pet your buddy! Shows a heart animation and a happy reaction.
-- `/buddy-mute`: Mute your buddy. It won't chime in until unmuted.
-- `/buddy-unmute`: Unmute your buddy so it can chime in again.
-- `/buddy-mode`: Set buddy's voice mode and/or guard mode.
-- `/buddy-forget`: Purge stored reasoning data (claims, edges, findings log).
-- `/buddy-doctor`: Run diagnostics on your Buddy installation.
-- `/buddy-reasoning-status`: Inspect what guard mode has stored: claim count, findings history, graph size per session.
-- `/buddy-remember`: Manually add a memory for your Buddy to observe.
-- `/buddy-respawn`: Release your current Buddy companion and clear all data.
-- `/buddy-share`: Share a report of your recent progress and Buddy's status.
+Available via slash commands in your environment (e.g., `/buddy-status`, `/buddy-hatch`, `/buddy-pet`, etc.).
+
+## Manual Observations
+
+You should call `buddy_observe` manually when:
+- You've made a high-value architectural decision that isn't captured by tool output.
+- You've finished a significant phase of work and want to record the "vibe" or context.
+- Guard Mode is on and you want to ensure specific claims are recorded with high confidence.
