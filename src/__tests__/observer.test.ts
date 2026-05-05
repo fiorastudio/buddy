@@ -27,6 +27,7 @@ const mockCompanion: Companion = {
   level: 1,
   xp: 0,
   mood: 'happy',
+  availablePoints: 0,
   hatchedAt: Date.now(),
 };
 

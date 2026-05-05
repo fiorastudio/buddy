@@ -31,13 +31,20 @@ export function companionExists(): any | null {
 export function loadCompanion(row: any, userIdOverride?: string): Companion | null {
   if (!row) return null;
   const userId = userIdOverride || row.user_id || 'anon';
-  // CC-rescued buddies need Bun's wyhash to reproduce original stats.
-  // The cc_rescue flag is set during rescueCompanion when importing from CC.
   const bones = row.cc_rescue
     ? rollWithCCCompat(userId).bones
     : roll(userId, SPECIES_LIST).bones;
   const xp = row.xp || 0;
   const derivedLevel = levelFromXp(xp);
+
+  // Stats priority: DB values > bones fallback
+  const stats = {
+    DEBUGGING: row.stat_debugging ?? bones.stats.DEBUGGING,
+    PATIENCE: row.stat_patience ?? bones.stats.PATIENCE,
+    CHAOS: row.stat_chaos ?? bones.stats.CHAOS,
+    WISDOM: row.stat_wisdom ?? bones.stats.WISDOM,
+    SNARK: row.stat_snark ?? bones.stats.SNARK,
+  };
 
   // Self-healing: if DB level drifted from XP-derived level, fix it
   if (row.id && row.level !== derivedLevel) {
@@ -46,12 +53,14 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
 
   return {
     ...bones,
+    stats,
     species: row.species,
     name: row.name,
     personalityBio: row.personality_bio || '',
     level: derivedLevel,
     xp,
     mood: row.mood,
+    availablePoints: row.stat_points_available || 0,
     hatchedAt: new Date(row.created_at).getTime(),
   };
 }
@@ -76,6 +85,7 @@ export function writeBuddyStatus(companion: Companion, reaction?: { state: strin
       eye: companion.eye,
       hat: companion.hat,
       stats: companion.stats,
+      available_points: companion.availablePoints,
       rarity_stars: RARITY_STARS[companion.rarity],
       personality_bio: companion.personalityBio,
       ...(reaction ? {
@@ -113,8 +123,14 @@ export function createCompanion(opts: {
   const bio = generateBio({ ...bones, species: finalSpecies });
 
   db.prepare(
-    'INSERT INTO companions (id, name, species, user_id, personality_bio) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, finalName, finalSpecies, userId, bio);
+    `INSERT INTO companions (
+      id, name, species, user_id, personality_bio,
+      stat_debugging, stat_patience, stat_chaos, stat_wisdom, stat_snark
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, finalName, finalSpecies, userId, bio,
+    bones.stats.DEBUGGING, bones.stats.PATIENCE, bones.stats.CHAOS, bones.stats.WISDOM, bones.stats.SNARK
+  );
 
   const companion: Companion = {
     ...bones,
@@ -124,6 +140,7 @@ export function createCompanion(opts: {
     level: 1,
     xp: 0,
     mood: 'happy',
+    availablePoints: 0,
     hatchedAt: Date.now(),
   };
 
@@ -196,6 +213,7 @@ export function rescueCompanion(importResult: {
     level: 1,
     xp: 0,
     mood: 'happy',
+    availablePoints: 0,
     hatchedAt,
   };
 

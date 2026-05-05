@@ -32,6 +32,7 @@ export type Companion = CompanionBones & CompanionSoul & {
   level: number;
   xp: number;
   mood: string;
+  availablePoints: number;
   hatchedAt: number;
 };
 
