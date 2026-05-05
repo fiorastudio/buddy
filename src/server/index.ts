@@ -713,13 +713,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
     if (!row) return { content: [{ type: "text", text: "Hatch a buddy first!" }] };
 
-    const companion = loadCompanion(row, user_id || row.user_id)!;
+    const companion = loadCompanion(row, user_id || row.user_id || 'anon')!;
     const outDir = join(homedir(), '.buddy', 'shares');
-    const outPath = join(outDir, `share_${companion.name.toLowerCase()}_${Date.now()}.png`);
+    const timestamp = Date.now();
+    const outPath = join(outDir, `share_${companion.name.toLowerCase()}_${timestamp}.png`);
     
     try {
       // Ensure directory exists
-      import("fs").then(fs => fs.mkdirSync(outDir, { recursive: true }));
+      const fs = await import("fs");
+      fs.mkdirSync(outDir, { recursive: true });
+      
       await captureSnapshot(companion, outPath);
 
       return {

@@ -46,7 +46,7 @@ export function renderShareHtml(companion: Companion): string {
       margin: 0;
       padding: 40px;
       background: var(--bg);
-      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, 'monospace', 'sans-serif';
       display: flex;
       justify-content: center;
       align-items: center;
