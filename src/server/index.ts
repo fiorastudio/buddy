@@ -20,11 +20,12 @@ import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble, renderMarkdownBubble } from "../lib/bubble.js";
 import { XP_REWARDS, levelFromXp, levelBar } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
-import { readFileSync, unlinkSync } from "fs";
+import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
+import { captureSnapshot } from "../lib/snapshot.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
 import {
   deriveSessionId,
@@ -102,7 +103,12 @@ const server = new Server(
 );
 
 // Initialize DB
-initDb();
+try {
+  initDb();
+} catch (error) {
+  console.error("Failed to initialize database:", error);
+  process.exit(1);
+}
 
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -289,6 +295,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "buddy_reasoning_status",
         description: "Inspect what guard mode has stored: claim count, findings history, graph size per session. Useful for users who want to audit what's in buddy.db or debug guard-mode behavior.",
         inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "buddy_share",
+        description: "Generate a beautiful shareable snapshot of your Buddy's current status and card. Returns the local path to the generated image.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            user_id: { type: "string", description: "Optional user ID for bones." }
+          },
+        },
       },
     ],
   };
@@ -695,6 +711,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     lines.push(`Purge with buddy_forget (scope: session | all).`);
 
     return { content: [{ type: "text", text: lines.join('\n') }] };
+  }
+
+  if (name === "buddy_share") {
+    const { user_id } = args as { user_id?: string };
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) return { content: [{ type: "text", text: "Hatch a buddy first!" }] };
+
+    const companion = loadCompanion(row, user_id || row.user_id || 'anon')!;
+    const outDir = join(homedir(), '.buddy', 'shares');
+    const timestamp = Date.now();
+    const outPath = join(outDir, `share_${companion.name.toLowerCase()}_${timestamp}.png`);
+    
+    try {
+      // Ensure directory exists
+      mkdirSync(outDir, { recursive: true });
+      
+      await captureSnapshot(companion, outPath);
+
+      return {
+        content: [
+          { type: "text", text: `📸 Snapshot generated for ${companion.name}!` },
+          { type: "text", text: `Path: ${outPath}` }
+        ],
+      };
+    } catch (err) {
+      console.error('[buddy] share failed:', err);
+      return {
+        content: [{ 
+          type: "text", 
+          text: `Failed to generate snapshot. Please ensure Puppeteer and Chromium are correctly installed.\nError: ${err instanceof Error ? err.message : String(err)}` 
+        }],
+      };
+    }
   }
 
   throw new Error(`Tool not found: ${name}`);
