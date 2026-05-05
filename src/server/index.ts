@@ -65,12 +65,19 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
   db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)").run(id, companionId, eventType, xp);
 
   // Get current total XP
-  const row = db.prepare("SELECT xp, level FROM companions WHERE id = ?").get(companionId) as any;
+  const row = db.prepare("SELECT xp, level, stat_points_available FROM companions WHERE id = ?").get(companionId) as any;
   const newXp = (row?.xp || 0) + xp;
   const newLevel = levelFromXp(newXp);
   const leveledUp = newLevel > (row?.level || 1);
 
-  db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
+  // Award +2 stat points per level gained
+  if (leveledUp) {
+    const levelsGained = newLevel - (row?.level || 1);
+    const newPoints = (row?.stat_points_available || 0) + (levelsGained * 2);
+    db.prepare("UPDATE companions SET xp = ?, level = ?, stat_points_available = ? WHERE id = ?").run(newXp, newLevel, newPoints, companionId);
+  } else {
+    db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
+  }
 
   return { newXp, newLevel, leveledUp };
 }
