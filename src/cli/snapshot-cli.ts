@@ -8,7 +8,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function main() {
-  initDb();
+  try {
+    initDb();
+  } catch (error) {
+    console.error("Failed to initialize database:", error);
+    process.exit(1);
+  }
   const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
   if (!row) {
     console.error("No buddy found. Hatch one first!");

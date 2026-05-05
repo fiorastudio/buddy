@@ -28,9 +28,6 @@ export async function captureSnapshot(companion: Companion, outPath: string) {
 
     // Add timeouts to prevent hanging
     await page.setContent(html, { timeout: 8000 });
-    
-    // Wait for font/styles to settle
-    await new Promise(r => setTimeout(r, 100));
 
     const cardElement = await page.$('.card');
     if (cardElement) {

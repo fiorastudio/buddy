@@ -15,7 +15,6 @@ export const SPRITE_PLACEHOLDER = 'BUDDY_SPRITE_7f3a9';
 export function renderShareHtml(companion: Companion): string {
   const stars = RARITY_STARS[companion.rarity];
   const { level, currentXp, neededXp } = levelProgress(companion.xp);
-  const xpPercent = Math.min(100, Math.floor((currentXp / neededXp) * 100));
 
   const statsHtml = STAT_NAMES.map(s => {
     const val = companion.stats[s] ?? 0;
@@ -192,8 +191,8 @@ export function renderShareHtml(companion: Companion): string {
 <body>
   <div class="card">
     <div class="header">
-      <div class="rarity">${stars} ${companion.rarity}</div>
-      <div class="species">${companion.species}</div>
+      <div class="rarity">${stars} ${escapeHtml(companion.rarity)}</div>
+      <div class="species">${escapeHtml(companion.species)}</div>
     </div>
     
     <div class="main-area">
