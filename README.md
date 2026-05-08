@@ -395,6 +395,7 @@ These stay tucked away by default, but Buddy exposes a real MCP surface for comp
 | `buddy_dream` | Consolidate memories (Placeholder) |
 | `buddy_mute` | Pause reactions |
 | `buddy_unmute` | Resume reactions |
+| `buddy_share` | Generate a shareable PNG snapshot of your buddy's current status and card art. Saved to `~/.buddy/shares/`. |
 | `buddy_respawn` | Reset and start over |
 | `buddy_mode` | Set voice and Guard independently. `buddy_mode voice=skillcoach` for code feedback, `buddy_mode guard=true` for reasoning analysis. See [Guard Mode](#guard-mode). |
 | `buddy_forget` | Purge stored reasoning data. Scope `session` (default, current workspace/day) or `all`. |
