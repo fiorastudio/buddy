@@ -57,6 +57,18 @@ const PHRASINGS: PhrasingTable = {
       `"{claim}" hasn't been questioned yet — just supported. Worth poking at it.`,
     ],
   },
+  unverified_hedge: {
+    concerned: [
+      `"{claim}" has a hedge in it — verified, or still a guess?`,
+      `"{claim}" sounds like an assumption wearing a fact's clothes. Worth a quick check.`,
+    ],
+    thinking: [
+      `"{claim}" says "likely" but it's marked as known. Worth confirming before building on it.`,
+    ],
+    neutral: [
+      `"{claim}" reads like an assumption. A quick verification would lock it in.`,
+    ],
+  },
 
   // ── Kudos ───────────────────────────────────────────────────────────────
   well_sourced_load_bearer: {

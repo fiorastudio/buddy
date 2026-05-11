@@ -50,6 +50,7 @@ function zero(): Counters {
       load_bearing_vibes: 0,
       unchallenged_chain: 0,
       echo_chamber: 0,
+      unverified_hedge: 0,
       well_sourced_load_bearer: 0,
       productive_stress_test: 0,
       grounded_premise_adopted: 0,

@@ -103,6 +103,27 @@ export function detectEchoChamber(graph: SessionGraph): Finding[] {
   return out;
 }
 
+// Caution: assistant claim text contains hedge words but is marked as
+// non-assumption with medium/high confidence. Catches implicit assumptions
+// the LLM didn't self-report.
+const HEDGE_PATTERN = /\b(likely|probably|should work|i think|i believe|presumably|i assume|i suspect|i guess|seems like|appears to|most likely)\b/i;
+
+export function detectUnverifiedHedge(graph: SessionGraph): Finding[] {
+  const out: Finding[] = [];
+  for (const node of graph.nodes.values()) {
+    if (node.speaker !== 'assistant') continue;
+    if (node.basis === 'vibes' || node.basis === 'assumption') continue;
+    if (node.confidence === 'low') continue;
+    if (!HEDGE_PATTERN.test(node.text)) continue;
+    out.push({
+      type: 'unverified_hedge',
+      anchor_claim_id: node.id,
+      claim_text: node.text,
+    });
+  }
+  return out;
+}
+
 // Kudos: high-quality basis claim holding up N+ downstream.
 export function detectWellSourcedLoadBearer(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];
@@ -179,12 +200,12 @@ export function detectGroundedPremiseAdopted(graph: SessionGraph): Finding[] {
 
 export function runAllDetectors(graph: SessionGraph): Finding[] {
   if (graph.nodes.size < REASONING_CONFIG.COLD_START_MIN_CLAIMS) return [];
-  // One scratch shared between the two chain-walking detectors.
   const scratch = makeChainScratch();
   return [
     ...detectLoadBearingVibes(graph),
     ...detectUnchallengedChain(graph, scratch),
     ...detectEchoChamber(graph),
+    ...detectUnverifiedHedge(graph),
     ...detectWellSourcedLoadBearer(graph),
     ...detectProductiveStressTest(graph, scratch),
     ...detectGroundedPremiseAdopted(graph),

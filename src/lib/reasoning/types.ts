@@ -66,6 +66,7 @@ export const FINDING_TYPES = [
   'load_bearing_vibes',
   'unchallenged_chain',
   'echo_chamber',
+  'unverified_hedge',
   'well_sourced_load_bearer',
   'productive_stress_test',
   'grounded_premise_adopted',
@@ -76,6 +77,7 @@ export const CAUTION_FINDINGS: readonly FindingType[] = [
   'load_bearing_vibes',
   'echo_chamber',
   'unchallenged_chain',
+  'unverified_hedge',
 ] as const;
 
 export const KUDOS_FINDINGS: readonly FindingType[] = [
