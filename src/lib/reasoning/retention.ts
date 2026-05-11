@@ -53,12 +53,19 @@ export function purge(db: Database.Database, scope: PurgeScope, sessionId?: stri
     if (!sessionId) return { claims: 0, edges: 0, findings: 0 };
     return purgeSessions(db, [sessionId]);
   }
-  // scope === 'all'
+  // scope === 'all' — also clears the hook-driven extraction tables. If we
+  // left them in place, the per-host-session cursor would still claim
+  // "already processed N turns" against an empty graph, causing the next
+  // Stop hook to skip claims that should have been re-extracted into the
+  // freshly cleared graph. Stats also clear so the doctor doesn't show
+  // "5 successful extractions" against zero stored claims.
   let claims = 0, edges = 0, findings = 0;
   const tx = db.transaction(() => {
     const cRes = db.prepare(`DELETE FROM reasoning_claims`).run();
     const eRes = db.prepare(`DELETE FROM reasoning_edges`).run();
     const fRes = db.prepare(`DELETE FROM reasoning_findings_log`).run();
+    db.prepare(`DELETE FROM reasoning_extraction_state`).run();
+    db.prepare(`DELETE FROM reasoning_extraction_stats`).run();
     claims = cRes.changes ?? 0;
     edges = eRes.changes ?? 0;
     findings = fRes.changes ?? 0;

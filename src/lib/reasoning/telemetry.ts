@@ -31,6 +31,17 @@ type Counters = {
   // "workspace-isolation-probably-wrong" when homedir or plain cwd
   // resolution dominates.
   root_source_counts: Record<RootSource, number>;
+  // Hook-driven (precise-mode) extraction: attempts vs successes vs
+  // failures, plus a failure-reason histogram so the doctor can spot a
+  // 401 (bad key) vs persistent timeouts. Reset on restart like
+  // everything else here.
+  extraction_attempts_total: number;
+  extraction_succeeded_total: number;
+  extraction_failed_total: number;
+  extraction_failure_reasons: Record<string, number>;
+  last_extraction_at: number | null;
+  last_extraction_failure_at: number | null;
+  findings_delivered_total: number;
 };
 
 const BASIS_WINDOW_SIZE = 50;
@@ -63,6 +74,13 @@ function zero(): Counters {
     last_observe_at: null,
     basis_window: [],
     root_source_counts: { hint: 0, env: 0, marker: 0, cwd: 0, homedir: 0 },
+    extraction_attempts_total: 0,
+    extraction_succeeded_total: 0,
+    extraction_failed_total: 0,
+    extraction_failure_reasons: {},
+    last_extraction_at: null,
+    last_extraction_failure_at: null,
+    findings_delivered_total: 0,
   };
 }
 
@@ -112,6 +130,49 @@ export function recordBasis(basis: Basis): void {
 
 export function recordRootResolution(source: RootSource): void {
   counters.root_source_counts[source]++;
+}
+
+export function recordExtractionAttempt(): void {
+  counters.extraction_attempts_total++;
+}
+
+export function recordExtractionSuccess(): void {
+  counters.extraction_succeeded_total++;
+  counters.last_extraction_at = Date.now();
+}
+
+/**
+ * Bucket the failure reason for the doctor. Reasons are free-form strings from
+ * the extractor (e.g. "http 401: ...", "timeout", "no tool_use block in
+ * response"); we collapse them to a stable bucket prefix so a histogram of
+ * 50-distinct-reason-strings doesn't accumulate.
+ */
+export function recordExtractionFailure(rawReason: string): void {
+  counters.extraction_failed_total++;
+  counters.last_extraction_failure_at = Date.now();
+  const bucket = bucketFailureReason(rawReason);
+  counters.extraction_failure_reasons[bucket] = (counters.extraction_failure_reasons[bucket] ?? 0) + 1;
+}
+
+/**
+ * Collapse a free-form failure reason string into a stable bucket key. Exposed
+ * because the persistent extraction-state store also keys by bucket and we
+ * want the same labels in both places (so doctor histograms compose).
+ */
+export function bucketFailureReason(reason: string): string {
+  if (reason.startsWith('http ')) {
+    const code = reason.slice(5, 8).trim();
+    return `http_${code}`;
+  }
+  if (reason.startsWith('timeout')) return 'timeout';
+  if (reason.startsWith('network:')) return 'network';
+  if (reason.startsWith('truncated')) return 'truncated';
+  if (reason.includes('tool_use')) return 'malformed_response';
+  return 'other';
+}
+
+export function recordFindingsDelivered(count: number): void {
+  counters.findings_delivered_total += count;
 }
 
 /** Analyze the basis window for degenerate distribution. Returns null if

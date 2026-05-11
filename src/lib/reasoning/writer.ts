@@ -91,25 +91,55 @@ export function writeClaims(
     return null;
   };
 
+  // BUDDY_DEBUG=1 surfaces the per-field drop reason for any claim that
+  // doesn't make it into the graph. Without this, a host calling
+  // buddy_observe with the wrong shape (e.g. v7-style `index` instead of
+  // `external_id`, or a missing basis enum value) sees claimsDropped=N
+  // and has no way to tell which field failed validation.
+  //
+  // Defense-in-depth: the dropped payload is user-supplied content
+  // (could be claim text quoted from a transcript). If the user happens
+  // to have pasted an Anthropic key into their conversation, we don't
+  // want it appearing in the diagnostic stderr. Redact `sk-(?:ant-)?…`
+  // patterns before logging.
+  const debug = !!process.env.BUDDY_DEBUG;
+  const KEY_PATTERN = /sk-(?:ant-)?[A-Za-z0-9_-]{20,}/g;
+  const safeStringify = (payload: unknown): string => {
+    try {
+      const raw = JSON.stringify(payload) ?? String(payload);
+      return raw.slice(0, 200).replace(KEY_PATTERN, 'sk-***REDACTED***');
+    } catch {
+      return '<unserializable>';
+    }
+  };
+  const drop = (reason: string, payload: unknown): void => {
+    result.claimsDropped++;
+    if (debug) console.error(`[buddy] writeClaims dropped: ${reason} — ${safeStringify(payload)}`);
+  };
+  const dropEdge = (reason: string, payload: unknown): void => {
+    result.edgesDropped++;
+    if (debug) console.error(`[buddy] writeClaims dropped edge: ${reason} — ${safeStringify(payload)}`);
+  };
+
   // Single transaction covers claims + edges. Validation/sanitization per
   // item; malformed items are dropped individually but don't abort the
   // batch. A SQL-level failure rolls back the whole payload.
   const writeBatch = db.transaction(() => {
     // Claims first — their UUIDs must exist before we resolve edges.
     for (const c of claimsArr) {
-      if (!c || typeof c !== 'object') { result.claimsDropped++; continue; }
+      if (!c || typeof c !== 'object') { drop('not-an-object', c); continue; }
       const raw = c as any;
       const text = sanitizeClaim(raw.text);
-      if (!text) { result.claimsDropped++; continue; }
-      if (!isValidBasis(raw.basis)) { result.claimsDropped++; continue; }
-      if (!isValidSpeaker(raw.speaker)) { result.claimsDropped++; continue; }
-      if (!isValidConfidence(raw.confidence)) { result.claimsDropped++; continue; }
+      if (!text) { drop('empty/sanitized-away text', raw); continue; }
+      if (!isValidBasis(raw.basis)) { drop(`invalid basis ${JSON.stringify(raw.basis)}`, raw); continue; }
+      if (!isValidSpeaker(raw.speaker)) { drop(`invalid speaker ${JSON.stringify(raw.speaker)}`, raw); continue; }
+      if (!isValidConfidence(raw.confidence)) { drop(`invalid confidence ${JSON.stringify(raw.confidence)}`, raw); continue; }
       const extId = typeof raw.external_id === 'string' ? raw.external_id : '';
-      if (!extId) { result.claimsDropped++; continue; }
+      if (!extId) { drop('missing external_id (need a unique string per claim)', raw); continue; }
 
       // Duplicate external_id in the same payload: keep the first, drop
       // subsequent. Silent overwrite is worse — it would misdirect edges.
-      if (externalIdToUuid.has(extId)) { result.claimsDropped++; continue; }
+      if (externalIdToUuid.has(extId)) { drop(`duplicate external_id "${extId}"`, raw); continue; }
 
       const uuid = randomUUID();
       insertClaim.run(uuid, sessionId, raw.speaker, text, raw.basis, raw.confidence, now);
@@ -120,15 +150,17 @@ export function writeClaims(
 
     // Edges second — same-payload and prior-UUID refs now all resolve.
     for (const e of edgesArr) {
-      if (!e || typeof e !== 'object') { result.edgesDropped++; continue; }
+      if (!e || typeof e !== 'object') { dropEdge('not-an-object', e); continue; }
       const raw = e as any;
-      if (!isValidEdgeType(raw.type)) { result.edgesDropped++; continue; }
+      if (!isValidEdgeType(raw.type)) { dropEdge(`invalid type ${JSON.stringify(raw.type)}`, raw); continue; }
       const fromRef = typeof raw.from === 'string' ? raw.from : '';
       const toRef = typeof raw.to === 'string' ? raw.to : '';
-      if (!fromRef || !toRef) { result.edgesDropped++; continue; }
+      if (!fromRef || !toRef) { dropEdge('missing from/to (need string external_id or claim UUID)', raw); continue; }
       const fromUuid = resolveEndpoint(fromRef);
       const toUuid = resolveEndpoint(toRef);
-      if (!fromUuid || !toUuid || fromUuid === toUuid) { result.edgesDropped++; continue; }
+      if (!fromUuid) { dropEdge(`unresolved from="${fromRef}" (no matching claim in this payload or session)`, raw); continue; }
+      if (!toUuid) { dropEdge(`unresolved to="${toRef}" (no matching claim in this payload or session)`, raw); continue; }
+      if (fromUuid === toUuid) { dropEdge('self-loop', raw); continue; }
       insertEdge.run(randomUUID(), sessionId, fromUuid, toUuid, raw.type, now);
       result.edgesWritten++;
     }

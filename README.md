@@ -223,9 +223,32 @@ Kudos nudges are slightly favored — after 3 caution findings with zero kudos, 
 
 </details>
 
+### Precise vs lossy extraction
+
+Guard mode runs in one of two modes depending on whether an extraction key is set:
+
+| Mode | Extraction does | Cost | Set up |
+|---|---|---|---|
+| **lossy fallback** (default) | Asks the host model to extract claims itself on its next `buddy_observe` call. Reliable at the start of a session, fades as context grows past ~100k tokens. | Free | Nothing — this is the default whenever guard mode is on. |
+| **precise** | Buddy's Stop hook reads the transcript and runs its own extraction call against `claude-haiku-4-5` by default (with prompt caching). Independent of the host model's attention budget — works through long sessions. | ~$0.001/turn at default model | Set `BUDDY_EXTRACTION_KEY` (or `ANTHROPIC_API_KEY`). |
+
+`buddy_doctor` shows which mode you're in. `buddy_reasoning_status` shows it on the `Reasoning layer` line.
+
+**Where buddy looks for the key**, in order:
+1. `BUDDY_EXTRACTION_KEY` env var
+2. `ANTHROPIC_API_KEY` env var
+3. `~/.buddy/config.json` → `extraction.api_key`
+4. `<your project>/.env` → `ANTHROPIC_API_KEY`
+
+Note: this is a separate API key from your Claude Code subscription. If you don't have one, generate one at [console.anthropic.com](https://console.anthropic.com).
+
+**Choosing a different model:** the default is `claude-haiku-4-5` (cheap, fast, plenty for structured extraction). If you want higher claim quality, set `BUDDY_EXTRACTION_MODEL=claude-sonnet-4-6` (or any other available Claude model name) — the same priority order applies (env var → `~/.buddy/config.json` `extraction.model`).
+
 ### Privacy
 
-Everything stays local. Claim snippets (240 chars each, plaintext) live in `~/.buddy/buddy.db`. Buddy has no network code — nothing leaves your machine. Sessions older than 30 days auto-prune on startup.
+In **lossy fallback mode** (no extraction key): everything stays local. Claim snippets (240 chars each, plaintext) live in `~/.buddy/buddy.db`. Sessions older than 30 days auto-prune on startup.
+
+In **precise mode** (extraction key set): the Stop hook sends recent transcript turns (capped at ~2MB / last 50 messages) to Anthropic for claim extraction. The extracted claims are stored locally in `buddy.db` exactly as in lossy mode — only the extraction call itself crosses the network. Same data Claude Code already sends for the agent itself, but it's a separate stream worth naming.
 
 - `buddy_forget` — purge reasoning data (`session` or `all`)
 - `buddy_reasoning_status` — inspect stored claims, sessions, finding history

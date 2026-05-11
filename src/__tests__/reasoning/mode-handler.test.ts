@@ -147,4 +147,36 @@ describe('formatModeResponse', () => {
     const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1 });
     expect(text).toMatch(/max.*deprecated/i);
   });
+
+  it('shows precise extraction line when guard is on and key is set', () => {
+    const plan = planModeChange({});
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1, extraction_mode: 'precise' });
+    expect(text).toContain('extraction: precise');
+  });
+
+  it('shows lossy extraction line with helper hint when guard is on but no key', () => {
+    const plan = planModeChange({});
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1, extraction_mode: 'lossy' });
+    expect(text).toContain('extraction: lossy');
+    expect(text).toContain('BUDDY_EXTRACTION_KEY');
+  });
+
+  it('omits extraction line when guard is off', () => {
+    const plan = planModeChange({});
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 0, extraction_mode: 'n/a' });
+    expect(text).not.toContain('extraction:');
+  });
+
+  it('omits extraction line when extraction_mode is not provided (back-compat)', () => {
+    const plan = planModeChange({});
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1 });
+    expect(text).not.toContain('extraction:');
+  });
+
+  it('update response includes extraction line when applicable', () => {
+    const plan = planModeChange({ guard: true });
+    const text = formatModeResponse(plan, { observer_mode: 'both', guard_mode: 1, extraction_mode: 'precise' });
+    expect(text).toContain('guard=on');
+    expect(text).toContain('extraction: precise');
+  });
 });

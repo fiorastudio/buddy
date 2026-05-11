@@ -2,6 +2,41 @@
 
 All notable changes to this project will follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Hook-driven claim extraction (precise mode)** for guard mode. Until now, guard mode relied on the host model voluntarily calling `buddy_observe` with structured `claims[]` / `edges[]` — reliable at the start of a session, lossy past ~100k tokens of context as the model dropped the ceremonial calls.
+  - The Stop hook now reads the transcript JSONL directly (with a 2MB tail seek so long sessions don't blow up I/O), calls Anthropic with a v7 extraction prompt, and feeds the structured output into the existing `runGuardPipeline()`. Independent of the host model's attention budget — works through long sessions.
+  - The UserPromptSubmit hook drains pending findings into the next prompt as a `[buddy observation]` block, using the existing in-character `phraseFinding` rendering.
+  - Opt-in: gated on guard mode + presence of an extraction key. **No regression for users on the existing path** — guard mode without a key keeps working in lossy fallback exactly as before.
+  - Key discovery, in priority order: `BUDDY_EXTRACTION_KEY` env, `ANTHROPIC_API_KEY` env, `~/.buddy/config.json` (`extraction.api_key`), `<project>/.env` (`ANTHROPIC_API_KEY`).
+  - Cost: ~$0.001/turn at the default `claude-haiku-4-5` model with 1h prompt-cache TTL on the system block.
+- **`buddy_doctor` `reasoning.extraction` check**: warns when guard mode is on but no extraction key resolved; escalates when ≥3 attempts and ≥50% have failed (with the dominant failure-reason bucket — `http_401`, `timeout`, etc.).
+- **`buddy_mode` and `buddy_reasoning_status`** now surface extraction mode (`precise (env_buddy)` / `lossy (set BUDDY_EXTRACTION_KEY for precise)` / `n/a`) when guard mode is on.
+- **Persistent extraction telemetry** in a new `reasoning_extraction_stats` table — survives process restarts and aggregates across the MCP-server and Stop-hook processes (in-memory `telemetry.ts` counters can't, since the Stop hook is a fresh Node process per fire). Doctor reads this for cross-process success/failure rates and the dominant failure-reason bucket. Findings-delivered counter persists too.
+- **Incremental extraction cursor** (`reasoning_extraction_state` table, keyed by host session id) — each Stop hook only processes turns added since its last successful extraction, eliminating duplicate-claim accumulation across consecutive hook fires. After 10 turns of conversation, the graph contains 10× fewer redundant claims than a naïve per-call extractor would produce.
+- **Cross-batch context** — `extractClaims` now receives recent claims from this workspace's session graph as `ExistingClaimRef[]`. The LLM can reference them via `_existing` IDs (8-char UUID prefixes resolved by `writeClaims`), so cross-turn edges actually land instead of being silently dropped — what the maintainer saw as "a disconnected graph" in early testing.
+- **Backoff on consecutive failures** — after 5 consecutive failures within a 5-minute window, the Stop hook skips extraction until the window passes. Counter resets on any success, so transient outages naturally un-stall.
+- **Key redaction** in stderr error messages — any `sk-ant-…` or `sk-…` pattern in SDK error text is replaced with `sk-***REDACTED***` before being logged.
+- **WAL journaling** enabled on `~/.buddy/buddy.db` — readers don't block writers and writers don't block readers, eliminating the lock-contention window that opens up now that the MCP server and the Stop hook process both hold the DB open simultaneously. Note: WAL adds `~/.buddy/buddy.db-wal` and `~/.buddy/buddy.db-shm` sidecar files. If you sync `~/.buddy` across machines (Tailscale, syncthing, etc.) the sidecars must travel with the main DB or you'll see corruption. If you only use one machine this is invisible.
+- **Cross-process graph-cache invalidation**: the existing `graph-cache.ts` keyed cached `SessionGraph` entries on a per-process in-memory generation counter. With the Stop hook now writing claims via its own process, the MCP server's counter never learned about hook writes — its cache would serve a stale graph to detectors and miss newly-extracted load-bearing claims. Cache validity now also checks SQLite's `PRAGMA data_version` (a database-file-wide commit counter visible across connections), so cross-process writes invalidate correctly. Same-process performance unchanged (~5μs pragma read per cache hit; data_version is cached internally by SQLite).
+- **`buddy_doctor` `reasoning.extraction.perms` check** warns when `~/.buddy/config.json` is group/world-readable (suggests `chmod 600` if the file contains a key).
+- **`writeClaims` BUDDY_DEBUG diagnostics** — when `BUDDY_DEBUG=1` is set, every dropped claim or edge logs its specific failure reason (`invalid basis`, `missing external_id`, `unresolved from=…`, etc.), so hosts misshaping their `buddy_observe` payloads can debug the silent-drop path. Plus a one-line "inputs: claims=array(N) edges=…" snapshot at the `buddy_observe` boundary so transport-level shape mismatches (host sent string instead of array, etc.) are visible.
+- **Privacy section** updated honestly: lossy fallback is fully local; precise mode sends recent transcript turns (≤2MB / 50 messages) to Anthropic for extraction. Same data Claude Code already sends for the agent itself, but a separate stream worth naming.
+- New unit tests for the extractor (transcript reader + shape conversion + key redaction + transcript-turn counter), key resolver, delivery, persistent extraction state, mode-handler extraction-mode rendering, and a multi-call integration test that proves consecutive Stop hooks do not produce duplicate claims AND that cross-turn edges resolve via existing-claim context — all on top of the original end-to-end test that wires Stop-hook → pipeline → UserPromptSubmit-delivery against a stubbed SDK.
+
+### Changed
+- `@anthropic-ai/sdk` added as a runtime dependency (used only by the Stop-hook extractor when an extraction key is present; not loaded otherwise). Caching headers and retry behaviour matter enough here to justify the SDK over a hand-rolled `fetch` call.
+- `reasoning_observe_seq` schema gains a `last_delivered_finding_id` column (idempotent PRAGMA-then-ALTER migration; no user action needed).
+- **Precise/lossy coexistence**: when an extraction key resolves and guard mode is on, `buddy_observe` now ignores model-supplied `claims[]` / `edges[]` and skips the extraction-instruction in its response. The Stop hook is the source of truth for the graph; running model-driven extraction in parallel would double-write the same logical claims under fresh UUIDs (no text-dedupe in writeClaims), inflate detector counts, and burn ~500-1000 prompt tokens per `buddy_observe` call telling the model to do work we'd discard. Findings still flow normally — `selectFinding` runs against the existing graph that the hook is keeping fresh.
+- **Mute respect**: while a buddy is muted (`buddy_mute`), the Stop hook now skips extraction entirely and the UserPromptSubmit hook skips findings delivery. Cursor doesn't advance during the mute window so post-unmute extraction resumes from the muted period (no permanent loss). The rest of buddy's mute story is incomplete (mood is set but rarely read elsewhere); a new feature ignoring the user's "be quiet" signal would be incoherent regardless.
+- **`buddy_forget` scope='all'** now also clears `reasoning_extraction_state` and `reasoning_extraction_stats`. Without this, the per-host-session cursor would point "already extracted N turns" against an empty graph after a forget-all, causing the next Stop hook to skip turns that should have been re-extracted. scope='session' deliberately leaves these alone — neither table is buddy-session-scoped.
+
+### Upgrade notes
+- Existing users see no change unless they opt in. Set `BUDDY_EXTRACTION_KEY` (or `ANTHROPIC_API_KEY`) to switch from lossy fallback to precise extraction.
+- The extraction key is **separate from your Claude Code subscription**. Generate one at https://console.anthropic.com.
+- `buddy_doctor` will start showing a `reasoning.extraction` row; for users who already had guard mode on, this surfaces as a `warn` until they set a key (or as `skip` if guard mode is off).
+
 ## [1.0.6] - 2026-04-29
 
 ### Added
