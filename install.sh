@@ -626,6 +626,13 @@ fi
 # ── Run onboarding wizard ──
 
 ONBOARD_SCRIPT="$INSTALL_DIR/dist/cli/onboard.js"
+
+echo ""
+echo -e "${BLUE}  💬 Join the Buddy Community!${NC}"
+echo -e "  Connect with other rescuers on Slack:"
+echo -e "  ${DIM}https://join.slack.com/t/buddy-mcp/invite/enQtMTEwOTI4OTM1MzUzOTktMzVlMjc0YWRiZDllODgxMDQ1MzYwZDhhM2ZmNDRkNGEyNTBkZDU4MDQxNTM0N2EyYWQwNTBhN2QwMjFjYTBkZf${NC}"
+echo ""
+
 if [ -f "$ONBOARD_SCRIPT" ] && [ "$NO_ONBOARD" -eq 0 ]; then
   # Let onboard.ts detect TTY itself — don't force /dev/tty
   # (fails in headless SSH, CI, cron where no controlling terminal exists)
