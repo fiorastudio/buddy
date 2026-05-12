@@ -118,7 +118,7 @@ The installer will guide you through onboarding:
 
 Connect with other buddy rescuers, share your companion's evolution, and get help in our Slack community:
 
-[**Join Buddy Slack Workspace**](https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ)
+👉 [**Join Buddy Slack Workspace**](https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ)
 
 | Client | Status |
 |---|---|

@@ -528,7 +528,7 @@ if ($COPILOT_CONFIGURED) {
 Write-Host ""
 Write-Host "  💬 Join the Buddy Community!" -ForegroundColor Blue
 Write-Host "  Connect with other rescuers on Slack:"
-Write-Host "  https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ" -ForegroundColor Gray
+Write-Host "  👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ" -ForegroundColor Gray
 Write-Host ""
 
 $ONBOARD_SCRIPT = "$INSTALL_DIR\dist\cli\onboard.js"
