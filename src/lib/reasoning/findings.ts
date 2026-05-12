@@ -16,10 +16,11 @@ type RecentFinding = {
   observe_seq: number;
 };
 
-// Boundary semantics: "within the last N observes" means currentSeq - r < N.
-// That is, a cooldown of 10 blocks the same anchor for the next 9 observes
-// after the fire (fire at seq=5 → blocked at seq=6..14, eligible at seq=15).
-// Load and check use the same < comparison so the boundary is consistent.
+export type SelectionResult = {
+  finding: Finding | null;
+  suppression: 'no_candidates' | 'cooldown' | null;
+};
+
 function loadRecentFindings(db: Database.Database, companionId: string, currentSeq: number, window: number): RecentFinding[] {
   const rows = db.prepare(
     `SELECT finding_type, anchor_claim_id, observe_seq
@@ -36,19 +37,18 @@ function isOnCooldown(finding: Finding, recent: RecentFinding[], currentSeq: num
     : REASONING_CONFIG.KUDOS_COOLDOWN_OBSERVES;
   for (const r of recent) {
     if (r.anchor_claim_id !== finding.anchor_claim_id) continue;
-    // Strict-less-than matches the load query's `observe_seq > currentSeq - window`.
     if (currentSeq - r.observe_seq < window) return true;
   }
   return false;
 }
 
-export function selectFinding(
+export function selectFindingDetailed(
   db: Database.Database,
   companionId: string,
   currentSeq: number,
   candidates: Finding[],
-): Finding | null {
-  if (candidates.length === 0) return null;
+): SelectionResult {
+  if (candidates.length === 0) return { finding: null, suppression: 'no_candidates' };
 
   const recent = loadRecentFindings(
     db,
@@ -61,16 +61,12 @@ export function selectFinding(
     ),
   );
 
-  // Filter out candidates on cooldown.
   const eligible = candidates.filter(c => !isOnCooldown(c, recent, currentSeq));
-  if (eligible.length === 0) return null;
+  if (eligible.length === 0) return { finding: null, suppression: 'cooldown' };
 
   const cautionCands = eligible.filter(c => isCaution(c.type));
   const kudosCands = eligible.filter(c => !isCaution(c.type));
 
-  // Kudos bias: if last KUDOS_BIAS_WINDOW observes had >= threshold caution
-  // findings and zero kudos, next finding must be kudos if one is available.
-  // Uses the same strict-less-than boundary as cooldown for consistency.
   const windowCount = (type: 'caution' | 'kudos'): number =>
     recent.filter(r => (type === 'caution' ? isCaution(r.finding_type) : !isCaution(r.finding_type)))
       .filter(r => currentSeq - r.observe_seq < REASONING_CONFIG.KUDOS_BIAS_WINDOW)
@@ -84,18 +80,24 @@ export function selectFinding(
     recentCaution >= REASONING_CONFIG.KUDOS_BIAS_CAUTION_THRESHOLD &&
     recentKudos === 0
   ) {
-    return kudosCands[0];
+    return { finding: kudosCands[0], suppression: null };
   }
 
-  // Tie-break: if both pools are non-empty, weight toward caution but leave
-  // room for kudos. Deterministic pick based on (currentSeq + caution count)
-  // so behavior is reproducible without a PRNG dependency.
   if (cautionCands.length > 0 && kudosCands.length > 0) {
     const pickKudos = ((currentSeq * 37 + recentCaution) % 100) < (REASONING_CONFIG.KUDOS_TIE_BREAK_WEIGHT * 100);
-    return pickKudos ? kudosCands[0] : cautionCands[0];
+    return { finding: pickKudos ? kudosCands[0] : cautionCands[0], suppression: null };
   }
 
-  return (cautionCands[0] ?? kudosCands[0]) ?? null;
+  return { finding: (cautionCands[0] ?? kudosCands[0]) ?? null, suppression: null };
+}
+
+export function selectFinding(
+  db: Database.Database,
+  companionId: string,
+  currentSeq: number,
+  candidates: Finding[],
+): Finding | null {
+  return selectFindingDetailed(db, companionId, currentSeq, candidates).finding;
 }
 
 export function logFinding(

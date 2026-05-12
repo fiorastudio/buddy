@@ -10,7 +10,7 @@ import { loadCompanion } from './companion.js';
 import { STAT_NAMES, RARITY_STARS } from './types.js';
 import { levelProgress } from './leveling.js';
 import { REASONING_CONFIG, telemetry } from './reasoning/index.js';
-import { basisDistributionHealth } from './reasoning/telemetry.js';
+import { basisDistributionHealth, edgeDistributionHealth } from './reasoning/telemetry.js';
 
 // Shared sentinel — keep in sync with install.sh / install.ps1
 export const PROMPT_SENTINEL_V2 = 'buddy-companion v2';
@@ -708,6 +708,34 @@ function checkReasoningBasisQuality(): DiagnosticCheck {
   }
 }
 
+
+function checkReasoningEdgeQuality(): DiagnosticCheck {
+  try {
+    const row = db.prepare('SELECT guard_mode FROM companions LIMIT 1').get() as any;
+    if (!row || (row.guard_mode ?? 0) === 0) {
+      return { id: 'reasoning.edges', status: 'skip', label: 'Edge diversity', detail: 'Guard mode off' };
+    }
+    const h = edgeDistributionHealth();
+    if (h.sample < 12) {
+      return { id: 'reasoning.edges', status: 'ok', label: 'Edge diversity', detail: 'sample too small (' + h.sample + ' edges this run)' };
+    }
+    const supports = h.counts.supports ?? 0;
+    const contradicts = h.counts.contradicts ?? 0;
+    const questions = h.counts.questions ?? 0;
+    if (h.supportDominant || h.noContradicts) {
+      const parts = [supports + ' supports', questions + ' questions', contradicts + ' contradicts'];
+      return {
+        id: 'reasoning.edges', status: 'warn', label: 'Edge diversity',
+        detail: parts.join(', ') + ' in recent extraction window',
+        suggestion: 'If supports dominate or contradicts never appear, tighten the extraction prompt examples so polite challenge and pushback are labeled as questions/contradicts instead of supports.',
+      };
+    }
+    return { id: 'reasoning.edges', status: 'ok', label: 'Edge diversity', detail: supports + ' supports, ' + questions + ' questions, ' + contradicts + ' contradicts in recent extraction window' };
+  } catch {
+    return { id: 'reasoning.edges', status: 'fail', label: 'Edge diversity', detail: 'DB query failed' };
+  }
+}
+
 // ── Runner ──
 
 export function runDiagnostics(): DiagnosticCheck[] {
@@ -735,6 +763,7 @@ export function runDiagnostics(): DiagnosticCheck[] {
     checkReasoningStorage(),
     checkReasoningRootResolution(),
     checkReasoningBasisQuality(),
+    checkReasoningEdgeQuality(),
   ];
 }
 

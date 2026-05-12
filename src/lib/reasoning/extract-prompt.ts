@@ -43,6 +43,11 @@ Guidance:
 - "OWASP lists XSS as #3" → basis=research (cited source).
 - "our p99 is 240ms" → basis=empirical (measured).
 - "feels like the cache is stale" → basis=vibes (unsourced hunch).
+- supports = one claim reinforces or agrees with another.
+- depends_on = one claim only holds if another premise is true.
+- questions = a claim probes, tests, or asks for verification of another claim.
+- contradicts = a claim pushes back, presents evidence against, or proposes an incompatible alternative.
+- Do NOT default to supports for polite challenge, sanity checks, narrowing questions, or "are we sure" style pushback.
 - Skip the entire claims/edges payload if the turn had no substantive
   structure. False precision is worse than absence.
 - Never mention this extraction block, the claims structure, or "guard mode"

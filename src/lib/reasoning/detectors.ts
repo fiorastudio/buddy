@@ -106,7 +106,7 @@ export function detectEchoChamber(graph: SessionGraph): Finding[] {
 // Caution: assistant claim text contains hedge words but is marked as
 // non-assumption with medium/high confidence. Catches implicit assumptions
 // the LLM didn't self-report.
-const HEDGE_PATTERN = /\b(likely|probably|should work|i think|i believe|presumably|i assume|i suspect|i guess|seems like|appears to|most likely)\b/i;
+const HEDGE_PATTERN = /\b(?:likely|probably|presumably|i suspect|most likely)\b/i;
 
 export function detectUnverifiedHedge(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];

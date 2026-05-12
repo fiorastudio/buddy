@@ -3,7 +3,7 @@
 // Lightweight in-process counters. Doctor reads these to report guard-mode
 // health. Not persisted; resets on restart.
 
-import type { FindingType, Basis } from './types.js';
+import type { FindingType, Basis, EdgeType } from './types.js';
 import type { RootSource } from './project-root.js';
 
 type Counters = {
@@ -17,6 +17,11 @@ type Counters = {
   edges_dropped: number;
   findings_surfaced_total: number;
   findings_by_type: Record<FindingType, number>;
+  findings_detected_total: number;
+  findings_detected_by_type: Record<FindingType, number>;
+  finding_suppressed_no_candidates_total: number;
+  finding_suppressed_cooldown_total: number;
+  finding_suppressed_budget_total: number;
   detector_latency_ms_sum: number;
   detector_latency_ms_count: number;
   detector_latency_ms_max: number;
@@ -27,6 +32,7 @@ type Counters = {
   // Basis-distribution quality monitor: counts per basis in a rolling
   // window (last 50 claims). Doctor flags degenerate distributions.
   basis_window: Basis[];
+  edge_type_window: EdgeType[];
   // Project-root resolution sources seen this run. Doctor surfaces
   // "workspace-isolation-probably-wrong" when homedir or plain cwd
   // resolution dominates.
@@ -34,6 +40,7 @@ type Counters = {
 };
 
 const BASIS_WINDOW_SIZE = 50;
+const EDGE_WINDOW_SIZE = 100;
 
 function zero(): Counters {
   return {
@@ -55,6 +62,19 @@ function zero(): Counters {
       productive_stress_test: 0,
       grounded_premise_adopted: 0,
     },
+    findings_detected_total: 0,
+    findings_detected_by_type: {
+      load_bearing_vibes: 0,
+      unchallenged_chain: 0,
+      echo_chamber: 0,
+      unverified_hedge: 0,
+      well_sourced_load_bearer: 0,
+      productive_stress_test: 0,
+      grounded_premise_adopted: 0,
+    },
+    finding_suppressed_no_candidates_total: 0,
+    finding_suppressed_cooldown_total: 0,
+    finding_suppressed_budget_total: 0,
     detector_latency_ms_sum: 0,
     detector_latency_ms_count: 0,
     detector_latency_ms_max: 0,
@@ -63,6 +83,7 @@ function zero(): Counters {
     last_claims_received_at: null,
     last_observe_at: null,
     basis_window: [],
+    edge_type_window: [],
     root_source_counts: { hint: 0, env: 0, marker: 0, cwd: 0, homedir: 0 },
   };
 }
@@ -83,6 +104,23 @@ export function recordClaimWrites(received: { claims: number; edges: number }, w
   counters.claims_dropped += written.claimsDropped;
   counters.edges_dropped += written.edgesDropped;
   if (received.claims > 0) counters.last_claims_received_at = Date.now();
+}
+
+export function recordEdgeType(type: EdgeType): void {
+  counters.edge_type_window.push(type);
+  if (counters.edge_type_window.length > EDGE_WINDOW_SIZE) counters.edge_type_window.shift();
+}
+
+export function recordDetectedFindings(types: FindingType[]): void {
+  if (types.length === 0) return;
+  counters.findings_detected_total += types.length;
+  for (const type of types) counters.findings_detected_by_type[type]++;
+}
+
+export function recordSuppressedFinding(reason: 'no_candidates' | 'cooldown' | 'budget'): void {
+  if (reason === 'no_candidates') counters.finding_suppressed_no_candidates_total++;
+  if (reason === 'cooldown') counters.finding_suppressed_cooldown_total++;
+  if (reason === 'budget') counters.finding_suppressed_budget_total++;
 }
 
 export function recordFinding(type: FindingType): void {
@@ -133,11 +171,30 @@ export function basisDistributionHealth(): { degenerate: boolean; dominantBasis?
   return { degenerate: false, dominantBasis: dom, pct, sample: w.length };
 }
 
+export function edgeDistributionHealth(): { supportDominant: boolean; noContradicts: boolean; supportPct?: number; sample: number; counts: Partial<Record<EdgeType, number>> } {
+  const w = counters.edge_type_window;
+  const counts: Partial<Record<EdgeType, number>> = {};
+  for (const type of w) counts[type] = (counts[type] ?? 0) + 1;
+  if (w.length < 12) return { supportDominant: false, noContradicts: false, sample: w.length, counts };
+  const supports = counts.supports ?? 0;
+  const contradicts = counts.contradicts ?? 0;
+  const supportPct = supports / w.length;
+  return {
+    supportDominant: supportPct > 0.7,
+    noContradicts: contradicts === 0,
+    supportPct,
+    sample: w.length,
+    counts,
+  };
+}
+
 export function snapshot(): Counters {
   return {
     ...counters,
     findings_by_type: { ...counters.findings_by_type },
+    findings_detected_by_type: { ...counters.findings_detected_by_type },
     basis_window: [...counters.basis_window],
+    edge_type_window: [...counters.edge_type_window],
     root_source_counts: { ...counters.root_source_counts },
   };
 }

@@ -40,6 +40,7 @@ import {
   telemetry,
   type PurgeScope,
 } from "../lib/reasoning/index.js";
+import { resolveSessionTrace } from "../lib/reasoning/session-trace.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -683,7 +684,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       lines.push(`  sessions (most recent):`);
       for (const s of sessionRows) {
         const oldestDate = new Date(s.oldest).toISOString().slice(0, 10);
-        lines.push(`    ${s.session_id} — ${s.n} claim(s), since ${oldestDate}`);
+        const trace = resolveSessionTrace(s.session_id);
+        const label = trace.projectLabel ? ` [${trace.projectLabel}]` : '';
+        lines.push(`    ${s.session_id}${label} — ${s.n} claim(s), since ${oldestDate}`);
+        if (trace.cwd) lines.push(`      cwd: ${trace.cwd}`);
+        if (trace.claudeSessionFile) lines.push(`      claude: ${trace.claudeSessionFile}`);
+        if (trace.codexSessionFile) lines.push(`      codex: ${trace.codexSessionFile}${trace.codexSessionId ? ' [' + trace.codexSessionId + ']' : ''}`);
       }
     } else {
       lines.push(`  sessions: none`);
@@ -693,11 +699,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     lines.push(`  observes:         ${stats.observes_total} total, ${stats.observes_guard_mode} with guard mode on`);
     lines.push(`  claims received:  ${stats.claims_received_total} (written ${stats.claims_written}, dropped ${stats.claims_dropped})`);
     lines.push(`  edges received:   ${stats.edges_received_total} (written ${stats.edges_written}, dropped ${stats.edges_dropped})`);
-    lines.push(`  findings:         ${stats.findings_surfaced_total} surfaced`);
+    lines.push(`  findings:         ${stats.findings_surfaced_total} surfaced, ${stats.findings_detected_total} detected`);
     if (stats.findings_surfaced_total > 0) {
       for (const [type, count] of Object.entries(stats.findings_by_type)) {
         if (count > 0) lines.push(`    ${type}: ${count}`);
       }
+    }
+    if (stats.finding_suppressed_no_candidates_total || stats.finding_suppressed_cooldown_total || stats.finding_suppressed_budget_total) {
+      lines.push(`  suppressed:       no-candidates ${stats.finding_suppressed_no_candidates_total}, cooldown ${stats.finding_suppressed_cooldown_total}, budget ${stats.finding_suppressed_budget_total}`);
+    }
+    if (stats.edge_type_window.length > 0) {
+      const counts = stats.edge_type_window.reduce((acc, type) => {
+        acc[type] = (acc[type] ?? 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      lines.push(`  edge window:      supports ${counts.supports ?? 0}, depends_on ${counts.depends_on ?? 0}, questions ${counts.questions ?? 0}, contradicts ${counts.contradicts ?? 0}`);
     }
     if (stats.detector_latency_ms_count > 0) {
       const avg = Math.round(stats.detector_latency_ms_sum / stats.detector_latency_ms_count);
