@@ -49,7 +49,7 @@ The function interpolates linearly in RGB between adjacent anchors. The transiti
 
 ### Saturation tint by rarity
 
-After interpolation, the color is modulated by a rarity-specific saturation factor (applied as a "mix toward neutral gray" — simple linear blend, no HSL conversion needed):
+After interpolation, the color is modulated by a rarity-specific saturation factor (applied as a "mix toward neutral gray" — simple linear blend, no HSL conversion needed). The tint applies **uniformly** across the entire ramp — both species and metal segments. This means a Legendary's metal anchors get the +20% boost (visibly extra-saturated metal) while a Common's metal anchors get -15% (visibly muted iron). This is intentional: rarity reads consistently from Lv 1 through Lv 50.
 
 ```
 final = mix(neutralGray, interpolated, satFactor)
@@ -233,8 +233,9 @@ Internal helpers: `computeRGB`, `rampPosition`, `interpolateAnchors`, `lerpRGB`,
 
 - **Line 178** (reaction-bubble sprite right-side): replace `${MAGENTA}${right}${RESET}` with `${colorFor(buddy.species, buddy.rarity, buddy.xp)}${right}${RESET}`.
 - **Line 281** (sprite art in normal mode): replace `${MAGENTA}${(asciiLines[i] || "").padEnd(artWidth)}${RESET}` with `${colorFor(...)}${...}${RESET}`.
-- The buddy's *name* (line 154) stays `CYAN` — it's identity text, not sprite art.
-- The species name in parens stays `DIM`.
+- The buddy's user-given *name* on line 154 (the `CYAN`-wrapped `buddy.name`) **stays CYAN** — names are identity text the user picks/reads, not sprite art. Coloring them with the gradient would obscure readability.
+- The species name in parens (`${DIM}(${buddy.species})${RESET}`) **stays DIM**.
+- `MAGENTA` import stays in the imports — other code may still reference it.
 
 ### Modify: `src/lib/card.ts`
 
@@ -297,6 +298,7 @@ Internal helpers: `computeRGB`, `rampPosition`, `interpolateAnchors`, `lerpRGB`,
 - **Terminal compatibility surprises.** Detection cascades through five env vars; defaults to 16-color fallback (safe). Manual verification on Windows Terminal, cmd.exe, plain bash, and a `NO_COLOR=1` run is in the test plan.
 - **First-cut palette shades may not feel right in practice.** RGB values are not load-bearing on the design — they are tunable during implementation. The model (3 inputs, 6 anchors, saturation tint, bold weight) is the contract.
 - **Adding color to the stat card changes a returned MCP tool result.** The card is shown verbatim by the host LLM in a code block; ANSI escapes may render as raw text in some hosts. Mitigation: the stat card already lives in Claude Code which strips/displays ANSI correctly; for other hosts the worst case is visible escape codes (functional but ugly). Acceptable for v1.
+- **Species color 4 → Metal 1 bridge (Lv 30–40) may look muddy for some (species, rarity) combinations.** E.g., a Common Penguin transitions from `aurora green` to `iron gray` over 10 levels — the midpoint will be a desaturated greenish-gray. This is expected; the per-species palettes can be tuned during implementation so the final species color foreshadows the rarity's metals (e.g., shift Penguin's Anchor 3 cooler to ease the iron bridge). 105 bridges to hand-tune is overkill — accept some muddiness in v1 and refine the worst offenders post-launch.
 
 ## Followups
 
