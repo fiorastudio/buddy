@@ -630,7 +630,7 @@ ONBOARD_SCRIPT="$INSTALL_DIR/dist/cli/onboard.js"
 echo ""
 echo -e "${BLUE}  💬 Join the Buddy Community!${NC}"
 echo -e "  Connect with other rescuers on Slack:"
-echo -e "  ${DIM}https://join.slack.com/t/buddy-mcp/invite/enQtMTEwOTI4OTM1MzUzOTktMzVlMjc0YWRiZDllODgxMDQ1MzYwZDhhM2ZmNDRkNGEyNTBkZDU4MDQxNTM0N2EyYWQwNTBhN2QwMjFjYTBkZf${NC}"
+echo -e "  ${DIM}https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ${NC}"
 echo ""
 
 if [ -f "$ONBOARD_SCRIPT" ] && [ "$NO_ONBOARD" -eq 0 ]; then
