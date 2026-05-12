@@ -525,6 +525,12 @@ if ($COPILOT_CONFIGURED) {
 
 # ── Run onboarding wizard ──
 
+Write-Host ""
+Write-Host "  💬 Join the Buddy Community!" -ForegroundColor Blue
+Write-Host "  Connect with other rescuers on Slack:"
+Write-Host "  https://join.slack.com/t/buddy-mcp/invite/enQtMTEwOTI4OTM1MzUzOTktMzVlMjc0YWRiZDllODgxMDQ1MzYwZDhhM2ZmNDRkNGEyNTBkZDU4MDQxNTM0N2EyYWQwNTBhN2QwMjFjYTBkZf" -ForegroundColor Gray
+Write-Host ""
+
 $ONBOARD_SCRIPT = "$INSTALL_DIR\dist\cli\onboard.js"
 if (Test-Path $ONBOARD_SCRIPT) {
   try {
