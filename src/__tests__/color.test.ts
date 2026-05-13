@@ -6,6 +6,7 @@ import { RARITY_METALS, RARITY_SATURATION } from '../lib/color.js';
 import { clamp, lerpRGB } from '../lib/color.js';
 import { rampPosition } from '../lib/color.js';
 import { interpolateAnchors } from '../lib/color.js';
+import { applySaturationTint } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 import { totalXpForLevel } from '../lib/leveling.js';
@@ -165,5 +166,34 @@ describe('interpolateAnchors', () => {
   it('interpolates linearly within a segment (p=0.5 between breakpoints 0.3 and 0.7)', () => {
     // local t = (0.5 - 0.3) / (0.7 - 0.3) = 0.5; midway between [50,100,150] and [100,200,250]
     expect(interpolateAnchors(anchors, breakpoints, 0.5)).toEqual([75, 150, 200]);
+  });
+});
+
+describe('applySaturationTint', () => {
+  it('factor=1.0 is identity', () => {
+    expect(applySaturationTint([200, 50, 100], 1.0)).toEqual([200, 50, 100]);
+  });
+
+  it('factor=0 collapses to neutral gray', () => {
+    expect(applySaturationTint([200, 50, 100], 0)).toEqual([128, 128, 128]);
+  });
+
+  it('factor=0.85 (common) moves toward gray', () => {
+    // r: 128 + (200-128)*0.85 = 128 + 61.2 → 189
+    expect(applySaturationTint([200, 200, 200], 0.85)).toEqual([189, 189, 189]);
+  });
+
+  it('factor=1.2 extrapolates away from gray and clamps to [0, 255]', () => {
+    // r: 128 + (250-128)*1.2 = 128 + 146.4 → 274 → clamped to 255
+    const result = applySaturationTint([250, 250, 250], 1.2);
+    expect(result[0]).toBe(255);
+    expect(result[1]).toBe(255);
+    expect(result[2]).toBe(255);
+  });
+
+  it('factor=1.2 clamps to 0 when extrapolating dark', () => {
+    // r: 128 + (10-128)*1.2 = 128 - 141.6 = -13.6 → clamped to 0
+    const result = applySaturationTint([10, 10, 10], 1.2);
+    expect(result).toEqual([0, 0, 0]);
   });
 });

@@ -106,3 +106,12 @@ export function interpolateAnchors(
   }
   return anchors[anchors.length - 1]!;
 }
+
+export function applySaturationTint(rgb: RGB, factor: number): RGB {
+  const [gr, gg, gb] = NEUTRAL_GRAY;
+  return [
+    clamp(Math.round(gr + (rgb[0] - gr) * factor), 0, 255),
+    clamp(Math.round(gg + (rgb[1] - gg) * factor), 0, 255),
+    clamp(Math.round(gb + (rgb[2] - gb) * factor), 0, 255),
+  ];
+}
