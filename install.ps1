@@ -161,6 +161,7 @@ $CLAUDE_CONFIGURED = $true
 $claudeSettings = "$claudeDir\settings.json"
 $commandsDir = Join-Path $claudeDir 'commands'
 $buddyGraphCommand = Join-Path $commandsDir 'buddy-graph.md'
+New-Item -ItemType Directory -Force -Path $commandsDir | Out-Null
 if (!(Test-Path $claudeSettings)) {
   '{}' | Set-Content $claudeSettings -Encoding UTF8
 }
