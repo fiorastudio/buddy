@@ -4,7 +4,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { SPECIES_ANIMATIONS, SPRITE_BODIES, renderSprite } from "./lib/species.js";
 import { HAT_LINES, RARITY_ANSI, type Hat } from "./lib/types.js";
-import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA, stripAnsi } from "./lib/ansi.js";
+import { RESET, DIM, CYAN, YELLOW, GREEN, stripAnsi } from "./lib/ansi.js";
 import { colorFor } from "./lib/color.js";
 import { BUDDY_STATUS_PATH } from "./lib/constants.js";
 import { getAnimationProfile, getAnimationState, pickFrame, DEFAULT_DWELL_MS } from "./lib/animation.js";
@@ -167,6 +167,7 @@ try {
 
         // Colorize bubble lines — the bubble is plain text from renderSpeechBubble().
         // Left side = text bubble (borders + content), right side = sprite art after connector.
+        const bubbleSpriteColor = colorFor(buddy.species, buddy.rarity, buddy.xp);
         for (const line of bubbleLines) {
           // Lines with "  -  " connector or "     " gutter have sprite art on the right
           const connectorMatch = line.match(/^(.+?)(  -  |     )(.+)$/);
@@ -176,7 +177,7 @@ try {
             const isName = right.trim() === buddy.name;
             const coloredRight = isName
               ? `${CYAN}${right}${RESET}`
-              : `${MAGENTA}${right}${RESET}`;
+              : `${bubbleSpriteColor}${right}${RESET}`;
             const fadedLeft = isFading ? `${DIM}${DIM}${left}${RESET}` : `${DIM}${left}${RESET}`;
             buddyRight.push(`${fadedLeft}${DIM}${sep}${RESET}${coloredRight}`);
           } else {
