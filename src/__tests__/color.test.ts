@@ -413,4 +413,9 @@ describe('colorFor (public API)', () => {
   it('emits ANSI 16-color escape when ansi16', () => {
     expect(colorFor('Cactus', 'uncommon', 0, ansi16)).toMatch(/^\x1b\[3[0-7]m$/);
   });
+
+  it('returns empty string when no capability flags are set', () => {
+    const none: TerminalCapabilities = { truecolor: false, ansi256: false, ansi16: false, noColor: false };
+    expect(colorFor('Cactus', 'rare', 0, none)).toBe('');
+  });
 });

@@ -44,12 +44,13 @@ export function renderCard(companion: Companion): string {
   }
 
   const spriteColor = colorFor(companion.species, companion.rarity, companion.xp);
+  const spriteReset = spriteColor ? RESET : '';
   const coloredArt = art.map(l => {
     const padded = ln(l);
     const prefix = '| ';
     const suffix = ' |';
     const inner = padded.slice(prefix.length, padded.length - suffix.length);
-    return `${prefix}${spriteColor}${inner}${RESET}${suffix}`;
+    return `${prefix}${spriteColor}${inner}${spriteReset}${suffix}`;
   });
 
   return [

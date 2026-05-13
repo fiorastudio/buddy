@@ -167,7 +167,8 @@ try {
 
         // Colorize bubble lines — the bubble is plain text from renderSpeechBubble().
         // Left side = text bubble (borders + content), right side = sprite art after connector.
-        const bubbleSpriteColor = colorFor(buddy.species, buddy.rarity, buddy.xp);
+        const bubbleSpriteColor = colorFor(buddy.species, buddy.rarity || 'common', buddy.xp ?? 0);
+        const bubbleSpriteReset = bubbleSpriteColor ? RESET : '';
         for (const line of bubbleLines) {
           // Lines with "  -  " connector or "     " gutter have sprite art on the right
           const connectorMatch = line.match(/^(.+?)(  -  |     )(.+)$/);
@@ -177,7 +178,7 @@ try {
             const isName = right.trim() === buddy.name;
             const coloredRight = isName
               ? `${CYAN}${right}${RESET}`
-              : `${bubbleSpriteColor}${right}${RESET}`;
+              : `${bubbleSpriteColor}${right}${bubbleSpriteReset}`;
             const fadedLeft = isFading ? `${DIM}${DIM}${left}${RESET}` : `${DIM}${left}${RESET}`;
             buddyRight.push(`${fadedLeft}${DIM}${sep}${RESET}${coloredRight}`);
           } else {
@@ -279,9 +280,10 @@ try {
         const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[ambientIdx]}${RESET}`;
 
         const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
-        const spriteColor = colorFor(buddy.species, buddy.rarity, buddy.xp);
+        const spriteColor = colorFor(buddy.species, buddy.rarity || 'common', buddy.xp ?? 0);
+        const spriteReset = spriteColor ? RESET : '';
         for (let i = 0; i < asciiLines.length; i++) {
-          const artPart = `${spriteColor}${(asciiLines[i] || "").padEnd(artWidth)}${RESET}`;
+          const artPart = `${spriteColor}${(asciiLines[i] || "").padEnd(artWidth)}${spriteReset}`;
           if (i === 0) {
             buddyRight.push(`${artPart} ${nameInfo}`);
           } else if (i === 1) {

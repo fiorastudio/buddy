@@ -235,5 +235,8 @@ export function colorFor(
   if (caps.ansi256) {
     return `${boldPrefix}\x1b[38;5;${rgbTo256(rgb)}m`;
   }
-  return `${boldPrefix}${rgbToAnsi16(rgb)}`;
+  if (caps.ansi16) {
+    return `${boldPrefix}${rgbToAnsi16(rgb)}`;
+  }
+  return '';
 }
