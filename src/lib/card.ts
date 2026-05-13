@@ -4,6 +4,8 @@ import { renderSprite } from './species.js';
 import { type Companion, STAT_NAMES, RARITY_STARS } from './types.js';
 import { statBar } from './rng.js';
 import { levelProgress } from './leveling.js';
+import { colorFor } from './color.js';
+import { RESET } from './ansi.js';
 
 /**
  * Render a bordered ASCII stat card for a companion.
@@ -41,11 +43,20 @@ export function renderCard(companion: Companion): string {
     if (cur) bioLines.push(ln(' ' + cur));
   }
 
+  const spriteColor = colorFor(companion.species, companion.rarity, companion.xp);
+  const coloredArt = art.map(l => {
+    const padded = ln(l);
+    const prefix = '| ';
+    const suffix = ' |';
+    const inner = padded.slice(prefix.length, padded.length - suffix.length);
+    return `${prefix}${spriteColor}${inner}${RESET}${suffix}`;
+  });
+
   return [
     topBorder,
     headerLine,
     emptyLine,
-    ...art.map(l => ln(l)),
+    ...coloredArt,
     emptyLine,
     ln(companion.name),
     ...(bioLines.length > 0 ? [emptyLine, ...bioLines] : []),
