@@ -9,6 +9,7 @@ import { interpolateAnchors } from '../lib/color.js';
 import { applySaturationTint } from '../lib/color.js';
 import { computeRGB } from '../lib/color.js';
 import { detectCapabilities } from '../lib/color.js';
+import { rgbTo256 } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 import { totalXpForLevel } from '../lib/leveling.js';
@@ -308,5 +309,35 @@ describe('detectCapabilities', () => {
   it('empty env → ansi16 fallback', () => {
     const caps = detectCapabilities({});
     expect(caps.ansi16).toBe(true);
+  });
+});
+
+describe('rgbTo256', () => {
+  it('maps pure black to 16 (start of 6×6×6 cube)', () => {
+    expect(rgbTo256([0, 0, 0])).toBe(16);
+  });
+
+  it('maps pure white to 231 (end of 6×6×6 cube)', () => {
+    expect(rgbTo256([255, 255, 255])).toBe(231);
+  });
+
+  it('maps pure red to 196 (16 + 36*5 + 0 + 0)', () => {
+    expect(rgbTo256([255, 0, 0])).toBe(196);
+  });
+
+  it('maps pure green to 46 (16 + 0 + 6*5 + 0)', () => {
+    expect(rgbTo256([0, 255, 0])).toBe(46);
+  });
+
+  it('maps pure blue to 21 (16 + 0 + 0 + 5)', () => {
+    expect(rgbTo256([0, 0, 255])).toBe(21);
+  });
+
+  it('returns a value in [16, 231]', () => {
+    for (const [r, g, b] of [[100, 50, 200], [10, 200, 30], [128, 128, 128]] as RGB[]) {
+      const idx = rgbTo256([r, g, b]);
+      expect(idx).toBeGreaterThanOrEqual(16);
+      expect(idx).toBeLessThanOrEqual(231);
+    }
   });
 });

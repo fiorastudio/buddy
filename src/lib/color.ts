@@ -176,3 +176,13 @@ export function detectCapabilities(env: NodeJS.ProcessEnv = process.env): Termin
   caps.ansi16 = true;
   return caps;
 }
+
+// Map a 24-bit RGB triple into the 256-color cube index (16-231 range).
+// Uses the standard 6×6×6 cube formula. Grayscale ramp (232-255) is not used —
+// the cube provides adequate fidelity and avoids hue distortion.
+export function rgbTo256(rgb: RGB): number {
+  const r6 = Math.round((rgb[0] / 255) * 5);
+  const g6 = Math.round((rgb[1] / 255) * 5);
+  const b6 = Math.round((rgb[2] / 255) * 5);
+  return 16 + 36 * r6 + 6 * g6 + b6;
+}
