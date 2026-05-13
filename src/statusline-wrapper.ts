@@ -5,6 +5,7 @@ import { homedir } from "os";
 import { SPECIES_ANIMATIONS, SPRITE_BODIES, renderSprite } from "./lib/species.js";
 import { HAT_LINES, RARITY_ANSI, type Hat } from "./lib/types.js";
 import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA, stripAnsi } from "./lib/ansi.js";
+import { colorFor } from "./lib/color.js";
 import { BUDDY_STATUS_PATH } from "./lib/constants.js";
 import { getAnimationProfile, getAnimationState, pickFrame, DEFAULT_DWELL_MS } from "./lib/animation.js";
 import { seededIndex } from "./lib/rng.js";
@@ -277,8 +278,9 @@ try {
         const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[ambientIdx]}${RESET}`;
 
         const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
+        const spriteColor = colorFor(buddy.species, buddy.rarity, buddy.xp);
         for (let i = 0; i < asciiLines.length; i++) {
-          const artPart = `${MAGENTA}${(asciiLines[i] || "").padEnd(artWidth)}${RESET}`;
+          const artPart = `${spriteColor}${(asciiLines[i] || "").padEnd(artWidth)}${RESET}`;
           if (i === 0) {
             buddyRight.push(`${artPart} ${nameInfo}`);
           } else if (i === 1) {
