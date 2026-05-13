@@ -186,3 +186,27 @@ export function rgbTo256(rgb: RGB): number {
   const b6 = Math.round((rgb[2] / 255) * 5);
   return 16 + 36 * r6 + 6 * g6 + b6;
 }
+
+// Map RGB to one of the 8 base ANSI hues by classifying the dominant channel(s).
+// Coarse but functional fallback for terminals without 256-color support.
+export function rgbToAnsi16(rgb: RGB): string {
+  const [r, g, b] = rgb;
+  const brightness = (r + g + b) / 3;
+  const threshold = 96; // below this, treat as black/dim
+
+  // Classify per-channel as "on" (> threshold) or "off" (<= threshold).
+  const rOn = r > threshold;
+  const gOn = g > threshold;
+  const bOn = b > threshold;
+
+  if (!rOn && !gOn && !bOn) return '\x1b[30m'; // black
+  if (rOn && gOn && bOn) {
+    return brightness > 200 ? '\x1b[37m' : '\x1b[30m'; // white or black
+  }
+  if (rOn && gOn && !bOn) return '\x1b[33m'; // yellow
+  if (rOn && !gOn && bOn) return '\x1b[35m'; // magenta
+  if (!rOn && gOn && bOn) return '\x1b[36m'; // cyan
+  if (rOn && !gOn && !bOn) return '\x1b[31m'; // red
+  if (!rOn && gOn && !bOn) return '\x1b[32m'; // green
+  return '\x1b[34m'; // blue (only remaining case)
+}

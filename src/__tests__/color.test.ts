@@ -10,6 +10,7 @@ import { applySaturationTint } from '../lib/color.js';
 import { computeRGB } from '../lib/color.js';
 import { detectCapabilities } from '../lib/color.js';
 import { rgbTo256 } from '../lib/color.js';
+import { rgbToAnsi16 } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 import { totalXpForLevel } from '../lib/leveling.js';
@@ -339,5 +340,32 @@ describe('rgbTo256', () => {
       expect(idx).toBeGreaterThanOrEqual(16);
       expect(idx).toBeLessThanOrEqual(231);
     }
+  });
+});
+
+describe('rgbToAnsi16', () => {
+  it('maps pure red to ANSI 31 (red)', () => {
+    expect(rgbToAnsi16([255, 0, 0])).toBe('\x1b[31m');
+  });
+  it('maps pure green to ANSI 32 (green)', () => {
+    expect(rgbToAnsi16([0, 255, 0])).toBe('\x1b[32m');
+  });
+  it('maps pure blue to ANSI 34 (blue)', () => {
+    expect(rgbToAnsi16([0, 0, 255])).toBe('\x1b[34m');
+  });
+  it('maps pure yellow (R+G) to ANSI 33 (yellow)', () => {
+    expect(rgbToAnsi16([255, 255, 0])).toBe('\x1b[33m');
+  });
+  it('maps pure cyan (G+B) to ANSI 36 (cyan)', () => {
+    expect(rgbToAnsi16([0, 255, 255])).toBe('\x1b[36m');
+  });
+  it('maps pure magenta (R+B) to ANSI 35 (magenta)', () => {
+    expect(rgbToAnsi16([255, 0, 255])).toBe('\x1b[35m');
+  });
+  it('maps near-white to ANSI 37 (white)', () => {
+    expect(rgbToAnsi16([240, 240, 240])).toBe('\x1b[37m');
+  });
+  it('maps near-black to ANSI 30 (black)', () => {
+    expect(rgbToAnsi16([10, 10, 10])).toBe('\x1b[30m');
   });
 });
