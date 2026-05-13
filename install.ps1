@@ -159,6 +159,8 @@ $CLAUDE_CONFIGURED = $true
 # Configure hooks + statusline in settings.json via node (avoids PowerShell
 # ConvertFrom-Json flattening single-element arrays into bare objects).
 $claudeSettings = "$claudeDir\settings.json"
+$commandsDir = Join-Path $claudeDir 'commands'
+$buddyGraphCommand = Join-Path $commandsDir 'buddy-graph.md'
 if (!(Test-Path $claudeSettings)) {
   '{}' | Set-Content $claudeSettings -Encoding UTF8
 }
@@ -290,7 +292,11 @@ if [ -n "${ARGUMENTS:-}" ]; then
   read -r -a args <<< "$ARGUMENTS"
 fi
 
-buddy graph "${args[@]}" --open
+if command -v buddy >/dev/null 2>&1; then
+  buddy graph "${args[@]}" --open
+else
+  node "$HOME/.buddy/server/dist/cli/buddy.js" graph "${args[@]}" --open
+fi
 ```
 
 Execute the bash block above, then report the saved graph path and basic graph counts back to the user.
