@@ -230,6 +230,14 @@ describe('computeRGB', () => {
     expect(result).toEqual([0x66, 0x66, 0x66]); // fallback anchor 0
   });
 
+  it('falls back to common metals/saturation for unknown rarity (no crash)', () => {
+    // Runtime safety: TS narrows callers to valid Rarity, but JSON deserialization or
+    // schema drift could feed an unknown string. Should fall back to common, not throw.
+    const unknown = computeRGB('Cactus', 'mythic' as never, 0);
+    const commonAt0 = computeRGB('Cactus', 'common', 0);
+    expect(unknown).toEqual(commonAt0);
+  });
+
   it('produces the rarity metal 1 color (tinted) at Lv 40', () => {
     // p = (40-1)/49 = 0.7959, which falls in the species4→metal1 bridge segment [0.6, 0.8].
     // At p=0.7959, localT = (0.7959-0.6) / (0.8-0.6) = 0.9796 — very close to metal1.

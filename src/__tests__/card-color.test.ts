@@ -27,6 +27,9 @@ describe('renderCard color integration', () => {
     const companion = makeCompanion({ species: 'Cactus', rarity: 'rare', xp: 0 });
     const card = renderCard(companion);
     const expectedColor = colorFor('Cactus', 'rare', 0);
+    // Guard: under NO_COLOR, colorFor returns '' and toContain('') is vacuously true.
+    // Fail loudly if the test env can't actually exercise the colorization path.
+    expect(expectedColor).not.toBe('');
     expect(card).toContain(expectedColor);
   });
 

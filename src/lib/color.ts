@@ -119,7 +119,11 @@ const BREAKPOINTS = [0, 0.2, 0.4, 0.6, 0.8, 1.0] as const;
 export function computeRGB(species: string, rarity: Rarity, totalXp: number): RGB {
   const p = rampPosition(totalXp);
   const speciesAnchors = SPECIES_PALETTES[species] ?? FALLBACK_SPECIES_PALETTE;
-  const metalAnchors = RARITY_METALS[rarity];
+  // Fall back to common metals/saturation for invalid rarities (e.g., a buddy
+  // state file with a stale or unknown rarity from a schema migration). Better
+  // to render a muted sprite than to crash the entire statusline.
+  const metalAnchors = RARITY_METALS[rarity] ?? RARITY_METALS.common;
+  const saturation = RARITY_SATURATION[rarity] ?? RARITY_SATURATION.common;
 
   const anchors: RGB[] = [
     speciesAnchors[0], speciesAnchors[1], speciesAnchors[2], speciesAnchors[3],
@@ -127,7 +131,7 @@ export function computeRGB(species: string, rarity: Rarity, totalXp: number): RG
   ];
 
   const interpolated = interpolateAnchors(anchors, [...BREAKPOINTS], p);
-  return applySaturationTint(interpolated, RARITY_SATURATION[rarity]);
+  return applySaturationTint(interpolated, saturation);
 }
 
 export function detectCapabilities(env: NodeJS.ProcessEnv = process.env): TerminalCapabilities {

@@ -49,8 +49,8 @@ export function renderCard(companion: Companion): string {
     const padded = ln(l);
     const prefix = '| ';
     const suffix = ' |';
-    const inner = padded.slice(prefix.length, padded.length - suffix.length);
-    return `${prefix}${spriteColor}${inner}${spriteReset}${suffix}`;
+    const artInner = padded.slice(prefix.length, padded.length - suffix.length);
+    return `${prefix}${spriteColor}${artInner}${spriteReset}${suffix}`;
   });
 
   return [
