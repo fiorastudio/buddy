@@ -3,6 +3,7 @@ import type { RGB, TerminalCapabilities } from '../lib/color.js';
 import { NEUTRAL_GRAY } from '../lib/color.js';
 import { SPECIES_PALETTES, FALLBACK_SPECIES_PALETTE } from '../lib/color.js';
 import { RARITY_METALS, RARITY_SATURATION } from '../lib/color.js';
+import { clamp, lerpRGB } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 
@@ -76,5 +77,34 @@ describe('RARITY_METALS and RARITY_SATURATION', () => {
     expect(RARITY_SATURATION.rare).toBe(1.05);
     expect(RARITY_SATURATION.epic).toBe(1.12);
     expect(RARITY_SATURATION.legendary).toBe(1.20);
+  });
+});
+
+describe('clamp', () => {
+  it('returns value when within range', () => {
+    expect(clamp(50, 0, 100)).toBe(50);
+  });
+  it('returns min when below', () => {
+    expect(clamp(-10, 0, 100)).toBe(0);
+  });
+  it('returns max when above', () => {
+    expect(clamp(200, 0, 100)).toBe(100);
+  });
+});
+
+describe('lerpRGB', () => {
+  it('returns a at t=0', () => {
+    expect(lerpRGB([10, 20, 30], [100, 200, 250], 0)).toEqual([10, 20, 30]);
+  });
+  it('returns b at t=1', () => {
+    expect(lerpRGB([10, 20, 30], [100, 200, 250], 1)).toEqual([100, 200, 250]);
+  });
+  it('returns midpoint at t=0.5', () => {
+    expect(lerpRGB([0, 0, 0], [200, 200, 200], 0.5)).toEqual([100, 100, 100]);
+  });
+  it('rounds to integer channels', () => {
+    const result = lerpRGB([0, 0, 0], [3, 3, 3], 0.5);
+    expect(result[0]).toBe(2); // 1.5 rounds to 2
+    expect(Number.isInteger(result[0])).toBe(true);
   });
 });
