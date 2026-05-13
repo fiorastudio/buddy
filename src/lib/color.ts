@@ -210,3 +210,32 @@ export function rgbToAnsi16(rgb: RGB): string {
   if (!rOn && gOn && !bOn) return '\x1b[32m'; // green
   return '\x1b[34m'; // blue (only remaining case)
 }
+
+let cachedCaps: TerminalCapabilities | null = null;
+
+function getDefaultCapabilities(): TerminalCapabilities {
+  if (cachedCaps === null) cachedCaps = detectCapabilities();
+  return cachedCaps;
+}
+
+const BOLD_RARITIES: ReadonlySet<Rarity> = new Set(['rare', 'epic', 'legendary']);
+
+export function colorFor(
+  species: string,
+  rarity: Rarity,
+  totalXp: number,
+  caps: TerminalCapabilities = getDefaultCapabilities(),
+): string {
+  if (caps.noColor) return '';
+
+  const rgb = computeRGB(species, rarity, totalXp);
+  const boldPrefix = BOLD_RARITIES.has(rarity) ? '\x1b[1m' : '';
+
+  if (caps.truecolor) {
+    return `${boldPrefix}\x1b[38;2;${rgb[0]};${rgb[1]};${rgb[2]}m`;
+  }
+  if (caps.ansi256) {
+    return `${boldPrefix}\x1b[38;5;${rgbTo256(rgb)}m`;
+  }
+  return `${boldPrefix}${rgbToAnsi16(rgb)}`;
+}

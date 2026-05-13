@@ -11,6 +11,7 @@ import { computeRGB } from '../lib/color.js';
 import { detectCapabilities } from '../lib/color.js';
 import { rgbTo256 } from '../lib/color.js';
 import { rgbToAnsi16 } from '../lib/color.js';
+import { colorFor } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 import { totalXpForLevel } from '../lib/leveling.js';
@@ -367,5 +368,49 @@ describe('rgbToAnsi16', () => {
   });
   it('maps near-black to ANSI 30 (black)', () => {
     expect(rgbToAnsi16([10, 10, 10])).toBe('\x1b[30m');
+  });
+});
+
+describe('colorFor (public API)', () => {
+  const truecolor: TerminalCapabilities = { truecolor: true, ansi256: false, ansi16: false, noColor: false };
+  const ansi256: TerminalCapabilities = { truecolor: false, ansi256: true, ansi16: false, noColor: false };
+  const ansi16: TerminalCapabilities = { truecolor: false, ansi256: false, ansi16: true, noColor: false };
+  const noColor: TerminalCapabilities = { truecolor: false, ansi256: false, ansi16: false, noColor: true };
+
+  it('returns empty string when NO_COLOR', () => {
+    expect(colorFor('Cactus', 'rare', 0, noColor)).toBe('');
+  });
+
+  it('emits truecolor escape when truecolor', () => {
+    // Cactus uncommon Lv 1 = [155, 135, 87], no bold (uncommon).
+    expect(colorFor('Cactus', 'uncommon', 0, truecolor)).toBe('\x1b[38;2;155;135;87m');
+  });
+
+  it('prepends bold escape for Rare buddies', () => {
+    expect(colorFor('Cactus', 'rare', 0, truecolor)).toMatch(/^\x1b\[1m\x1b\[38;2;/);
+  });
+
+  it('prepends bold escape for Epic buddies', () => {
+    expect(colorFor('Cactus', 'epic', 0, truecolor)).toMatch(/^\x1b\[1m/);
+  });
+
+  it('prepends bold escape for Legendary buddies', () => {
+    expect(colorFor('Cactus', 'legendary', 0, truecolor)).toMatch(/^\x1b\[1m/);
+  });
+
+  it('does NOT prepend bold for Common', () => {
+    expect(colorFor('Cactus', 'common', 0, truecolor).startsWith('\x1b[1m')).toBe(false);
+  });
+
+  it('does NOT prepend bold for Uncommon', () => {
+    expect(colorFor('Cactus', 'uncommon', 0, truecolor).startsWith('\x1b[1m')).toBe(false);
+  });
+
+  it('emits 256-color escape when ansi256', () => {
+    expect(colorFor('Cactus', 'uncommon', 0, ansi256)).toMatch(/^\x1b\[38;5;\d+m$/);
+  });
+
+  it('emits ANSI 16-color escape when ansi16', () => {
+    expect(colorFor('Cactus', 'uncommon', 0, ansi16)).toMatch(/^\x1b\[3[0-7]m$/);
   });
 });
