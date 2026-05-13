@@ -1,6 +1,4 @@
 // src/lib/color.ts — buddy color progression (species × rarity × XP → ANSI escape)
-//
-// See docs/superpowers/specs/2026-05-12-buddy-color-progression-design.md for the design.
 
 import type { Rarity } from './types.js';
 import { levelProgress } from './leveling.js';
