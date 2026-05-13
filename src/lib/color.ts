@@ -131,3 +131,48 @@ export function computeRGB(species: string, rarity: Rarity, totalXp: number): RG
   const interpolated = interpolateAnchors(anchors, [...BREAKPOINTS], p);
   return applySaturationTint(interpolated, RARITY_SATURATION[rarity]);
 }
+
+export function detectCapabilities(env: NodeJS.ProcessEnv = process.env): TerminalCapabilities {
+  const caps: TerminalCapabilities = {
+    truecolor: false, ansi256: false, ansi16: false, noColor: false,
+  };
+
+  // 1. NO_COLOR — highest priority, any value (including "") counts.
+  if (env.NO_COLOR !== undefined) {
+    caps.noColor = true;
+    return caps;
+  }
+
+  // 2. COLORTERM explicit truecolor declaration.
+  if (env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit') {
+    caps.truecolor = true;
+    return caps;
+  }
+
+  // 3. Windows Terminal sets WT_SESSION; it supports truecolor.
+  if (env.WT_SESSION) {
+    caps.truecolor = true;
+    return caps;
+  }
+
+  // 4. Well-known truecolor TERM_PROGRAMs.
+  if (env.TERM_PROGRAM === 'iTerm.app' || env.TERM_PROGRAM === 'vscode') {
+    caps.truecolor = true;
+    return caps;
+  }
+
+  // 5. TERM suffix.
+  const term = env.TERM ?? '';
+  if (term.endsWith('-truecolor') || term.endsWith('-direct')) {
+    caps.truecolor = true;
+    return caps;
+  }
+  if (term.endsWith('-256color')) {
+    caps.ansi256 = true;
+    return caps;
+  }
+
+  // 6. Fallback.
+  caps.ansi16 = true;
+  return caps;
+}

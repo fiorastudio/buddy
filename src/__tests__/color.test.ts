@@ -8,6 +8,7 @@ import { rampPosition } from '../lib/color.js';
 import { interpolateAnchors } from '../lib/color.js';
 import { applySaturationTint } from '../lib/color.js';
 import { computeRGB } from '../lib/color.js';
+import { detectCapabilities } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 import { totalXpForLevel } from '../lib/leveling.js';
@@ -242,5 +243,70 @@ describe('computeRGB', () => {
     // g: 128 + (201-128)*1.05 = 128 + 76.65 → 205
     // b: 128 + (72-128)*1.05 = 128 - 58.8 → 69
     expect(computeRGB('Cactus', 'rare', totalXpForLevel(50))).toEqual([250, 205, 69]);
+  });
+});
+
+describe('detectCapabilities', () => {
+  // Each test passes an explicit env to avoid global mutation.
+  it('NO_COLOR defined → noColor true (highest priority)', () => {
+    const caps = detectCapabilities({ NO_COLOR: '1', COLORTERM: 'truecolor' });
+    expect(caps.noColor).toBe(true);
+    expect(caps.truecolor).toBe(false);
+  });
+
+  it('NO_COLOR empty string still triggers no-color (per spec convention)', () => {
+    const caps = detectCapabilities({ NO_COLOR: '' });
+    expect(caps.noColor).toBe(true);
+  });
+
+  it('COLORTERM=truecolor → truecolor', () => {
+    const caps = detectCapabilities({ COLORTERM: 'truecolor' });
+    expect(caps.truecolor).toBe(true);
+  });
+
+  it('COLORTERM=24bit → truecolor', () => {
+    const caps = detectCapabilities({ COLORTERM: '24bit' });
+    expect(caps.truecolor).toBe(true);
+  });
+
+  it('WT_SESSION set → truecolor (Windows Terminal)', () => {
+    const caps = detectCapabilities({ WT_SESSION: 'some-guid' });
+    expect(caps.truecolor).toBe(true);
+  });
+
+  it("TERM_PROGRAM=iTerm.app → truecolor", () => {
+    const caps = detectCapabilities({ TERM_PROGRAM: 'iTerm.app' });
+    expect(caps.truecolor).toBe(true);
+  });
+
+  it("TERM_PROGRAM=vscode → truecolor", () => {
+    const caps = detectCapabilities({ TERM_PROGRAM: 'vscode' });
+    expect(caps.truecolor).toBe(true);
+  });
+
+  it('TERM ending in -truecolor → truecolor', () => {
+    const caps = detectCapabilities({ TERM: 'xterm-truecolor' });
+    expect(caps.truecolor).toBe(true);
+  });
+
+  it('TERM ending in -direct → truecolor', () => {
+    const caps = detectCapabilities({ TERM: 'xterm-direct' });
+    expect(caps.truecolor).toBe(true);
+  });
+
+  it('TERM ending in -256color → ansi256', () => {
+    const caps = detectCapabilities({ TERM: 'xterm-256color' });
+    expect(caps.ansi256).toBe(true);
+    expect(caps.truecolor).toBe(false);
+  });
+
+  it('plain TERM=xterm → ansi16', () => {
+    const caps = detectCapabilities({ TERM: 'xterm' });
+    expect(caps.ansi16).toBe(true);
+  });
+
+  it('empty env → ansi16 fallback', () => {
+    const caps = detectCapabilities({});
+    expect(caps.ansi16).toBe(true);
   });
 });
