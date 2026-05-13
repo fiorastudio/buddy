@@ -7,6 +7,7 @@ import { clamp, lerpRGB } from '../lib/color.js';
 import { rampPosition } from '../lib/color.js';
 import { interpolateAnchors } from '../lib/color.js';
 import { applySaturationTint } from '../lib/color.js';
+import { computeRGB } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 import { totalXpForLevel } from '../lib/leveling.js';
@@ -195,5 +196,33 @@ describe('applySaturationTint', () => {
     // r: 128 + (10-128)*1.2 = 128 - 141.6 = -13.6 → clamped to 0
     const result = applySaturationTint([10, 10, 10], 1.2);
     expect(result).toEqual([0, 0, 0]);
+  });
+});
+
+describe('computeRGB', () => {
+  it('returns the first species anchor (tinted) at Lv 1 totalXp=0', () => {
+    // Cactus anchor 0 = [0x9b, 0x87, 0x57] = [155, 135, 87]. Uncommon factor = 1.0 (identity).
+    expect(computeRGB('Cactus', 'uncommon', 0)).toEqual([155, 135, 87]);
+  });
+
+  it('common rarity mutes the species color', () => {
+    // Cactus anchor 0 tinted by 0.85: each channel pulled toward 128.
+    // r: 128 + (155-128)*0.85 = 128 + 22.95 → 151
+    // g: 128 + (135-128)*0.85 = 128 + 5.95 → 134
+    // b: 128 + (87-128)*0.85 = 128 + -34.85 → 93
+    expect(computeRGB('Cactus', 'common', 0)).toEqual([151, 134, 93]);
+  });
+
+  it('legendary rarity boosts saturation', () => {
+    // Cactus anchor 0 tinted by 1.2:
+    // r: 128 + (155-128)*1.2 = 128 + 32.4 → 160
+    // g: 128 + (135-128)*1.2 = 128 + 8.4 → 136
+    // b: 128 + (87-128)*1.2 = 128 + -49.2 → 79
+    expect(computeRGB('Cactus', 'legendary', 0)).toEqual([160, 136, 79]);
+  });
+
+  it('falls back to FALLBACK_SPECIES_PALETTE for unknown species', () => {
+    const result = computeRGB('Pegasus', 'uncommon', 0); // not a real species
+    expect(result).toEqual([0x66, 0x66, 0x66]); // fallback anchor 0
   });
 });

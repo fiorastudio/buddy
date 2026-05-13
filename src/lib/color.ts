@@ -115,3 +115,19 @@ export function applySaturationTint(rgb: RGB, factor: number): RGB {
     clamp(Math.round(gb + (rgb[2] - gb) * factor), 0, 255),
   ];
 }
+
+const BREAKPOINTS = [0, 0.2, 0.4, 0.6, 0.8, 1.0] as const;
+
+export function computeRGB(species: string, rarity: Rarity, totalXp: number): RGB {
+  const p = rampPosition(totalXp);
+  const speciesAnchors = SPECIES_PALETTES[species] ?? FALLBACK_SPECIES_PALETTE;
+  const metalAnchors = RARITY_METALS[rarity];
+
+  const anchors: RGB[] = [
+    speciesAnchors[0], speciesAnchors[1], speciesAnchors[2], speciesAnchors[3],
+    metalAnchors[0], metalAnchors[1],
+  ];
+
+  const interpolated = interpolateAnchors(anchors, [...BREAKPOINTS], p);
+  return applySaturationTint(interpolated, RARITY_SATURATION[rarity]);
+}
