@@ -225,4 +225,22 @@ describe('computeRGB', () => {
     const result = computeRGB('Pegasus', 'uncommon', 0); // not a real species
     expect(result).toEqual([0x66, 0x66, 0x66]); // fallback anchor 0
   });
+
+  it('produces the rarity metal 1 color (tinted) at Lv 40', () => {
+    // p = (40-1)/49 = 0.7959, which falls in the species4→metal1 bridge segment [0.6, 0.8].
+    // At p=0.7959, localT = (0.7959-0.6) / (0.8-0.6) = 0.9796 — very close to metal1.
+    // For rare Cactus: species[3]=[0xe8,0xb0,0x4a]=[232,176,74], metal1=[0xc8,0x9a,0x2e]=[200,154,46]
+    // lerp at t=0.9796: r=232+(200-232)*0.9796≈201, g=176+(154-176)*0.9796≈155, b=74+(46-74)*0.9796≈47
+    // Then tint by rare (1.05): r=128+(201-128)*1.05=204.65→205, g=128+(155-128)*1.05=156.35→156, b=128+(47-128)*1.05=43.05→43
+    expect(computeRGB('Cactus', 'rare', totalXpForLevel(40))).toEqual([205, 155, 43]);
+  });
+
+  it('returns the final metal anchor (tinted) at Lv 50', () => {
+    // p = 1.0 (level >= 50 short-circuit). interpolateAnchors returns last anchor = metal2.
+    // For rare Cactus: metal2 = [0xf4, 0xc9, 0x48] = [244, 201, 72]. Tint by rare (1.05):
+    // r: 128 + (244-128)*1.05 = 128 + 121.8 → 250
+    // g: 128 + (201-128)*1.05 = 128 + 76.65 → 205
+    // b: 128 + (72-128)*1.05 = 128 - 58.8 → 69
+    expect(computeRGB('Cactus', 'rare', totalXpForLevel(50))).toEqual([250, 205, 69]);
+  });
 });
