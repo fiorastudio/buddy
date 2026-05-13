@@ -92,3 +92,17 @@ export function rampPosition(totalXp: number): number {
   const progress = neededXp > 0 ? currentXp / neededXp : 0;
   return clamp((level - 1 + progress) / 49, 0, 1);
 }
+
+export function interpolateAnchors(
+  anchors: readonly RGB[],
+  breakpoints: readonly number[],
+  p: number,
+): RGB {
+  for (let i = 1; i < breakpoints.length; i++) {
+    if (p <= breakpoints[i]!) {
+      const localT = (p - breakpoints[i - 1]!) / (breakpoints[i]! - breakpoints[i - 1]!);
+      return lerpRGB(anchors[i - 1]!, anchors[i]!, localT);
+    }
+  }
+  return anchors[anchors.length - 1]!;
+}

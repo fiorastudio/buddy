@@ -5,6 +5,7 @@ import { SPECIES_PALETTES, FALLBACK_SPECIES_PALETTE } from '../lib/color.js';
 import { RARITY_METALS, RARITY_SATURATION } from '../lib/color.js';
 import { clamp, lerpRGB } from '../lib/color.js';
 import { rampPosition } from '../lib/color.js';
+import { interpolateAnchors } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
 import { totalXpForLevel } from '../lib/leveling.js';
@@ -137,5 +138,32 @@ describe('rampPosition', () => {
       expect(p, `p at Lv ${lvl}`).toBeGreaterThanOrEqual(prev);
       prev = p;
     }
+  });
+});
+
+describe('interpolateAnchors', () => {
+  const anchors: RGB[] = [
+    [0, 0, 0],
+    [50, 100, 150],
+    [100, 200, 250],
+    [255, 255, 255],
+  ];
+  const breakpoints = [0, 0.3, 0.7, 1.0];
+
+  it('returns first anchor at p=0', () => {
+    expect(interpolateAnchors(anchors, breakpoints, 0)).toEqual([0, 0, 0]);
+  });
+
+  it('returns exact anchor at internal breakpoint', () => {
+    expect(interpolateAnchors(anchors, breakpoints, 0.3)).toEqual([50, 100, 150]);
+  });
+
+  it('returns last anchor at p=1', () => {
+    expect(interpolateAnchors(anchors, breakpoints, 1.0)).toEqual([255, 255, 255]);
+  });
+
+  it('interpolates linearly within a segment (p=0.5 between breakpoints 0.3 and 0.7)', () => {
+    // local t = (0.5 - 0.3) / (0.7 - 0.3) = 0.5; midway between [50,100,150] and [100,200,250]
+    expect(interpolateAnchors(anchors, breakpoints, 0.5)).toEqual([75, 150, 200]);
   });
 });
