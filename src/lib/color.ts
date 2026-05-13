@@ -218,7 +218,7 @@ function getDefaultCapabilities(): TerminalCapabilities {
   return cachedCaps;
 }
 
-const BOLD_RARITIES: ReadonlySet<Rarity> = new Set(['rare', 'epic', 'legendary']);
+export const BOLD_RARITIES: ReadonlySet<Rarity> = new Set(['rare', 'epic', 'legendary']);
 
 export function colorFor(
   species: string,
