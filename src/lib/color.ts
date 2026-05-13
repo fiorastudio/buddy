@@ -2,6 +2,8 @@
 //
 // See docs/superpowers/specs/2026-05-12-buddy-color-progression-design.md for the design.
 
+import type { Rarity } from './types.js';
+
 export type RGB = readonly [number, number, number];
 
 export interface TerminalCapabilities {
@@ -49,3 +51,24 @@ export const FALLBACK_SPECIES_PALETTE: readonly [RGB, RGB, RGB, RGB] = [
   [0x4a, 0xa8, 0x6a],
   [0xd6, 0xa8, 0x4a],
 ];
+
+// Tier-break rarity ladder. Common/Uncommon get utilitarian metals (Iron, Copper);
+// the visible break to precious materials happens at Rare ("rare should mean rare").
+export const RARITY_METALS: Record<Rarity, readonly [RGB, RGB]> = {
+  common:    [[0x6a, 0x6a, 0x6e], [0x8a, 0x8a, 0x8e]], // Iron → Polished Iron
+  uncommon:  [[0xa8, 0x6a, 0x3a], [0xb8, 0x8a, 0x5e]], // Copper → Patina Copper
+  rare:      [[0xc8, 0x9a, 0x2e], [0xf4, 0xc9, 0x48]], // Gold I → Gold II (the jump)
+  epic:      [[0x8a, 0xcd, 0xd9], [0xdc, 0xee, 0xf4]], // Diamond → Iridescent
+  legendary: [[0xca, 0xbc, 0x94], [0xf4, 0xee, 0xdc]], // Aurum → Aurum Sheen
+};
+
+// Applied uniformly across species AND metal segments. Common buddies render
+// slightly muted, legendary buddies slightly extra-saturated — rarity is
+// readable from Lv 1 through Lv 50.
+export const RARITY_SATURATION: Record<Rarity, number> = {
+  common:    0.85,
+  uncommon:  1.00,
+  rare:      1.05,
+  epic:      1.12,
+  legendary: 1.20,
+};

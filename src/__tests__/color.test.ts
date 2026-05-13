@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import type { RGB, TerminalCapabilities } from '../lib/color.js';
 import { NEUTRAL_GRAY } from '../lib/color.js';
 import { SPECIES_PALETTES, FALLBACK_SPECIES_PALETTE } from '../lib/color.js';
+import { RARITY_METALS, RARITY_SATURATION } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
+import { RARITIES } from '../lib/types.js';
 
 describe('color module — types and constants', () => {
   it('exports NEUTRAL_GRAY as RGB [128, 128, 128]', () => {
@@ -52,5 +54,27 @@ describe('SPECIES_PALETTES', () => {
 
   it('FALLBACK_SPECIES_PALETTE has 4 RGB anchors', () => {
     expect(FALLBACK_SPECIES_PALETTE).toHaveLength(4);
+  });
+});
+
+describe('RARITY_METALS and RARITY_SATURATION', () => {
+  it('RARITY_METALS has an entry for every rarity', () => {
+    for (const rarity of RARITIES) {
+      expect(RARITY_METALS[rarity], `missing metals for ${rarity}`).toBeDefined();
+    }
+  });
+
+  it('every rarity has exactly 2 metal anchors', () => {
+    for (const rarity of RARITIES) {
+      expect(RARITY_METALS[rarity]).toHaveLength(2);
+    }
+  });
+
+  it('RARITY_SATURATION values match the spec table', () => {
+    expect(RARITY_SATURATION.common).toBe(0.85);
+    expect(RARITY_SATURATION.uncommon).toBe(1.00);
+    expect(RARITY_SATURATION.rare).toBe(1.05);
+    expect(RARITY_SATURATION.epic).toBe(1.12);
+    expect(RARITY_SATURATION.legendary).toBe(1.20);
   });
 });
