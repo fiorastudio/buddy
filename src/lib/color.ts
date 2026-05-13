@@ -3,6 +3,7 @@
 // See docs/superpowers/specs/2026-05-12-buddy-color-progression-design.md for the design.
 
 import type { Rarity } from './types.js';
+import { levelProgress } from './leveling.js';
 
 export type RGB = readonly [number, number, number];
 
@@ -83,4 +84,11 @@ export function lerpRGB(a: RGB, b: RGB, t: number): RGB {
     Math.round(a[1] + (b[1] - a[1]) * t),
     Math.round(a[2] + (b[2] - a[2]) * t),
   ];
+}
+
+export function rampPosition(totalXp: number): number {
+  const { level, currentXp, neededXp } = levelProgress(totalXp);
+  if (level >= 50) return 1.0;
+  const progress = neededXp > 0 ? currentXp / neededXp : 0;
+  return clamp((level - 1 + progress) / 49, 0, 1);
 }

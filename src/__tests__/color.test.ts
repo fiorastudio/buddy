@@ -4,8 +4,10 @@ import { NEUTRAL_GRAY } from '../lib/color.js';
 import { SPECIES_PALETTES, FALLBACK_SPECIES_PALETTE } from '../lib/color.js';
 import { RARITY_METALS, RARITY_SATURATION } from '../lib/color.js';
 import { clamp, lerpRGB } from '../lib/color.js';
+import { rampPosition } from '../lib/color.js';
 import { SPECIES_LIST } from '../lib/species.js';
 import { RARITIES } from '../lib/types.js';
+import { totalXpForLevel } from '../lib/leveling.js';
 
 describe('color module — types and constants', () => {
   it('exports NEUTRAL_GRAY as RGB [128, 128, 128]', () => {
@@ -106,5 +108,34 @@ describe('lerpRGB', () => {
     const result = lerpRGB([0, 0, 0], [3, 3, 3], 0.5);
     expect(result[0]).toBe(2); // 1.5 rounds to 2
     expect(Number.isInteger(result[0])).toBe(true);
+  });
+});
+
+describe('rampPosition', () => {
+  it('returns 0 at totalXp=0 (Lv 1, no progress)', () => {
+    expect(rampPosition(0)).toBe(0);
+  });
+
+  it('returns 1.0 at total XP for Lv 50', () => {
+    expect(rampPosition(totalXpForLevel(50))).toBe(1.0);
+  });
+
+  it('returns 1.0 for XP beyond max level', () => {
+    expect(rampPosition(totalXpForLevel(50) + 10000)).toBe(1.0);
+  });
+
+  it('returns ~0.6 at Lv 30 with zero progress (species → metal bridge entry)', () => {
+    const result = rampPosition(totalXpForLevel(30));
+    // (30 - 1 + 0) / 49 = 0.5918...
+    expect(result).toBeCloseTo(29 / 49, 3);
+  });
+
+  it('is monotonically increasing across the level range', () => {
+    let prev = -1;
+    for (let lvl = 1; lvl <= 50; lvl++) {
+      const p = rampPosition(totalXpForLevel(lvl));
+      expect(p, `p at Lv ${lvl}`).toBeGreaterThanOrEqual(prev);
+      prev = p;
+    }
   });
 });
