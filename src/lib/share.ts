@@ -1,6 +1,5 @@
 import { type Companion, STAT_NAMES, RARITY_STARS } from './types.js';
 import { levelProgress } from './leveling.js';
-import { computeRGB, BOLD_RARITIES } from './color.js';
 
 export function escapeHtml(unsafe: string): string {
   return unsafe
@@ -16,9 +15,6 @@ export const SPRITE_PLACEHOLDER = 'BUDDY_SPRITE_7f3a9';
 export function renderShareHtml(companion: Companion): string {
   const stars = RARITY_STARS[companion.rarity];
   const { level, currentXp, neededXp } = levelProgress(companion.xp);
-  const [r, g, b] = computeRGB(companion.species, companion.rarity, companion.xp);
-  const fontWeight = BOLD_RARITIES.has(companion.rarity) ? 'bold' : 'normal';
-  const spriteStyle = `color: rgb(${r}, ${g}, ${b}); font-weight: ${fontWeight}`;
 
   const statsHtml = STAT_NAMES.map(s => {
     const val = companion.stats[s] ?? 0;
@@ -201,7 +197,7 @@ export function renderShareHtml(companion: Companion): string {
     
     <div class="main-area">
       <div class="sprite-box">
-        <pre style="${spriteStyle}">${SPRITE_PLACEHOLDER}</pre>
+        <pre>${SPRITE_PLACEHOLDER}</pre>
       </div>
       <div class="info-box">
         <h1 class="name">${escapeHtml(companion.name)}</h1>
