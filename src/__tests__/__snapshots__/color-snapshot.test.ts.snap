@@ -1,0 +1,31 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`color fixtures (snapshot contract) > common-cactus-lv1 renders to a stable ANSI string 1`] = `"[38;2;151;134;93m"`;
+
+exports[`color fixtures (snapshot contract) > common-robot-lv50-iron renders to a stable ANSI string 1`] = `"[38;2;137;137;140m"`;
+
+exports[`color fixtures (snapshot contract) > epic-cactus-lv1 renders to a stable ANSI string 1`] = `"[1m[38;2;158;136;82m"`;
+
+exports[`color fixtures (snapshot contract) > epic-robot-lv50-diamond renders to a stable ANSI string 1`] = `"[1m[38;2;231;251;255m"`;
+
+exports[`color fixtures (snapshot contract) > fallback-pegasus renders to a stable ANSI string 1`] = `"[38;2;102;102;102m"`;
+
+exports[`color fixtures (snapshot contract) > legendary-cactus-lv1 renders to a stable ANSI string 1`] = `"[1m[38;2;160;136;79m"`;
+
+exports[`color fixtures (snapshot contract) > legendary-robot-lv50-aurum renders to a stable ANSI string 1`] = `"[1m[38;2;255;255;238m"`;
+
+exports[`color fixtures (snapshot contract) > rare-cactus-lv1 renders to a stable ANSI string 1`] = `"[1m[38;2;156;135;85m"`;
+
+exports[`color fixtures (snapshot contract) > rare-penguin-lv35-bridge renders to a stable ANSI string 1`] = `"[1m[38;2;152;190;102m"`;
+
+exports[`color fixtures (snapshot contract) > rare-robot-lv50-gold renders to a stable ANSI string 1`] = `"[1m[38;2;250;205;69m"`;
+
+exports[`color fixtures (snapshot contract) > uncommon-cactus-lv1 renders to a stable ANSI string 1`] = `"[38;2;155;135;87m"`;
+
+exports[`color fixtures (snapshot contract) > uncommon-octopus-lv10 renders to a stable ANSI string 1`] = `"[38;2;90;73;166m"`;
+
+exports[`color fixtures (snapshot contract) > uncommon-octopus-lv20 renders to a stable ANSI string 1`] = `"[38;2;63;134;211m"`;
+
+exports[`color fixtures (snapshot contract) > uncommon-octopus-lv30 renders to a stable ANSI string 1`] = `"[38;2;62;211;195m"`;
+
+exports[`color fixtures (snapshot contract) > uncommon-robot-lv50-copper renders to a stable ANSI string 1`] = `"[38;2;184;138;94m"`;

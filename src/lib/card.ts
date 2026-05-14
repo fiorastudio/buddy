@@ -4,11 +4,17 @@ import { renderSprite } from './species.js';
 import { type Companion, STAT_NAMES, RARITY_STARS } from './types.js';
 import { statBar } from './rng.js';
 import { levelProgress } from './leveling.js';
+import { colorFor, type TerminalCapabilities } from './color.js';
+import { RESET } from './ansi.js';
 
 /**
  * Render a bordered ASCII stat card for a companion.
+ *
+ * `caps` is forwarded to `colorFor` so tests (and any future caller that
+ * needs to force a tier) can drive deterministic output. In production
+ * callers omit it and the cached env-detected capabilities are used.
  */
-export function renderCard(companion: Companion): string {
+export function renderCard(companion: Companion, caps?: TerminalCapabilities): string {
   const art = renderSprite(companion);
   const stars = RARITY_STARS[companion.rarity];
   const statLines = STAT_NAMES.map(s => statBar(s, companion.stats[s]));
@@ -41,11 +47,21 @@ export function renderCard(companion: Companion): string {
     if (cur) bioLines.push(ln(' ' + cur));
   }
 
+  const spriteColor = colorFor(companion.species, companion.rarity, companion.xp, caps);
+  const spriteReset = spriteColor ? RESET : '';
+  const coloredArt = art.map(l => {
+    const padded = ln(l);
+    const prefix = '| ';
+    const suffix = ' |';
+    const artInner = padded.slice(prefix.length, padded.length - suffix.length);
+    return `${prefix}${spriteColor}${artInner}${spriteReset}${suffix}`;
+  });
+
   return [
     topBorder,
     headerLine,
     emptyLine,
-    ...art.map(l => ln(l)),
+    ...coloredArt,
     emptyLine,
     ln(companion.name),
     ...(bioLines.length > 0 ? [emptyLine, ...bioLines] : []),
