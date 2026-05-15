@@ -8,16 +8,56 @@ import { CAUTION_FINDINGS, KUDOS_FINDINGS } from './types.js';
 
 const DB_PATH = process.env.BUDDY_DB_PATH || join(homedir(), '.buddy', 'buddy.db');
 
-const BASIS_COLORS: Record<string, string> = {
-  research: '#2196F3',
-  empirical: '#4CAF50',
-  deduction: '#9C27B0',
-  analogy: '#FF9800',
-  definition: '#607D8B',
-  llm_output: '#FFC107',
-  assumption: '#F44336',
-  vibes: '#E91E63',
+const BASIS_STYLES: Record<string, { color: string; shape: string }> = {
+  research: { color: '#1E88E5', shape: 'trapezoid' },
+  empirical: { color: '#43A047', shape: 'diamond' },
+  deduction: { color: '#8E24AA', shape: 'circle' },
+  analogy: { color: '#FB8C00', shape: 'wideRect' },
+  definition: { color: '#546E7A', shape: 'hexagon' },
+  llm_output: { color: '#FDD835', shape: 'octagon' },
+  assumption: { color: '#6D4C41', shape: 'box' },
+  vibes: { color: '#E53935', shape: 'triangleDown' },
 };
+
+const BASIS_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(BASIS_STYLES).map(([basis, style]) => [basis, style.color])
+);
+
+function svgMarkupForBasisShape(shape: string, fill: string, stroke: string, strokeWidth: number): string {
+  const common = `fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}"`;
+  switch (shape) {
+    case 'trapezoid':
+      return `<polygon points="22,12 78,12 92,88 8,88" ${common} />`;
+    case 'diamond':
+      return `<polygon points="50,8 92,50 50,92 8,50" ${common} />`;
+    case 'circle':
+      return `<circle cx="50" cy="50" r="38" ${common} />`;
+    case 'wideRect':
+      return `<rect x="8" y="24" width="84" height="52" rx="2" ry="2" ${common} />`;
+    case 'hexagon':
+      return `<polygon points="25,10 75,10 92,50 75,90 25,90 8,50" ${common} />`;
+    case 'octagon':
+      return `<polygon points="30,8 70,8 92,30 92,70 70,92 30,92 8,70 8,30" ${common} />`;
+    case 'triangleDown':
+      return `<polygon points="8,12 92,12 50,92" ${common} />`;
+    case 'box':
+      return `<rect x="12" y="12" width="76" height="76" rx="6" ry="6" ${common} />`;
+    default:
+      return `<circle cx="50" cy="50" r="38" ${common} />`;
+  }
+}
+
+function makeNodeSvg(shape: string, fill: string, stroke: string, strokeWidth: number): string {
+  const body = svgMarkupForBasisShape(shape, fill, stroke, strokeWidth);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">${body}</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function makeLegendIconSvg(shape: string, fill: string): string {
+  const body = svgMarkupForBasisShape(shape, fill, 'rgba(0,0,0,0.18)', 4);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 100 100">${body}</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
 
 const EDGE_COLORS: Record<string, string> = {
   supports: '#2196F3',
@@ -150,8 +190,10 @@ function buildHtml(params: {
     h3 { margin: 0 0 8px; font-size: 14px; color: #445; text-transform: uppercase; letter-spacing: 0.04em; }
     select, input { width: 100%; padding: 8px 10px; border: 1px solid #ccd3db; border-radius: 10px; box-sizing: border-box; }
     .filters { display: flex; flex-wrap: wrap; gap: 8px; }
-    .filter-chip { border: 1px solid #ccd3db; border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; background: #fff; }
+    .filter-chip { border: 1px solid #ccd3db; border-radius: 999px; padding: 6px 10px; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; background: #fff; color: #111; }
     .filter-chip.active { background: #111; color: #fff; border-color: #111; }
+    .basis-icon { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .basis-icon img { width: 14px; height: 14px; display: block; }
     .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
     #detail { font-size: 13px; line-height: 1.45; color: #223; }
     .empty { color: #667; }
@@ -191,7 +233,7 @@ function buildHtml(params: {
     <div class="section">
       <h3>Isolate by Basis</h3>
       <div class="filters">
-        ${Object.entries(BASIS_COLORS).map(([basis, color]) => `<div class="filter-chip" data-basis="${basis}"><span class="dot" style="background:${color}"></span>${basis}</div>`).join('')}
+        ${Object.entries(BASIS_STYLES).map(([basis, style]) => `<div class="filter-chip" data-basis="${basis}"><span class="basis-icon"><img alt="" src="${makeLegendIconSvg(style.shape, style.color)}" /></span>${basis}</div>`).join('')}
       </div>
     </div>
 
@@ -235,7 +277,7 @@ function buildHtml(params: {
         forceAtlas2Based: {
           gravitationalConstant: -200,
           centralGravity: 0.008,
-          springLength: 250,
+          springLength: 320,
           springConstant: 0.03,
           damping: 0.5,
           avoidOverlap: 1.0,
@@ -251,7 +293,7 @@ function buildHtml(params: {
         multiselect: true,
       },
       edges: {
-        smooth: { type: 'curvedCW', roundness: 0.15 },
+        smooth: { enabled: true, type: 'dynamic', roundness: 0.32, forceDirection: 'none' },
         length: 250,
         font: { size: 12, align: 'middle', color: '#445' },
       },
@@ -447,7 +489,9 @@ export function generateBuddyGraph(options: {
       session_id: claim.session_id,
       findings: claimFindings,
       degree,
-      shape: claim.speaker === 'user' ? 'diamond' : 'dot',
+      shape: 'image',
+      image: makeNodeSvg(BASIS_STYLES[claim.basis]?.shape || 'circle', BASIS_COLORS[claim.basis] || '#999999', borderColor, hasCaution || hasKudos ? 3 : 1),
+      brokenImage: makeNodeSvg('circle', BASIS_COLORS[claim.basis] || '#999999', borderColor, hasCaution || hasKudos ? 3 : 1),
       color: {
         background: BASIS_COLORS[claim.basis] || '#999999',
         border: borderColor,
