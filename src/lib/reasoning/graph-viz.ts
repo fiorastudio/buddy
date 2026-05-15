@@ -253,6 +253,7 @@ function buildHtml(params: {
       edges: {
         smooth: { type: 'curvedCW', roundness: 0.15 },
         length: 250,
+        font: { size: 12, align: 'middle', color: '#445' },
       },
       layout: { improvedLayout: true, clusterThreshold: 150 },
       nodes: { font: { size: 18 } },
@@ -270,13 +271,32 @@ function buildHtml(params: {
     const activeBases = new Set();
     const activeEdges = new Set();
 
+    function formatDateLabel(rawDate) {
+      if (typeof rawDate !== 'string' || !/^\d{8}$/.test(rawDate)) return rawDate;
+      return rawDate.slice(0, 4) + '/' + rawDate.slice(4, 6) + '/' + rawDate.slice(6, 8);
+    }
+
     function refreshDates() {
       const project = projectFilter.value;
       const dates = project === 'all'
         ? [...new Set(SESSION_META.map((item) => item.date))]
         : (DATES_BY_PROJECT[project] || []);
       const current = dateFilter.value;
-      dateFilter.innerHTML = '<option value="all">All Dates</option>' + dates.map((date) => '<option value="' + date + '">' + date + '</option>').join('');
+
+      dateFilter.innerHTML = '';
+
+      const allOption = document.createElement('option');
+      allOption.value = 'all';
+      allOption.textContent = 'All Dates';
+      dateFilter.appendChild(allOption);
+
+      dates.forEach((date) => {
+        const option = document.createElement('option');
+        option.value = date;
+        option.textContent = formatDateLabel(date);
+        dateFilter.appendChild(option);
+      });
+
       if (dates.includes(current)) dateFilter.value = current;
     }
 
@@ -299,6 +319,7 @@ function buildHtml(params: {
         nodes.update({ ...node, hidden });
         if (!hidden) visibleNodeIds.add(node.id);
       });
+
       RAW_EDGES.forEach((edge) => {
         const hiddenByType = activeEdges.size > 0 && !activeEdges.has(edge.type);
         const hiddenByNode = !visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to);
@@ -454,6 +475,8 @@ export function generateBuddyGraph(options: {
       dashes: edge.type === 'contradicts' || edge.type === 'questions',
       width: edge.type === 'supports' ? 3 : 2,
       arrows: 'to',
+      label: edge.type,
+      font: { size: 12, align: 'middle', color: '#445', strokeWidth: 3, strokeColor: '#ffffff' },
       title: edge.type,
     }));
 
