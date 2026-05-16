@@ -47,7 +47,31 @@ Push-Location $INSTALL_DIR
 
 Write-Host "  Installing dependencies..."
 npm install --quiet 2>$null
-npm rebuild --quiet 2>$null
+
+# Verify the native binding loads. better-sqlite3 ships prebuilt binaries via
+# prebuild-install — never compile from source. If ABI mismatch, re-download.
+$verifyResult = node -e "require('better-sqlite3')" 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "  ⚠ better-sqlite3 prebuilt missing or ABI mismatch — downloading correct prebuilt..." -ForegroundColor Yellow
+  $targetVersion = (node -v) -replace '^v', ''
+  $prebuildBin = "node_modules\prebuild-install\bin.js"
+  if (Test-Path $prebuildBin) {
+    node $prebuildBin --target $targetVersion --runtime node 2>&1
+  } else {
+    $prebuildBin2 = "node_modules\better-sqlite3\node_modules\.bin\prebuild-install"
+    if (Test-Path $prebuildBin2) {
+      node $prebuildBin2 --target $targetVersion --runtime node 2>&1
+    }
+  }
+  $verifyResult = node -e "require('better-sqlite3')" 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ✗ Could not load better-sqlite3. Try: npm rebuild better-sqlite3" -ForegroundColor Yellow
+    Write-Host "    Or install Visual Studio Build Tools from https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor DarkGray
+    exit 1
+  }
+}
+Write-Host "  ✓ Native modules verified" -ForegroundColor Green
+
 Write-Host "  Building..."
 npm run build --quiet 2>$null
 
