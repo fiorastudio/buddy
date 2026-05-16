@@ -97,7 +97,28 @@ cd "$INSTALL_DIR"
 
 echo "  Installing dependencies..."
 npm install --quiet 2>/dev/null
-npm rebuild --quiet 2>/dev/null
+
+# Native addons (better-sqlite3) need compilation — rebuild explicitly
+# and let errors surface so failures aren't silent.
+echo "  Building native modules..."
+if ! npm rebuild better-sqlite3 2>&1; then
+  echo -e "  ${YELLOW}⚠ Native module rebuild failed. Retrying with full rebuild...${NC}"
+  npm rebuild 2>&1 || true
+fi
+
+# Verify the native binding actually loads before continuing
+if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+  echo -e "  ${YELLOW}⚠ better-sqlite3 native binding missing — attempting reinstall...${NC}"
+  npm rebuild better-sqlite3 2>&1
+  if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+    echo -e "  ${YELLOW}✗ Could not compile better-sqlite3. You may need to install build tools:${NC}"
+    echo -e "    ${DIM}macOS: xcode-select --install${NC}"
+    echo -e "    ${DIM}Linux: sudo apt-get install build-essential python3${NC}"
+    exit 1
+  fi
+fi
+echo -e "  ${GREEN}✓${NC} Native modules verified"
+
 echo "  Building..."
 npm run build --quiet 2>/dev/null
 

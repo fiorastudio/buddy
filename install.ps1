@@ -47,7 +47,31 @@ Push-Location $INSTALL_DIR
 
 Write-Host "  Installing dependencies..."
 npm install --quiet 2>$null
-npm rebuild --quiet 2>$null
+
+# Native addons (better-sqlite3) need compilation — rebuild explicitly
+# and let errors surface so failures aren't silent.
+Write-Host "  Building native modules..."
+$rebuildOutput = npm rebuild better-sqlite3 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "  ⚠ Native module rebuild failed. Retrying with full rebuild..." -ForegroundColor Yellow
+  npm rebuild 2>&1
+}
+
+# Verify the native binding actually loads before continuing
+$verifyResult = node -e "require('better-sqlite3')" 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "  ⚠ better-sqlite3 native binding missing — attempting reinstall..." -ForegroundColor Yellow
+  npm rebuild better-sqlite3 2>&1
+  $verifyResult = node -e "require('better-sqlite3')" 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ✗ Could not compile better-sqlite3. You may need to install build tools:" -ForegroundColor Yellow
+    Write-Host "    Windows: npm install --global windows-build-tools" -ForegroundColor DarkGray
+    Write-Host "    Or install Visual Studio Build Tools from https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor DarkGray
+    exit 1
+  }
+}
+Write-Host "  ✓ Native modules verified" -ForegroundColor Green
+
 Write-Host "  Building..."
 npm run build --quiet 2>$null
 
