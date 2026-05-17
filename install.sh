@@ -68,6 +68,20 @@ if ! command -v node &> /dev/null; then
 fi
 
 NODE_BIN="$(command -v node)"
+
+# Prefer system node over app-bundled node (e.g. /Applications/Codex.app/Contents/Resources/node).
+# App-bundled node has macOS code signing restrictions that reject .node native addons
+# compiled/downloaded outside the app bundle (different Team IDs).
+if [[ "$NODE_BIN" == /Applications/*.app/* ]]; then
+  for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
+    if [ -x "$candidate" ]; then
+      echo -e "  ${DIM}Preferring system node ($candidate) over app-bundled ($NODE_BIN)${NC}"
+      NODE_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
 NODE_VERSION=$("$NODE_BIN" -v | cut -d'v' -f2 | cut -d'.' -f1)
 # Always pin the absolute Node path in generated configs so GUI-launched clients
 # (e.g. Claude desktop on macOS) find the correct binary regardless of shell init.
