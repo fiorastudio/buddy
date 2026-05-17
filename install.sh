@@ -98,22 +98,26 @@ cd "$INSTALL_DIR"
 echo "  Installing dependencies..."
 npm install --quiet 2>/dev/null
 
-# Native addons (better-sqlite3) need compilation — rebuild explicitly
-# and let errors surface so failures aren't silent.
-echo "  Building native modules..."
-if ! npm rebuild better-sqlite3 2>&1; then
-  echo -e "  ${YELLOW}⚠ Native module rebuild failed. Retrying with full rebuild...${NC}"
-  npm rebuild 2>&1 || true
-fi
-
-# Verify the native binding actually loads before continuing
-if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
-  echo -e "  ${YELLOW}⚠ better-sqlite3 native binding missing — attempting reinstall...${NC}"
-  npm rebuild better-sqlite3 2>&1
-  if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
-    echo -e "  ${YELLOW}✗ Could not compile better-sqlite3. You may need to install build tools:${NC}"
-    echo -e "    ${DIM}macOS: xcode-select --install${NC}"
-    echo -e "    ${DIM}Linux: sudo apt-get install build-essential python3${NC}"
+# Verify the native binding loads under the node that will actually run the server.
+# better-sqlite3 ships prebuilt binaries via prebuild-install — never compile from source.
+# If the prebuilt doesn't match (e.g. ABI mismatch from a node upgrade), re-download it.
+if ! "$CONFIG_NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+  echo -e "  ${YELLOW}⚠ better-sqlite3 prebuilt missing or ABI mismatch — downloading correct prebuilt...${NC}"
+  TARGET_NODE_VERSION=$("$CONFIG_NODE_BIN" -v | tr -d 'v')
+  PREBUILD_BIN=""
+  if [ -f "node_modules/better-sqlite3/node_modules/.bin/prebuild-install" ]; then
+    PREBUILD_BIN="node_modules/better-sqlite3/node_modules/.bin/prebuild-install"
+  elif [ -f "node_modules/prebuild-install/bin.js" ]; then
+    PREBUILD_BIN="node_modules/prebuild-install/bin.js"
+  fi
+  if [ -n "$PREBUILD_BIN" ]; then
+    (cd node_modules/better-sqlite3 && "$NODE_BIN" "../../$PREBUILD_BIN" \
+      --target "$TARGET_NODE_VERSION" --runtime node 2>&1) || true
+  fi
+  # Final check
+  if ! "$CONFIG_NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+    echo -e "  ${YELLOW}✗ Could not load better-sqlite3. Try: npm rebuild better-sqlite3${NC}"
+    echo -e "    ${DIM}Or ensure build tools are installed (xcode-select --install on macOS)${NC}"
     exit 1
   fi
 fi

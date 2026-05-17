@@ -48,24 +48,24 @@ Push-Location $INSTALL_DIR
 Write-Host "  Installing dependencies..."
 npm install --quiet 2>$null
 
-# Native addons (better-sqlite3) need compilation — rebuild explicitly
-# and let errors surface so failures aren't silent.
-Write-Host "  Building native modules..."
-$rebuildOutput = npm rebuild better-sqlite3 2>&1
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "  ⚠ Native module rebuild failed. Retrying with full rebuild..." -ForegroundColor Yellow
-  npm rebuild 2>&1
-}
-
-# Verify the native binding actually loads before continuing
+# Verify the native binding loads. better-sqlite3 ships prebuilt binaries via
+# prebuild-install — never compile from source. If ABI mismatch, re-download.
 $verifyResult = node -e "require('better-sqlite3')" 2>&1
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "  ⚠ better-sqlite3 native binding missing — attempting reinstall..." -ForegroundColor Yellow
-  npm rebuild better-sqlite3 2>&1
+  Write-Host "  ⚠ better-sqlite3 prebuilt missing or ABI mismatch — downloading correct prebuilt..." -ForegroundColor Yellow
+  $targetVersion = (node -v) -replace '^v', ''
+  $prebuildBin = "node_modules\prebuild-install\bin.js"
+  if (!(Test-Path $prebuildBin)) {
+    $prebuildBin = "node_modules\better-sqlite3\node_modules\.bin\prebuild-install"
+  }
+  if (Test-Path $prebuildBin) {
+    Push-Location "node_modules\better-sqlite3"
+    node "..\..\$prebuildBin" --target $targetVersion --runtime node 2>&1
+    Pop-Location
+  }
   $verifyResult = node -e "require('better-sqlite3')" 2>&1
   if ($LASTEXITCODE -ne 0) {
-    Write-Host "  ✗ Could not compile better-sqlite3. You may need to install build tools:" -ForegroundColor Yellow
-    Write-Host "    Windows: npm install --global windows-build-tools" -ForegroundColor DarkGray
+    Write-Host "  ✗ Could not load better-sqlite3. Try: npm rebuild better-sqlite3" -ForegroundColor Yellow
     Write-Host "    Or install Visual Studio Build Tools from https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor DarkGray
     exit 1
   }
