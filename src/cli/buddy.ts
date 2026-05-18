@@ -8,7 +8,8 @@ if (!subcommand || subcommand === '--help' || subcommand === '-h') {
 Commands:
   doctor    Run diagnostics on your Buddy installation
   graph     Generate an interactive reasoning graph
-  onboard   Interactive onboarding wizard`);
+  onboard   Interactive onboarding wizard
+  pet       Pet your buddy!`);
   process.exit(0);
 }
 
@@ -19,6 +20,8 @@ if (subcommand === 'doctor') {
   process.exit(runGraphCommand(process.argv.slice(3)));
 } else if (subcommand === 'onboard') {
   await import('./onboard.js');
+} else if (subcommand === 'pet') {
+  await import('./pet-cli.js');
 } else {
   console.error(`Unknown command: ${subcommand}\nRun "buddy --help" for usage.`);
   process.exit(1);
