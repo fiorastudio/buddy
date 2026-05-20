@@ -4,8 +4,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { SPECIES_ANIMATIONS, SPRITE_BODIES, renderSprite } from "./lib/species.js";
 import { HAT_LINES, RARITY_ANSI, type Hat } from "./lib/types.js";
-import { RESET, DIM, CYAN, YELLOW, GREEN, stripAnsi } from "./lib/ansi.js";
-import { colorFor } from "./lib/color.js";
+import { RESET, DIM, CYAN, YELLOW, GREEN, MAGENTA, stripAnsi } from "./lib/ansi.js";
 import { BUDDY_STATUS_PATH } from "./lib/constants.js";
 import { getAnimationProfile, getAnimationState, pickFrame, DEFAULT_DWELL_MS } from "./lib/animation.js";
 import { seededIndex } from "./lib/rng.js";
@@ -167,8 +166,6 @@ try {
 
         // Colorize bubble lines — the bubble is plain text from renderSpeechBubble().
         // Left side = text bubble (borders + content), right side = sprite art after connector.
-        const bubbleSpriteColor = colorFor(buddy.species, buddy.rarity || 'common', buddy.xp ?? 0);
-        const bubbleSpriteReset = bubbleSpriteColor ? RESET : '';
         for (const line of bubbleLines) {
           // Lines with "  -  " connector or "     " gutter have sprite art on the right
           const connectorMatch = line.match(/^(.+?)(  -  |     )(.+)$/);
@@ -178,7 +175,7 @@ try {
             const isName = right.trim() === buddy.name;
             const coloredRight = isName
               ? `${CYAN}${right}${RESET}`
-              : `${bubbleSpriteColor}${right}${bubbleSpriteReset}`;
+              : `${MAGENTA}${right}${RESET}`;
             const fadedLeft = isFading ? `${DIM}${DIM}${left}${RESET}` : `${DIM}${left}${RESET}`;
             buddyRight.push(`${fadedLeft}${DIM}${sep}${RESET}${coloredRight}`);
           } else {
@@ -280,10 +277,8 @@ try {
         const ambientText = hasReactionActive ? '' : `${DIM}${ambientPool[ambientIdx]}${RESET}`;
 
         const artWidth = Math.max(...asciiLines.map((l: string) => l.length));
-        const spriteColor = colorFor(buddy.species, buddy.rarity || 'common', buddy.xp ?? 0);
-        const spriteReset = spriteColor ? RESET : '';
         for (let i = 0; i < asciiLines.length; i++) {
-          const artPart = `${spriteColor}${(asciiLines[i] || "").padEnd(artWidth)}${spriteReset}`;
+          const artPart = `${MAGENTA}${(asciiLines[i] || "").padEnd(artWidth)}${RESET}`;
           if (i === 0) {
             buddyRight.push(`${artPart} ${nameInfo}`);
           } else if (i === 1) {
