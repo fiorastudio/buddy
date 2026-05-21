@@ -28,6 +28,9 @@
     "release:minor": "npm version minor",
     "release:major": "npm version major"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [],
   "author": "",
   "license": "MIT",

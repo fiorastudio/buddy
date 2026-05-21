@@ -73,13 +73,19 @@ NODE_BIN="$(command -v node)"
 # App-bundled node has macOS code signing restrictions that reject .node native addons
 # compiled/downloaded outside the app bundle (different Team IDs).
 if [[ "$NODE_BIN" == /Applications/*.app/* ]]; then
+  FOUND_SYSTEM_NODE=0
   for candidate in /opt/homebrew/bin/node /usr/local/bin/node; do
     if [ -x "$candidate" ]; then
       echo -e "  ${DIM}Preferring system node ($candidate) over app-bundled ($NODE_BIN)${NC}"
       NODE_BIN="$candidate"
+      FOUND_SYSTEM_NODE=1
       break
     fi
   done
+  if [ "$FOUND_SYSTEM_NODE" -eq 0 ]; then
+    echo -e "  ${YELLOW}Warning: only app-bundled node found ($NODE_BIN). Native addons may fail due to code signing restrictions.${NC}"
+    echo -e "  ${YELLOW}Install Node.js via Homebrew (brew install node) or from https://nodejs.org for best results.${NC}"
+  fi
 fi
 
 NODE_VERSION=$("$NODE_BIN" -v | cut -d'v' -f2 | cut -d'.' -f1)
@@ -87,8 +93,11 @@ NODE_VERSION=$("$NODE_BIN" -v | cut -d'v' -f2 | cut -d'.' -f1)
 # (e.g. Claude desktop on macOS) find the correct binary regardless of shell init.
 # nvm/asdf/fnm users: re-run the installer after upgrading Node.
 CONFIG_NODE_BIN="$NODE_BIN"
-if [ "$NODE_VERSION" -lt 18 ]; then
-  echo -e "${YELLOW}Node.js 18+ required. You have $("$NODE_BIN" -v). Please upgrade.${NC}"
+# Prepend pinned node's directory to PATH so bare `npm` and npm's internal
+# node shebang both resolve to the same runtime as $NODE_BIN.
+export PATH="$(dirname "$NODE_BIN"):$PATH"
+if [ "$NODE_VERSION" -lt 20 ]; then
+  echo -e "${YELLOW}Node.js 20+ required (better-sqlite3 dropped Node 18/19 support). You have $("$NODE_BIN" -v). Please upgrade.${NC}"
   exit 1
 fi
 
@@ -122,7 +131,7 @@ for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js; do
     chmod +x "$bin_file"
     ln -sf "$bin_file" "/usr/local/bin/$bin_name" 2>/dev/null \
       || sudo ln -sf "$bin_file" "/usr/local/bin/$bin_name" 2>/dev/null \
-      || echo "  ${YELLOW}Could not symlink $bin_name to /usr/local/bin — add $INSTALL_DIR/dist/cli to your PATH${NC}"
+      || echo -e "  ${YELLOW}Could not symlink $bin_name to /usr/local/bin — add $INSTALL_DIR/dist/cli to your PATH${NC}"
   fi
 done
 
@@ -679,7 +688,7 @@ echo ""
 if [ -f "$ONBOARD_SCRIPT" ] && [ "$NO_ONBOARD" -eq 0 ]; then
   # Let onboard.ts detect TTY itself — don't force /dev/tty
   # (fails in headless SSH, CI, cron where no controlling terminal exists)
-  node "$ONBOARD_SCRIPT" || true
+  "$NODE_BIN" "$ONBOARD_SCRIPT" || true
 elif [ "$NO_ONBOARD" -eq 1 ]; then
   echo -e "  ${DIM}Onboarding skipped (--no-onboard). Run buddy-onboard later to set up.${NC}"
 fi

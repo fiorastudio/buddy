@@ -20,11 +20,15 @@ catch {
   exit 1
 }
 
-$nodeVersion = (node -v) -replace 'v(\d+)\..*', '$1'
-if ([int]$nodeVersion -lt 18) {
-  Write-Host "  Node.js 18+ required. You have $(node -v)." -ForegroundColor Yellow
+$NODE_BIN = (Get-Command node).Source
+$nodeVersion = (& $NODE_BIN -v) -replace 'v(\d+)\..*', '$1'
+if ([int]$nodeVersion -lt 20) {
+  Write-Host "  Node.js 20+ required (better-sqlite3 dropped Node 18/19 support). You have $(& $NODE_BIN -v)." -ForegroundColor Yellow
   exit 1
 }
+
+# Prepend pinned node's directory to PATH so bare npm resolves to the same runtime
+$env:Path = (Split-Path $NODE_BIN) + ";" + $env:Path
 
 try { $null = Get-Command git -ErrorAction Stop }
 catch {
@@ -78,7 +82,7 @@ function Add-BuddyToConfig($configPath, $cliName) {
 
   $buddyConfig = @{
     type = "stdio"
-    command = "node"
+    command = $NODE_BIN
     args = @($SERVER_PATH_UNIX)
   }
 
@@ -125,7 +129,7 @@ if (Get-Command claude -ErrorAction SilentlyContinue) {
     Write-Host "  ✓ Claude Code MCP already registered" -ForegroundColor Green
     $claudeRegistered = $true
   } else {
-    claude mcp add buddy -s user -- node "$SERVER_PATH_UNIX" 1>$null 2>$null
+    claude mcp add buddy -s user -- "$NODE_BIN" "$SERVER_PATH_UNIX" 1>$null 2>$null
     if ($LASTEXITCODE -eq 0) {
       Write-Host "  ✓ Claude Code MCP registered via claude CLI" -ForegroundColor Green
       $claudeRegistered = $true
@@ -147,7 +151,7 @@ if (-not $claudeRegistered) {
   }
   $userConfig.mcpServers | Add-Member -NotePropertyName "buddy" -NotePropertyValue @{
     type = "stdio"
-    command = "node"
+    command = $NODE_BIN
     args = @($SERVER_PATH_UNIX)
   } -Force
   $userConfig | ConvertTo-Json -Depth 8 | Set-Content $claudeUserFile -Encoding UTF8
@@ -165,15 +169,15 @@ if (!(Test-Path $claudeSettings)) {
   '{}' | Set-Content $claudeSettings -Encoding UTF8
 }
 
-$statuslineCommand = "node $STATUSLINE_PATH_UNIX"
+$statuslineCommand = "`"$NODE_BIN`" $STATUSLINE_PATH_UNIX"
 $env:CLAUDE_SETTINGS = $claudeSettings
-$env:HOOK_COMMAND = "node $HOOK_PATH_UNIX"
-$env:STOP_HOOK_COMMAND = "node $STOP_HOOK_PATH_UNIX"
-$env:PROMPT_HOOK_COMMAND = "node $PROMPT_HOOK_PATH_UNIX"
+$env:HOOK_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+$env:STOP_HOOK_COMMAND = "`"$NODE_BIN`" $STOP_HOOK_PATH_UNIX"
+$env:PROMPT_HOOK_COMMAND = "`"$NODE_BIN`" $PROMPT_HOOK_PATH_UNIX"
 $env:STATUSLINE_COMMAND = $statuslineCommand
 $env:SERVER_PATH = $SERVER_PATH_UNIX
-$env:NODE_BIN = "node"
-$settingsResult = node -e @'
+$env:NODE_BIN = $NODE_BIN
+$settingsResult = & $NODE_BIN -e @'
 const fs = require('fs');
 const settingsPath = process.env.CLAUDE_SETTINGS;
 const hookCommand = process.env.HOOK_COMMAND;
@@ -337,8 +341,8 @@ if (Test-Path "$env:USERPROFILE\.cursor") {
 $cursorHooks = "$env:USERPROFILE\.cursor\hooks.json"
 if (Test-Path "$env:USERPROFILE\.cursor") {
   $env:CURSOR_HOOKS_FILE = $cursorHooks
-  $env:HOOK_COMMAND = "node $HOOK_PATH_UNIX"
-  $cursorResult = node -e @'
+  $env:HOOK_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+  $cursorResult = & $NODE_BIN -e @'
 const fs = require('fs');
 const path = process.env.CURSOR_HOOKS_FILE;
 const hookCommand = process.env.HOOK_COMMAND;
@@ -375,9 +379,9 @@ if (Test-Path "$env:USERPROFILE\.copilot") {
   if ($COPILOT_CONFIGURED) {
     $copilotSettings = "$env:USERPROFILE\.copilot\settings.json"
     $env:COPILOT_SETTINGS = $copilotSettings
-    $env:BASH_COMMAND = "node $HOOK_PATH_UNIX"
-    $env:POWERSHELL_COMMAND = "node $HOOK_PATH_UNIX"
-    $copilotResult = node -e @'
+    $env:BASH_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+    $env:POWERSHELL_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+    $copilotResult = & $NODE_BIN -e @'
 const fs = require('fs');
 const path = require('path');
 const settingsPath = process.env.COPILOT_SETTINGS;
@@ -420,7 +424,7 @@ if (Get-Command codex -ErrorAction SilentlyContinue) {
     Write-Host "  ✓ Codex CLI already configured" -ForegroundColor Green
     $CODEX_CONFIGURED = $true
   } else {
-    codex mcp add buddy -- node "$SERVER_PATH_UNIX" 1>$null 2>$null
+    codex mcp add buddy -- "$NODE_BIN" "$SERVER_PATH_UNIX" 1>$null 2>$null
     if ($LASTEXITCODE -eq 0) {
       Write-Host "  ✓ Codex CLI configured" -ForegroundColor Green
       $CODEX_CONFIGURED = $true
@@ -432,8 +436,8 @@ if (Get-Command codex -ErrorAction SilentlyContinue) {
   if ($CODEX_CONFIGURED) {
     $codexHooks = "$env:USERPROFILE\.codex\hooks.json"
     $env:CODEX_HOOKS_FILE = $codexHooks
-    $env:HOOK_COMMAND = "node $HOOK_PATH_UNIX"
-    $codexResult = node -e @'
+    $env:HOOK_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+    $codexResult = & $NODE_BIN -e @'
 const fs = require('fs');
 const path = require('path');
 const hooksPath = process.env.CODEX_HOOKS_FILE;
@@ -564,7 +568,7 @@ Write-Host ""
 $ONBOARD_SCRIPT = "$INSTALL_DIR\dist\cli\onboard.js"
 if (Test-Path $ONBOARD_SCRIPT) {
   try {
-    node $ONBOARD_SCRIPT
+    & $NODE_BIN $ONBOARD_SCRIPT
   } catch {
     # Non-fatal — wizard is optional
   }
