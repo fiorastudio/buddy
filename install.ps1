@@ -51,6 +51,17 @@ Push-Location "$INSTALL_DIR"
 
 Write-Host "  Installing dependencies..."
 npm install --quiet 2>$null
+
+# Verify native module ABI matches current node. Stale binary from a prior
+# install with a different node version will crash at runtime. Rebuild if needed.
+try {
+  & $NODE_BIN -e "require('better-sqlite3')" 2>$null
+} catch {}
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "  Rebuilding native module for $(& $NODE_BIN -v)..."
+  npm rebuild better-sqlite3 --quiet 2>$null
+}
+
 Write-Host "  Building..."
 npm run build --quiet 2>$null
 

@@ -120,6 +120,14 @@ cd "$INSTALL_DIR"
 
 echo "  Installing dependencies..."
 npm install --quiet 2>/dev/null
+
+# Verify native module ABI matches current node. A stale binary from a prior
+# install with a different node version will crash at runtime. Rebuild if needed.
+if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+  echo "  Rebuilding native module for $(\"$NODE_BIN\" -v)..."
+  npm rebuild better-sqlite3 --quiet 2>/dev/null
+fi
+
 echo "  Building..."
 npm run build --quiet 2>/dev/null
 
