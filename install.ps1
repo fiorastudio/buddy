@@ -37,17 +37,17 @@ catch {
 }
 
 # Clone or update
-if (Test-Path $INSTALL_DIR) {
+if (Test-Path "$INSTALL_DIR") {
   Write-Host "  Updating existing installation..."
-  Push-Location $INSTALL_DIR
+  Push-Location "$INSTALL_DIR"
   git pull origin master --quiet
   Pop-Location
 } else {
   Write-Host "  Cloning Buddy MCP Server..."
-  git clone --depth 1 $REPO $INSTALL_DIR --quiet
+  git clone --depth 1 $REPO "$INSTALL_DIR" --quiet
 }
 
-Push-Location $INSTALL_DIR
+Push-Location "$INSTALL_DIR"
 
 Write-Host "  Installing dependencies..."
 npm install --quiet 2>$null
@@ -566,9 +566,9 @@ Write-Host "  👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza
 Write-Host ""
 
 $ONBOARD_SCRIPT = "$INSTALL_DIR\dist\cli\onboard.js"
-if (Test-Path $ONBOARD_SCRIPT) {
+if (Test-Path "$ONBOARD_SCRIPT") {
   try {
-    & $NODE_BIN $ONBOARD_SCRIPT
+    & $NODE_BIN "$ONBOARD_SCRIPT"
   } catch {
     # Non-fatal — wizard is optional
   }
