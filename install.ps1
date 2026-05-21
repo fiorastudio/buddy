@@ -169,11 +169,11 @@ if (!(Test-Path $claudeSettings)) {
   '{}' | Set-Content $claudeSettings -Encoding UTF8
 }
 
-$statuslineCommand = "`"$NODE_BIN`" $STATUSLINE_PATH_UNIX"
+$statuslineCommand = "`"$NODE_BIN`" `"$STATUSLINE_PATH_UNIX`""
 $env:CLAUDE_SETTINGS = $claudeSettings
-$env:HOOK_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
-$env:STOP_HOOK_COMMAND = "`"$NODE_BIN`" $STOP_HOOK_PATH_UNIX"
-$env:PROMPT_HOOK_COMMAND = "`"$NODE_BIN`" $PROMPT_HOOK_PATH_UNIX"
+$env:HOOK_COMMAND = "`"$NODE_BIN`" `"$HOOK_PATH_UNIX`""
+$env:STOP_HOOK_COMMAND = "`"$NODE_BIN`" `"$STOP_HOOK_PATH_UNIX`""
+$env:PROMPT_HOOK_COMMAND = "`"$NODE_BIN`" `"$PROMPT_HOOK_PATH_UNIX`""
 $env:STATUSLINE_COMMAND = $statuslineCommand
 $env:SERVER_PATH = $SERVER_PATH_UNIX
 $env:NODE_BIN = $NODE_BIN
@@ -205,9 +205,9 @@ if (!existing || existing.command !== nodeBin || !Array.isArray(existing.args) |
 if (!config.hooks) config.hooks = {};
 
 // Match on script path suffix to recognise legacy "node <path>" entries from older installs.
-const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
-const stopHookScript = stopHookCommand.split(/\s+/).slice(-1)[0];
-const promptHookScript = promptHookCommand.split(/\s+/).slice(-1)[0];
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
+const stopHookScript = stopHookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
+const promptHookScript = promptHookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
 const matchesHook = (cmd, current, script) => cmd === current || (cmd && cmd.endsWith(script));
 
 // PostToolUse — error detection (Bash only)
@@ -341,7 +341,7 @@ if (Test-Path "$env:USERPROFILE\.cursor") {
 $cursorHooks = "$env:USERPROFILE\.cursor\hooks.json"
 if (Test-Path "$env:USERPROFILE\.cursor") {
   $env:CURSOR_HOOKS_FILE = $cursorHooks
-  $env:HOOK_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+  $env:HOOK_COMMAND = "`"$NODE_BIN`" `"$HOOK_PATH_UNIX`""
   $cursorResult = & $NODE_BIN -e @'
 const fs = require('fs');
 const path = process.env.CURSOR_HOOKS_FILE;
@@ -352,7 +352,7 @@ if (!config.version) config.version = 1;
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.afterShellExecution)) config.hooks.afterShellExecution = [];
 const hooks = config.hooks.afterShellExecution;
-const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
 const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
 const hasHook = hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
@@ -379,8 +379,8 @@ if (Test-Path "$env:USERPROFILE\.copilot") {
   if ($COPILOT_CONFIGURED) {
     $copilotSettings = "$env:USERPROFILE\.copilot\settings.json"
     $env:COPILOT_SETTINGS = $copilotSettings
-    $env:BASH_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
-    $env:POWERSHELL_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+    $env:BASH_COMMAND = "`"$NODE_BIN`" `"$HOOK_PATH_UNIX`""
+    $env:POWERSHELL_COMMAND = "`"$NODE_BIN`" `"$HOOK_PATH_UNIX`""
     $copilotResult = & $NODE_BIN -e @'
 const fs = require('fs');
 const path = require('path');
@@ -392,7 +392,7 @@ try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.postToolUse)) config.hooks.postToolUse = [];
 const hooks = config.hooks.postToolUse;
-const hookScript = bashCommand.split(/\s+/).slice(-1)[0];
+const hookScript = bashCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
 const matchesHook = (cmd) => cmd === bashCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
 const hasHook = hooks.some(h => matchesHook(h?.bash) || matchesHook(h?.powershell));
 if (!hasHook) {
@@ -436,7 +436,7 @@ if (Get-Command codex -ErrorAction SilentlyContinue) {
   if ($CODEX_CONFIGURED) {
     $codexHooks = "$env:USERPROFILE\.codex\hooks.json"
     $env:CODEX_HOOKS_FILE = $codexHooks
-    $env:HOOK_COMMAND = "`"$NODE_BIN`" $HOOK_PATH_UNIX"
+    $env:HOOK_COMMAND = "`"$NODE_BIN`" `"$HOOK_PATH_UNIX`""
     $codexResult = & $NODE_BIN -e @'
 const fs = require('fs');
 const path = require('path');
@@ -452,7 +452,7 @@ if (!group) {
   group = { matcher: 'Bash', hooks: [] };
   groups.push(group);
 }
-const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
+const hookScript = hookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
 const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
 const hasHook = group.hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
