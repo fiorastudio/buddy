@@ -205,9 +205,9 @@ if (!existing || existing.command !== nodeBin || !Array.isArray(existing.args) |
 if (!config.hooks) config.hooks = {};
 
 // Match on script path suffix to recognise legacy "node <path>" entries from older installs.
-const hookScript = hookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
-const stopHookScript = stopHookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
-const promptHookScript = promptHookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
+const hookScript = hookCommand.match(/"([^"]+)"\s*$/)?.[1] || hookCommand.split(/\s+/).slice(-1)[0];
+const stopHookScript = stopHookCommand.match(/"([^"]+)"\s*$/)?.[1] || stopHookCommand.split(/\s+/).slice(-1)[0];
+const promptHookScript = promptHookCommand.match(/"([^"]+)"\s*$/)?.[1] || promptHookCommand.split(/\s+/).slice(-1)[0];
 const matchesHook = (cmd, current, script) => cmd === current || (cmd && cmd.endsWith(script));
 
 // PostToolUse — error detection (Bash only)
@@ -352,7 +352,7 @@ if (!config.version) config.version = 1;
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.afterShellExecution)) config.hooks.afterShellExecution = [];
 const hooks = config.hooks.afterShellExecution;
-const hookScript = hookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
+const hookScript = hookCommand.match(/"([^"]+)"\s*$/)?.[1] || hookCommand.split(/\s+/).slice(-1)[0];
 const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
 const hasHook = hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
@@ -392,7 +392,7 @@ try { config = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
 if (!Array.isArray(config.hooks.postToolUse)) config.hooks.postToolUse = [];
 const hooks = config.hooks.postToolUse;
-const hookScript = bashCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
+const hookScript = bashCommand.match(/"([^"]+)"\s*$/)?.[1] || bashCommand.split(/\s+/).slice(-1)[0];
 const matchesHook = (cmd) => cmd === bashCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
 const hasHook = hooks.some(h => matchesHook(h?.bash) || matchesHook(h?.powershell));
 if (!hasHook) {
@@ -452,7 +452,7 @@ if (!group) {
   group = { matcher: 'Bash', hooks: [] };
   groups.push(group);
 }
-const hookScript = hookCommand.split(/\s+/).slice(-1)[0].replace(/"/g, '');
+const hookScript = hookCommand.match(/"([^"]+)"\s*$/)?.[1] || hookCommand.split(/\s+/).slice(-1)[0];
 const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
 const hasHook = group.hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
 if (!hasHook) {
