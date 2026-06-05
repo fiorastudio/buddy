@@ -9,7 +9,7 @@ import { db } from '../db/schema.js';
 import { loadCompanion } from './companion.js';
 import { STAT_NAMES, RARITY_STARS } from './types.js';
 import { levelProgress } from './leveling.js';
-import { REASONING_CONFIG, telemetry } from './reasoning/index.js';
+import { REASONING_CONFIG, telemetry, getReinjectStats } from './reasoning/index.js';
 import { basisDistributionHealth, edgeDistributionHealth } from './reasoning/telemetry.js';
 
 // Shared sentinel — keep in sync with install.sh / install.ps1
@@ -625,9 +625,17 @@ function checkReasoningGuardMode(): DiagnosticCheck {
     const extra = stats.claims_received_total > 0
       ? ` · this run: ${stats.claims_received_total} claims, ${stats.findings_surfaced_total} findings`
       : '';
+    // Re-injection efficacy: how often a silent-graph nudge was followed by the
+    // host actually emitting a claim. The signal for whether the in-host fix
+    // works in long sessions (the doctor's observe-seq counters freeze during a
+    // lapse, so this is the only cross-session view of recovery).
+    const ri = getReinjectStats(db, row.id);
+    const reinjectExtra = ri.reinjections_total > 0
+      ? ` · re-injects: ${ri.recoveries_total}/${ri.reinjections_total} recovered`
+      : '';
     return {
       id: 'reasoning.guard', status: 'ok', label: 'Guard mode',
-      detail: `on · ${totalObserves} observes, last claims at seq ${lastClaimsSeq}${extra}`,
+      detail: `on · ${totalObserves} observes, last claims at seq ${lastClaimsSeq}${extra}${reinjectExtra}`,
     };
   } catch {
     return { id: 'reasoning.guard', status: 'fail', label: 'Guard mode', detail: 'DB query failed' };

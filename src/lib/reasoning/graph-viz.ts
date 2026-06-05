@@ -14,6 +14,7 @@ const BASIS_STYLES: Record<string, { color: string; shape: string }> = {
   deduction: { color: '#8E24AA', shape: 'circle' },
   analogy: { color: '#FB8C00', shape: 'wideRect' },
   definition: { color: '#546E7A', shape: 'hexagon' },
+  convention: { color: '#00ACC1', shape: 'wideRect' },
   llm_output: { color: '#FDD835', shape: 'octagon' },
   assumption: { color: '#6D4C41', shape: 'box' },
   vibes: { color: '#E53935', shape: 'triangleDown' },

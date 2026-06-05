@@ -11,6 +11,7 @@ export const BASIS_VALUES = [
   'deduction',
   'analogy',
   'definition',
+  'convention',
   'llm_output',
   'assumption',
   'vibes',

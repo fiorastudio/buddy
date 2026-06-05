@@ -147,6 +147,8 @@ SERVER_PATH="$INSTALL_DIR/dist/server/index.js"
 CODEX_CONFIGURED=0
 HOOK_PATH="$INSTALL_DIR/dist/hooks/post-tool-handler.js"
 HOOK_COMMAND=$(printf '%q %q' "$CONFIG_NODE_BIN" "$HOOK_PATH")
+PROMPT_HOOK_PATH="$INSTALL_DIR/dist/hooks/prompt-handler.js"
+PROMPT_HOOK_COMMAND=$(printf '%q %q' "$CONFIG_NODE_BIN" "$PROMPT_HOOK_PATH")
 CLAUDE_CONFIGURED=0
 CURSOR_CONFIGURED=0
 COPILOT_CONFIGURED=0
@@ -158,14 +160,12 @@ configure_claude_code() {
   local settings_file="$config_dir/settings.json"
   local user_file="$HOME/.claude.json"
   local stop_hook_path="$INSTALL_DIR/dist/hooks/stop-handler.js"
-  local prompt_hook_path="$INSTALL_DIR/dist/hooks/prompt-handler.js"
   local stop_hook_command
-  local prompt_hook_command
+  local prompt_hook_command="$PROMPT_HOOK_COMMAND"
   local statusline_command
   local commands_dir="$config_dir/commands"
   local buddy_graph_command="$commands_dir/buddy-graph.md"
   stop_hook_command=$(printf '%q %q' "$CONFIG_NODE_BIN" "$stop_hook_path")
-  prompt_hook_command=$(printf '%q %q' "$CONFIG_NODE_BIN" "$prompt_hook_path")
   statusline_command=$(printf '%q %q' "$CONFIG_NODE_BIN" "$INSTALL_DIR/dist/statusline-wrapper.js")
 
   mkdir -p "$config_dir" "$commands_dir"
@@ -306,14 +306,30 @@ if (!hasStopHook) {
 
 // UserPromptSubmit — name + mood reactions
 if (!Array.isArray(config.hooks.UserPromptSubmit)) config.hooks.UserPromptSubmit = [];
+// The prompt hook injects guard-mode context via stdout, which Claude Code
+// only captures from SYNCHRONOUS hooks (async hooks are fire-and-forget) — so
+// it must NOT be async. Upgrade any pre-existing async registration in place.
+const PROMPT_SYNC_TIMEOUT = 10;
+let promptHookFixed = false;
 const hasPromptHook = config.hooks.UserPromptSubmit.some(entry =>
   Array.isArray(entry.hooks) &&
   entry.hooks.some(h => matchesHook(h.command, promptHookCommand, promptHookScript))
 );
+for (const entry of config.hooks.UserPromptSubmit) {
+  if (!Array.isArray(entry.hooks)) continue;
+  for (const h of entry.hooks) {
+    if (!matchesHook(h.command, promptHookCommand, promptHookScript)) continue;
+    if (h.async) { delete h.async; promptHookFixed = true; }
+    if ((h.timeout || 0) < PROMPT_SYNC_TIMEOUT) { h.timeout = PROMPT_SYNC_TIMEOUT; promptHookFixed = true; }
+  }
+}
 if (!hasPromptHook) {
   config.hooks.UserPromptSubmit.push({
-    hooks: [{ type: 'command', command: promptHookCommand, async: true, timeout: 3 }]
+    hooks: [{ type: 'command', command: promptHookCommand, timeout: PROMPT_SYNC_TIMEOUT }]
   });
+  changed = true;
+  result.push('prompt:updated');
+} else if (promptHookFixed) {
   changed = true;
   result.push('prompt:updated');
 } else {
@@ -547,30 +563,51 @@ configure_codex_hooks() {
   fi
 
   local result
-  result=$(CODEX_HOOKS_FILE="$config_file" HOOK_COMMAND="$HOOK_COMMAND" "$NODE_BIN" <<'EOJS'
+  result=$(CODEX_HOOKS_FILE="$config_file" HOOK_COMMAND="$HOOK_COMMAND" PROMPT_HOOK_COMMAND="$PROMPT_HOOK_COMMAND" "$NODE_BIN" <<'EOJS'
 const fs = require('fs');
 const path = require('path');
 const hooksPath = process.env.CODEX_HOOKS_FILE;
 const hookCommand = process.env.HOOK_COMMAND;
+const promptHookCommand = process.env.PROMPT_HOOK_COMMAND;
 let config = {};
 try { config = JSON.parse(fs.readFileSync(hooksPath, 'utf-8')); } catch {}
 if (!config.hooks || typeof config.hooks !== 'object') config.hooks = {};
+let changed = false;
+
+// PostToolUse:Bash — review Bash output (existing behaviour).
 if (!Array.isArray(config.hooks.PostToolUse)) config.hooks.PostToolUse = [];
-const groups = config.hooks.PostToolUse;
-let group = groups.find(entry => entry?.matcher === 'Bash' && Array.isArray(entry?.hooks));
-if (!group) {
-  group = { matcher: 'Bash', hooks: [] };
-  groups.push(group);
+const postGroups = config.hooks.PostToolUse;
+let bashGroup = postGroups.find(entry => entry?.matcher === 'Bash' && Array.isArray(entry?.hooks));
+if (!bashGroup) {
+  bashGroup = { matcher: 'Bash', hooks: [] };
+  postGroups.push(bashGroup);
 }
-const hookScript = hookCommand.split(/\s+/).slice(-1)[0];
-const matchesHook = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(hookScript));
-const hasHook = group.hooks.some(h => typeof h?.command === 'string' && matchesHook(h.command));
-if (!hasHook) {
-  group.hooks.push({
-    type: 'command',
-    command: hookCommand,
-    statusMessage: 'Reviewing Bash output',
-  });
+const postScript = hookCommand.split(/\s+/).slice(-1)[0];
+const postMatches = (cmd) => cmd === hookCommand || (typeof cmd === 'string' && cmd.endsWith(postScript));
+if (!bashGroup.hooks.some(h => typeof h?.command === 'string' && postMatches(h.command))) {
+  bashGroup.hooks.push({ type: 'command', command: hookCommand, statusMessage: 'Reviewing Bash output' });
+  changed = true;
+}
+
+// UserPromptSubmit — re-inject the extraction instruction when the graph lapses.
+// Codex routes this hook's stdout into model context just like Claude Code, so
+// the same compiled prompt-handler keeps guard mode alive across both hosts.
+// No matcher (Codex does not match UserPromptSubmit); synchronous so stdout is read.
+if (!Array.isArray(config.hooks.UserPromptSubmit)) config.hooks.UserPromptSubmit = [];
+const promptGroups = config.hooks.UserPromptSubmit;
+let promptGroup = promptGroups.find(entry => Array.isArray(entry?.hooks) && entry?.matcher === undefined);
+if (!promptGroup) {
+  promptGroup = { hooks: [] };
+  promptGroups.push(promptGroup);
+}
+const promptScript = promptHookCommand.split(/\s+/).slice(-1)[0];
+const promptMatches = (cmd) => cmd === promptHookCommand || (typeof cmd === 'string' && cmd.endsWith(promptScript));
+if (!promptGroup.hooks.some(h => typeof h?.command === 'string' && promptMatches(h.command))) {
+  promptGroup.hooks.push({ type: 'command', command: promptHookCommand, timeout: 10 });
+  changed = true;
+}
+
+if (changed) {
   fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
   fs.writeFileSync(hooksPath, JSON.stringify(config, null, 2));
   process.stdout.write('updated');
@@ -581,8 +618,8 @@ EOJS
 )
 
   case "$result" in
-    updated) echo -e "  ${GREEN}✓${NC} Codex CLI PostToolUse hook configured ${DIM}($config_file)${NC}" ;;
-    *)       echo -e "  ${GREEN}✓${NC} Codex CLI PostToolUse hook already configured" ;;
+    updated) echo -e "  ${GREEN}✓${NC} Codex CLI hooks configured ${DIM}($config_file)${NC}" ;;
+    *)       echo -e "  ${GREEN}✓${NC} Codex CLI hooks already configured" ;;
   esac
 }
 

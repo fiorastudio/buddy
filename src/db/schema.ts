@@ -10,6 +10,15 @@ const dbPath = process.env.BUDDY_DB_PATH || path.join(homedir(), '.buddy', 'budd
 mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = new Database(dbPath);
+// Two processes hold this file open: the long-lived MCP server and the per-turn
+// UserPromptSubmit hook (which writes reasoning_reinject on the user's critical
+// path). WAL is the standard journaling mode for concurrent SQLite access —
+// readers don't block the writer and vice-versa — so the hook never stalls on
+// the server's transaction; busy_timeout then only covers the rare writer-writer
+// race. WAL adds buddy.db-wal / buddy.db-shm sidecars next to buddy.db; if you
+// sync ~/.buddy across machines they must travel with the main DB.
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 
 export function initDb() {
   db.exec(`

@@ -41,6 +41,9 @@ const NAME_REACTIONS = [
 
 export interface PromptInput {
   session_id?: string;
+  // Host working directory (Claude Code includes this in the hook payload);
+  // used to scope re-injection lapse tracking to the current project session.
+  cwd?: string;
   // Claude Code may use any of these field names across versions.
   prompt?: string;
   message?: string;
@@ -117,14 +120,115 @@ export function handlePromptSubmit(
   return false;
 }
 
+// ─── extraction-instruction re-injection (guard-mode only) ──────────────────
+
+/**
+ * Re-inject the guard-mode extraction instruction into prompt context when the
+ * host has stopped sending claims.
+ *
+ * The instruction normally rides home in the buddy_observe *response*. But if
+ * the host stops calling buddy_observe (the graph goes silent past ~100k tokens
+ * of context), it also stops receiving that reminder — a self-reinforcing lapse
+ * with no recovery path. This hook fires on every UserPromptSubmit, so it can
+ * break the spiral: once silent for REASONING_CONFIG.REINJECT_AFTER_SILENT_TURNS
+ * turns it writes the instruction to stdout. For a SYNCHRONOUS UserPromptSubmit
+ * hook (exit 0) Claude Code folds that stdout into the turn's context — so this
+ * hook MUST be registered without `async: true` (see install.sh). Claude-Code-
+ * only: other hosts don't route hook stdout into model context.
+ *
+ * Design corrections after adversarial review:
+ * - Cheap pre-check from the status JSON (guard_mode + mood) BEFORE touching the
+ *   DB, so guard-mode-off users pay only a file read, not a native sqlite load.
+ * - Lapse state + the recovery metric live in the DB (reasoning_reinject), NOT
+ *   the status JSON — writeBuddyStatus rewrites that file wholesale and would
+ *   clobber hook-private state.
+ * - Lapse signal is scoped to the CURRENT session (cwd+day), so a claim in
+ *   another project can't mask silence here.
+ * - Recent claims for the resolved session are passed to the instruction, so the
+ *   re-injected reminder is not falsely "(none yet)" and cross-turn edges land.
+ *
+ * Never throws — hooks must not crash the host.
+ */
+export interface ReinjectDeps {
+  statusPath?: string;
+  cwd?: string;                              // host cwd → session scoping
+  sessionId?: string;                        // test injection (bypass cwd resolve)
+  db?: any;                                  // test injection
+  threshold?: number;                        // test injection
+  emit?: (s: string) => void;                // default: process.stdout.write
+  buildInstruction?: (recent: any[]) => string;
+}
+
+export async function reinjectExtractionInstructionIfLapsed(
+  deps: ReinjectDeps = {},
+): Promise<boolean> {
+  const statusPath = deps.statusPath ?? BUDDY_STATUS_PATH;
+  try {
+    // Cheap pre-check from the status JSON — no DB / native load unless guard
+    // mode is on and the buddy isn't muted.
+    let status: any;
+    try { status = JSON.parse(readFileSync(statusPath, "utf-8")); } catch { return false; }
+    if ((status.guard_mode ?? 0) !== 1) return false;
+    if (status.mood === "muted") return false;
+
+    let db = deps.db;
+    if (!db) {
+      const schema = await import("../db/schema.js");
+      schema.initDb();
+      db = schema.db;
+    }
+
+    const companion = db.prepare("SELECT id FROM companions LIMIT 1").get() as
+      { id: string } | undefined;
+    if (!companion) return false;
+
+    const reasoning = await import("../lib/reasoning/index.js");
+
+    const sessionId = deps.sessionId
+      ?? reasoning.deriveSessionId(reasoning.resolveProjectRoot(deps.cwd ?? process.cwd()).path);
+    const threshold = deps.threshold ?? reasoning.REASONING_CONFIG.REINJECT_AFTER_SILENT_TURNS;
+
+    const newestRow = db.prepare(
+      "SELECT MAX(created_at) AS t FROM reasoning_claims WHERE session_id = ?",
+    ).get(sessionId) as { t: number | null } | undefined;
+    const newestAt = newestRow?.t ?? 0;
+
+    const shouldEmit = reasoning.evaluateReinject(db, companion.id, sessionId, newestAt, threshold);
+    if (!shouldEmit) return false;
+
+    const recent = reasoning.loadRecentClaims(db, sessionId, reasoning.REASONING_CONFIG.RECENT_CLAIMS_CONTEXT);
+    // Re-inject the full extraction instruction. A softer "skip-if-trivial"
+    // variant was tested (eval) and rejected: it cut substantive recall on most
+    // transcripts to claw back over-emission on one. For a graph-builder, recall
+    // beats precision — the imperative is the right default; over-emission is a
+    // documented, bounded, content-dependent caveat.
+    const build = deps.buildInstruction ?? reasoning.buildExtractionInstruction;
+    const emit = deps.emit ?? ((s: string) => { process.stdout.write(s); });
+    emit(build(recent) + "\n");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // --- CLI entry point ---
 const isDirectRun = process.argv[1]?.includes("prompt-handler");
 if (isDirectRun) {
-  try {
-    const stdin = readFileSync(0, "utf-8");
-    const input: PromptInput = JSON.parse(stdin);
-    handlePromptSubmit(input);
-  } catch {
-    // Silent failure — hooks must never crash the host.
-  }
+  (async () => {
+    let input: PromptInput | null = null;
+    try {
+      input = JSON.parse(readFileSync(0, "utf-8"));
+    } catch {
+      return;
+    }
+    if (!input) return;
+
+    // Re-injection first — its stdout becomes prompt context for the next turn.
+    try {
+      await reinjectExtractionInstructionIfLapsed({ cwd: input.cwd });
+    } catch { /* never crash */ }
+
+    // Statusline mood reaction second (synchronous, no token cost).
+    try { handlePromptSubmit(input); } catch { /* never crash */ }
+  })();
 }

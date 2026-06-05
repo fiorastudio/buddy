@@ -58,6 +58,161 @@ Consequences:
   well. Other hosts may need the doctor check for inert guard mode to
   alert users (see `checkReasoningGuardMode` in `doctor.ts`).
 
+### Keeping the graph alive in long sessions (re-injection)
+
+Host-does-extraction has one failure mode: the extraction instruction
+normally rides home *in the buddy_observe response*. If the host stops
+calling `buddy_observe` — which happens past ~100k tokens of context, as the
+ceremony falls out of attention — it also stops *receiving the reminder*. A
+self-reinforcing lapse with no recovery path: the graph goes silent
+mid-session.
+
+The fix lives in the UserPromptSubmit hook (`prompt-handler.ts`,
+`reinjectExtractionInstructionIfLapsed`), which fires every turn regardless of
+whether the host called `buddy_observe`. Once silent for
+`REASONING_CONFIG.REINJECT_AFTER_SILENT_TURNS` turns it writes the extraction
+instruction to stdout. **This requires a SYNCHRONOUS hook** — a host only
+folds a UserPromptSubmit hook's stdout into context when the hook is *not*
+`async` (async hooks are fire-and-forget). The installer registers it
+synchronously and upgrades any older `async: true` registration in place. When
+the host is complying the hook stays quiet — the observe response already
+carries the instruction, so re-injecting then would just burn prompt budget.
+
+**Hosts covered: Claude Code and Codex.** Both route a UserPromptSubmit hook's
+stdout into model context under the same contract (Codex GA'd this hook in May
+2026), so the installer wires the *same compiled* `prompt-handler.js` into both
+— `~/.claude/settings.json` and `~/.codex/hooks.json` — and the handler reads
+either host's stdin shape unchanged (`session_id`/`cwd`/`prompt`). **Cursor and
+Copilot are not yet covered**: they don't expose a pre-prompt hook that routes
+stdout to context, so on those hosts the graph still goes silent in long
+sessions — surfaced via the doctor's inert-guard warning, not auto-recovered.
+When those hosts add the contract, the same handler drops in via an installer
+change only. buddy's other hooks use the status-file/statusline side channel
+precisely because it's portable; this is the one hook that needs the
+stdout→context contract.
+
+Design notes (corrected after an adversarial review caught the first cut
+shipping inert):
+
+- **Lapse detection is turn-driven, not observe-seq-driven.** `observe-seq`
+  only advances inside `buddy_observe`, so it freezes during the exact silent
+  spiral. The hook counts its own per-turn fires instead.
+- **State lives in the DB** (`reasoning_reinject`), not the status JSON.
+  `writeBuddyStatus` rewrites that file wholesale on every observe/status, which
+  would clobber hook-private state. A cheap `guard_mode`/`mood` mirror *is* kept
+  in the status JSON so the hook can gate the whole DB path behind a file read —
+  guard-mode-off users never pay a native sqlite load.
+- **Scoped to the current session** (cwd+day, from the hook's `cwd`), so a claim
+  in another concurrent project can't mask silence in this one.
+- **Efficacy is measurable.** `reasoning_reinject` counts re-injections emitted
+  and recoveries (a claim landing after a nudge); `buddy_doctor` surfaces the
+  ratio. This is the signal for whether the in-host fix actually works in long
+  sessions — the doctor's observe-seq counters can't show it because they freeze
+  during a lapse. The premise (re-injection beats attention saturation) remains
+  to be confirmed by a real >100k-token session; the metric is how we'll know.
+- No second LLM call, no API key, no outbound dependency.
+
+### Verifying re-injection (three layers)
+
+The feature has three independently-testable concerns; a green unit suite proves
+only the first. All three matter.
+
+1. **Mechanism** — the lapse counter, cadence, session scoping, and recovery
+   metric. Covered by `reasoning/instruction-reinjection.test.ts` (real DB) and
+   `reasoning/reinject-properties.test.ts` (randomized invariants:
+   recoveries ≤ re-injections, a claim-landing turn never emits, ≤ one emit per
+   `threshold` turns, session change resets).
+2. **Wiring / contract** — the hook actually fires, emits to stdout, never
+   crashes, and is registered SYNCHRONOUSLY. Covered by
+   `hooks/prompt-handler-spawn.test.ts` (spawns the compiled hook: garbage
+   stdin → exit 0; guard-off → no emit; guard-on → real imports + sqlite load,
+   exit 0) and `install-prompt-hook.test.ts` (asserts the installers register it
+   without `async: true` and upgrade older async registrations — the exact bug
+   that first shipped this inert).
+3. **Premise** — does a re-injected nudge actually pull a *saturated* host back?
+   This cannot be unit-tested; it needs a real model in a long context.
+   `scripts/reinject-eval.mjs` runs the A/B (far instruction vs re-injected near)
+   across context lengths, bracketed by positive/negative controls; it reports a
+   per-length recovery delta and refuses to interpret a run whose controls fail
+   (positive low or negative high). Its bookkeeping is unit-tested
+   (`__tests__/eval/reinject-harness.test.ts`); only the model call is key-gated:
+   `npm i -D @anthropic-ai/sdk && ANTHROPIC_API_KEY=… npm run eval:reinject -- --run`.
+   `npm run eval:reinject` alone is a dry run (plan + cost estimate, no calls).
+   Synthetic context is directional, not ground truth — a real exported
+   saturated transcript would be stronger.
+
+   **Recorded matrix (2026-06-04, real transcripts, N=15, claims graded substantive
+   by claude-haiku-4-5; controls valid — positive 100% and negative (short) 0% in
+   every cell; the long-context negative control (trivial turn on a real 150k
+   context) ran in the four B′ cells and read 0–13%).**
+
+   - **A** = the extraction instruction present *only* in the distant system block,
+     no near-turn reinforcement — models a host that has dropped the
+     buddy_observe-response reminder. (Not literally "production"; it omits the
+     fading trail of past tool-response reminders, so if anything A is pessimistic.)
+   - **B′** = the instruction re-injected as a `<system-reminder>` block adjacent to
+     the turn — the *actual* placement Claude Code produces from the hook's stdout.
+     (A bare same-turn prefix, "B", was also measured as an upper bound; B′ matched
+     or beat B in every cell, so B′ — the shipped placement — is reported here.)
+
+   | transcript / model | A 50/100/150k | B′ (shipped) 50/100/150k |
+   |---|---|---|
+   | slimemold / sonnet | 20 / 60 / 0 | 100 / 100 / **60** |
+   | lexicon / sonnet   | 20 / 7 / 0  | 100 / 100 / **100** |
+   | cupel / sonnet †   | 53 / 0 / 7  | 100 / 93 / **100** |
+   | slimemold / opus   | 0 / 0 / 0   | 93 / 93 / **93** |
+   | lexicon / opus     | 0 / 0 / 0   | 100 / 100 / **100** |
+
+   † cupel shows the bare-prefix B (B′ not run for it); B and B′ were equal on the
+   transcripts where both ran.
+
+   Read: without re-injection, substantive extraction collapses at long context
+   (~0% at 150k everywhere; opus emits nothing at *any* length). Re-injection in the
+   shipped placement recovers it to 60–100%. The one soft cell is slimemold/sonnet
+   @150k (60%): its content induced over-emission — in the shipped placement the
+   binary "did-it-call" rate was 80% vs 60% graded (~25% filler; the bare-prefix B
+   was 100%→60%), and the gap was ~0 on the other transcripts. Over-emission is
+   content-dependent and bounded — documented, not "fixed". A softer skip-first
+   nudge was prototyped to reduce it and **rejected**: it cut substantive recall
+   (lexicon 100→73%, opus 13–27% at long context) to shave filler on the one
+   transcript that had it; recall beats precision for a graph-builder, so the hook
+   re-injects the full instruction.
+
+   **Scope / honesty.** Directional, not universal. N=15/cell (binomial noise
+   ±~13–25pp — do not over-fit cell numbers; cupel's non-monotone A is noise). One
+   user's Claude Code projects, all AI-tooling style; single context cutpoint per
+   length; two *Anthropic* models. The haiku grader is unvalidated against human
+   labels — but the A-vs-B′ *delta* does not depend on grader accuracy: the grader
+   never sees the condition, so any bias hits A and B′ symmetrically, and A emits
+   almost nothing to grade. Claim it as "consistent across 3 transcripts and 2
+   Anthropic models," not "content-independent / model-general".
+
+**Live dogfood (the only end-to-end proof that Claude Code ingests the stdout):**
+1. Build + install from this branch into `~/.buddy/server`, then re-run the
+   installer's Claude-config step so buddy's prompt-handler is wired as a
+   **synchronous** `UserPromptSubmit` hook (confirm no `async: true` in
+   `~/.claude/settings.json`). Restart the session (hooks + MCP load at start).
+2. Turn guard mode on (`buddy_mode guard=true`).
+3. Run a long session (>100k tokens). Stop calling `buddy_observe` to simulate
+   the lapse, or just let a long real session drift.
+4. After ≥ `REINJECT_AFTER_SILENT_TURNS` silent turns, confirm the extraction
+   instruction reappears in context, and the host resumes emitting claims.
+5. Run `buddy_doctor` and read the `re-injects: N/M recovered` row — the
+   in-the-wild version of the eval's recovery rate. M climbing with N near it =
+   the premise holds; N climbing with M flat = re-injection isn't beating
+   saturation, and the out-of-band fallback (#115) should be reconsidered.
+
+### The `convention` basis
+
+`BASIS_VALUES` includes `convention` (ported from slimemold): a stipulative
+practice/policy declared by a named actor ("this project uses X", "agents must
+Y") — correct-by-fiat for the scope it declares. Distinct from `definition`
+(declares what a term *means*) and from `vibes`/`research` (general factual
+claims about a named thing). Like `definition`, it is epistemically neutral —
+the detectors flag the risky bases (`vibes`/`assumption`) and reward the
+grounded ones (`research`/`empirical`/`deduction`); `convention` sits in
+neither group, so no detector change was needed.
+
 ## Why three caution + three kudos (and not the full eight)
 
 Slimemold ships eight detectors. Guard mode runs six. The omissions:
