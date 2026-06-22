@@ -62,6 +62,7 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
     mood: row.mood,
     availablePoints: row.stat_points_available || 0,
     hatchedAt: new Date(row.created_at).getTime(),
+    guardMode: row.guard_mode ?? 0,
   };
 }
 
@@ -80,6 +81,7 @@ export function writeBuddyStatus(companion: Companion, reaction?: { state: strin
       level: companion.level,
       xp: companion.xp,
       mood: companion.mood,
+      guard_mode: companion.guardMode ?? 0,
       rarity: companion.rarity,
       is_shiny: companion.shiny,
       eye: companion.eye,

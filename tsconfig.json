@@ -10,5 +10,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // Tests are excluded from the build so they don't ship in the npm `dist`
+  // (the package publishes `dist`). Vitest runs them from src and is unaffected.
+  "exclude": ["src/__tests__/**", "src/**/*.test.ts"]
 }

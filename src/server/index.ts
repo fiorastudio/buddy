@@ -195,7 +195,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   text: { type: "string", description: "≤240 chars, single sentence." },
-                  basis: { type: "string", enum: ["research","empirical","deduction","analogy","definition","llm_output","assumption","vibes"], description: "Epistemic source: research=cited, empirical=measured, deduction=derived, analogy=X-is-like-Y, definition=naming, llm_output=model-ungrounded, assumption=stated-without-justification, vibes=unsourced-hunch." },
+                  basis: { type: "string", enum: ["research","empirical","deduction","analogy","definition","convention","llm_output","assumption","vibes"], description: "Epistemic source: research=cited, empirical=measured, deduction=derived, analogy=X-is-like-Y, definition=naming a term's meaning, convention=stipulated practice/policy by a named actor (correct-by-fiat), llm_output=model-ungrounded, assumption=stated-without-justification, vibes=unsourced-hunch." },
                   speaker: { type: "string", enum: ["user","assistant"] },
                   confidence: { type: "string", enum: ["low","medium","high"] },
                   external_id: { type: "string", description: "Unique within this payload, e.g. 'c1'." },
@@ -395,11 +395,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     db.prepare("DELETE FROM evolution_history WHERE companion_id = ?").run(companion.id);
     db.prepare("DELETE FROM xp_events WHERE companion_id = ?").run(companion.id);
     db.prepare("DELETE FROM memories WHERE companion_id = ?").run(companion.id);
-    // Reasoning-layer companion-scoped state (findings log + observe seq).
+    // Reasoning-layer companion-scoped state (findings log, observe seq, reinject state).
     // Workspace-scoped state (reasoning_claims / reasoning_edges) is preserved —
     // a new companion in the same workspace inherits the accumulated graph.
     db.prepare("DELETE FROM reasoning_findings_log WHERE companion_id = ?").run(companion.id);
     db.prepare("DELETE FROM reasoning_observe_seq WHERE companion_id = ?").run(companion.id);
+    db.prepare("DELETE FROM reasoning_reinject WHERE companion_id = ?").run(companion.id);
     db.prepare("DELETE FROM companions WHERE id = ?").run(companion.id);
 
     // Remove status file

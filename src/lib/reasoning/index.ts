@@ -19,6 +19,7 @@ export { getStressedVoice } from './stressed-voice.js';
 export { phraseFinding, claimSnippet } from './phrasings.js';
 export { pruneOldSessions, purge, type PurgeScope, type PurgeResult } from './retention.js';
 export { getAndBumpObserveSeq } from './observe-seq.js';
+export { evaluateReinject, getReinjectStats, type ReinjectStats } from './reinject-state.js';
 export { resolveProjectRoot, resetProjectRootMemo, type ResolvedRoot, type RootSource } from './project-root.js';
 export { scrubReactionText, detectLeaks } from './scrub.js';
 export {

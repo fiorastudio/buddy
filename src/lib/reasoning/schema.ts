@@ -65,6 +65,21 @@ export function initReasoningSchema(db: Database.Database): void {
       last_claims_received_seq INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY(companion_id) REFERENCES companions(id) ON DELETE CASCADE
     );
+
+    -- Lapse tracking for the UserPromptSubmit re-injection recovery path.
+    -- Turn-driven (the hook fires every turn), scoped to one session at a time.
+    -- reinjections_total / recoveries_total are the efficacy metric: how often a
+    -- re-injection was followed by the host actually emitting a claim.
+    CREATE TABLE IF NOT EXISTS reasoning_reinject (
+      companion_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL DEFAULT '',
+      lapse_turns INTEGER NOT NULL DEFAULT 0,
+      last_claim_at INTEGER NOT NULL DEFAULT 0,
+      pending_recovery INTEGER NOT NULL DEFAULT 0,
+      reinjections_total INTEGER NOT NULL DEFAULT 0,
+      recoveries_total INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(companion_id) REFERENCES companions(id) ON DELETE CASCADE
+    );
   `);
 
   // Add guard_mode column to companions (PRAGMA-then-alter for idempotency).

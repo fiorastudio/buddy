@@ -18,15 +18,35 @@ claims: 1-4 substantive assertions. Skip trivia, restatements, acknowledgments.
 Each claim ≤240 chars, single sentence.
   {
     text:        the assertion
-    basis:       research (cited source) | empirical (measured) | deduction
-                 (derived from prior claims) | analogy (X is like Y) |
-                 definition (naming/scoping) | llm_output (model-produced,
-                 ungrounded) | assumption (stated without justification) |
-                 vibes (unsourced hunch)
+    basis:       see the DECISION TREE below
     speaker:     user | assistant
     confidence:  low | medium | high
     external_id: short, unique in this payload (e.g. 'c1', 'c2')
   }
+
+basis — apply the FIRST matching rule (ordered priority; do not skip ahead):
+  1. cites a specific paper, author, study, or named finding? → research
+  2. first-person observation ("I saw", "we tested", "I noticed")? → empirical
+  3. explicitly defines a term ("X is defined as Y", "by 'Z' we mean")? → definition
+  4. declares a project/team policy or adopted practice ("this project uses X",
+     "agents must Y", "we track work in Z")? → convention
+  5. follows explicit logical steps from stated premises? → deduction
+  6. reasons by comparison to another domain? → analogy
+  7. explicitly framed as a given premise ("let's assume", "given that")? → assumption
+  8. otherwise the SPEAKER decides: assistant → llm_output, user → vibes
+     (an unsourced factual claim is llm_output from the assistant, vibes from the user)
+
+Precision (the noisy boundaries):
+- research REQUIRES a citation IN THE TEXT. "Einstein was brilliant" → vibes/llm_output;
+  "Einstein (1905) showed E=mc²" → research.
+- vibes = unsourced assertion by the user. Not pejorative — a structural label. Do not
+  relabel as assumption to be polite.
+- assumption = ONLY claims framed as premises ("assume", "given that", "suppose").
+  Factual claims presented as true are vibes (user) / llm_output (assistant).
+- convention vs definition vs vibes: convention declares what we *do* (a chosen practice,
+  correct-by-fiat for its scope — "this project uses beads"); definition declares what a
+  term *means* ("by X we mean Y"); a general factual claim about a named thing
+  ("beads is the best tracker") is vibes/research, not convention or definition.
 
 edges: how these claims relate — to each other, or to recent claims (list
 below). Each edge:
@@ -39,10 +59,6 @@ collapse into one graph. If unknown, use the git-root or the directory
 from which the host was launched.
 
 Guidance:
-- "we should use postgres" → basis=assumption (no justification given).
-- "OWASP lists XSS as #3" → basis=research (cited source).
-- "our p99 is 240ms" → basis=empirical (measured).
-- "feels like the cache is stale" → basis=vibes (unsourced hunch).
 - supports = one claim reinforces or agrees with another.
 - depends_on = one claim only holds if another premise is true.
 - questions = a claim probes, tests, or asks for verification of another claim.
@@ -63,3 +79,10 @@ export function buildExtractionInstruction(recent: StoredClaim[]): string {
   });
   return EXTRACTION_INSTRUCTION + '\n\nRecent claims you can edge into:\n' + lines.join('\n');
 }
+
+// NOTE: a softer "skip-if-trivial" re-injection variant was prototyped and
+// rejected after the eval (scripts/reinject-eval.mjs) showed it cut substantive
+// recall on most transcripts (lexicon 100→73%, opus 13–27% at long context) to
+// reduce over-emission on one. Recall beats precision for a graph-builder, so
+// the hook re-injects the full instruction above; over-emission stays a
+// documented, bounded, content-dependent caveat. See DESIGN.md.

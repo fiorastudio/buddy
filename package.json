@@ -22,6 +22,7 @@
     "dev": "ts-node src/server/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "eval:reinject": "node scripts/reinject-eval.mjs",
     "version": "npm run build && git add -f dist/",
     "prepack": "npm run build",
     "release:patch": "npm version patch",

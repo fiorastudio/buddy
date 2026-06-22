@@ -48,6 +48,16 @@ export const REASONING_CONFIG = {
   // triggers a "host may not be honoring extraction" warning.
   INERT_GUARD_WARN_OBSERVES: 10,
 
+  // Re-injection: the extraction instruction normally rides home in the
+  // buddy_observe response. But if the host stops calling buddy_observe (the
+  // graph goes silent past ~100k tokens of context), it also stops receiving
+  // that reminder — a self-reinforcing lapse with no recovery path. The
+  // UserPromptSubmit hook fires every turn regardless, so after this many
+  // consecutive turns with no new claims it re-injects the instruction into
+  // fresh context to pull the host back. Lower = faster recovery, more prompt
+  // budget; the counter resets the moment a claim lands.
+  REINJECT_AFTER_SILENT_TURNS: 3,
+
   // Detector latency budget. If detectors exceed this, skip finding injection
   // for this observe (budget measured per-observe, reset each call).
   DETECTOR_BUDGET_MS: 30,
