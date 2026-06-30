@@ -73,6 +73,11 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
 
   db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
 
+  if (leveledUp) {
+    const levelsGained = newLevel - (row?.level || 1);
+    db.prepare("UPDATE companions SET stat_points_available = stat_points_available + ? WHERE id = ?").run(levelsGained * 10, companionId);
+  }
+
   return { newXp, newLevel, leveledUp };
 }
 
@@ -170,6 +175,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {},
+        },
+      },
+      {
+        name: "buddy_allocate",
+        description: "Spend an available stat point (earned from leveling up) to permanently raise one of your companion's five stats by 1, up to a cap of 100. Call buddy_status to see how many points are available.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            stat: {
+              type: "string",
+              enum: ["DEBUGGING", "PATIENCE", "CHAOS", "WISDOM", "SNARK"],
+              description: "Which stat to raise."
+            },
+            points: {
+              type: "number",
+              description: "How many available points to spend on this stat (default 1)."
+            }
+          },
+          required: ["stat"],
         },
       },
       {
@@ -354,7 +378,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     writeBuddyStatus(companion);
 
-    return { content: [{ type: "text", text: "DISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n" + statusCard }] };
+    const pointsNote = companion.availablePoints > 0
+      ? `\n\n${companion.name} has ${companion.availablePoints} stat point${companion.availablePoints === 1 ? '' : 's'} available — use buddy_allocate to spend them.`
+      : '';
+
+    return { content: [{ type: "text", text: "DISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n" + statusCard + pointsNote }] };
   }
 
   if (name === "buddy_remember") {
@@ -412,6 +440,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         { type: "text", text: "Use buddy_hatch to welcome a new companion." },
       ],
     };
+  }
+
+  if (name === "buddy_allocate") {
+    const { stat, points = 1 } = args as { stat: string; points?: number };
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) {
+      return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
+    }
+
+    if (!STAT_NAMES.includes(stat as any)) {
+      return { content: [{ type: "text", text: `Unknown stat "${stat}". Choose from: ${STAT_NAMES.join(', ')}.` }] };
+    }
+
+    const available = row.stat_points_available || 0;
+    if (available <= 0) {
+      return { content: [{ type: "text", text: `${row.name} has no stat points available. Level up to earn more!` }] };
+    }
+
+    const currentValue = row[stat.toLowerCase()] ?? 0;
+    const canSpend = Math.min(points, available, 100 - currentValue);
+    if (canSpend <= 0) {
+      return { content: [{ type: "text", text: `${stat} is already at 100 — can't go higher!` }] };
+    }
+
+    db.prepare(`UPDATE companions SET ${stat.toLowerCase()} = ${stat.toLowerCase()} + ?, stat_points_available = stat_points_available - ? WHERE id = ?`)
+      .run(canSpend, canSpend, row.id);
+
+    const updated = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const companion = loadCompanion(updated)!;
+    const statusCard = renderCard(companion);
+    const remaining = updated.stat_points_available;
+
+    const summary = remaining > 0
+      ? `Spent ${canSpend} point${canSpend === 1 ? '' : 's'} on ${stat}. ${remaining} point${remaining === 1 ? '' : 's'} remaining.`
+      : `Spent ${canSpend} point${canSpend === 1 ? '' : 's'} on ${stat}. No points remaining.`;
+
+    return { content: [{ type: "text", text: `${summary}\n\nDISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n${statusCard}` }] };
   }
 
   if (name === "buddy_observe") {
