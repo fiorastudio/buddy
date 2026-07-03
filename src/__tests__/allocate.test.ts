@@ -1,16 +1,33 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { initDb, db } from '../db/schema.js';
 import { createCompanion, rescueCompanion, loadCompanion } from '../lib/companion.js';
 import { applyStatAllocation } from '../lib/allocate.js';
 import { STAT_NAMES } from '../lib/types.js';
+// Safe to import: server/index.ts only auto-starts when run directly
+// (same pattern as self-healing.test.ts importing recalcMood).
+import { awardXpAndRefresh } from '../server/index.js';
+import { XP_REWARDS, levelFromXp } from '../lib/leveling.js';
 
-beforeEach(() => {
-  initDb();
+function wipeCompanionData() {
+  // Children before parents: foreign_keys is ON (initReasoningSchema enables it).
   db.prepare('DELETE FROM xp_events').run();
   db.prepare('DELETE FROM memories').run();
   db.prepare('DELETE FROM sessions').run();
   db.prepare('DELETE FROM evolution_history').run();
   db.prepare('DELETE FROM companions').run();
+}
+
+beforeEach(() => {
+  initDb();
+  wipeCompanionData();
+});
+
+// Test files share one BUDDY_DB_PATH file (see vitest.config.ts). The
+// awardXpAndRefresh tests insert xp_events rows; leave the DB empty so later
+// files whose cleanup only does `DELETE FROM companions` don't hit the
+// xp_events foreign key.
+afterAll(() => {
+  wipeCompanionData();
 });
 
 function givePoints(id: string, pts: number) {
@@ -301,5 +318,45 @@ describe('multi-level point gains', () => {
     if (!r1.ok || !r2.ok || !r3.ok) return;
     expect(r3.remaining).toBe(0);
     expect(getRow(id).stat_points_available).toBe(0);
+  });
+});
+
+// ─── refresh after awarding (awardXpAndRefresh) ──────────────────────────────
+//
+// The maintainer's review: "Reload the companion and update the status file
+// after awarding or allocating points; current refresh logic uses stale point
+// data." The allocating side is covered above; these cover the awarding side.
+// awardXpAndRefresh used to patch xp/level/mood onto the caller's pre-award
+// row snapshot, so on a level-up turn the returned companion carried the
+// stale stat_points_available (observe/pet then wrote it to the status file).
+
+describe('awardXpAndRefresh point freshness', () => {
+  it('returns fresh availablePoints on the turn a level-up happens', () => {
+    const { id } = createCompanion({ userId: 'award-refresh' });
+    // Park XP so the next observe event crosses at least one level boundary,
+    // while the DB still says level 1 — exactly the state awardXp levels from.
+    db.prepare('UPDATE companions SET xp = 500, level = 1 WHERE id = ?').run(id);
+    const staleRow = getRow(id); // handler-style snapshot taken BEFORE the award
+
+    const { companion, xpResult } = awardXpAndRefresh(staleRow, 'observe');
+
+    expect(xpResult.leveledUp).toBe(true);
+    const levelsGained = levelFromXp(500 + XP_REWARDS.observe) - 1;
+    expect(levelsGained).toBeGreaterThan(0);
+    // The returned companion must reflect the points awardXp just granted —
+    // the same object the observe/pet handlers pass to writeBuddyStatus.
+    expect(companion.availablePoints).toBe(levelsGained * 10);
+    expect(getRow(id).stat_points_available).toBe(levelsGained * 10);
+  });
+
+  it('reflects pre-existing unspent points even when no level-up occurs', () => {
+    const { id } = createCompanion({ userId: 'award-noref' });
+    givePoints(id, 7);
+    const staleRow = getRow(id);
+
+    const { companion, xpResult } = awardXpAndRefresh(staleRow, 'session'); // +3 xp, stays level 1
+
+    expect(xpResult.leveledUp).toBe(false);
+    expect(companion.availablePoints).toBe(7);
   });
 });

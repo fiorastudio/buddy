@@ -85,11 +85,16 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
 /**
  * Award XP, recalculate mood, update DB, and load companion — shared by observe + pet.
  */
-function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
+export function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
   const xpResult = awardXp(row.id, eventType);
   const newMood = recalcMood(row.id, xpResult.leveledUp);
   db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
-  const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
+  // Re-read the row instead of patching xp/level/mood onto the caller's
+  // snapshot: awardXp may have just granted stat points for a level-up, and
+  // the stale snapshot's stat_points_available would otherwise flow into the
+  // returned companion (and from there into the status file the caller writes).
+  const freshRow = db.prepare("SELECT * FROM companions WHERE id = ?").get(row.id);
+  const companion = loadCompanion(freshRow, userIdOverride)!;
   return { companion, xpResult };
 }
 

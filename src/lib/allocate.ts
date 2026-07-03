@@ -21,10 +21,12 @@ export type AllocateResult =
  * `points` must be a positive integer; non-integer or non-positive values
  * return { ok: false, reason: 'invalid_points' }.
  *
- * The read-check-write runs inside db.transaction() (same convention as
- * repairDuplicateCompanions in db/schema.ts) so a concurrent writer on this
- * row — the MCP server and the UserPromptSubmit hook share one DB file —
- * can't land a write between the SELECT and the UPDATE.
+ * The read-check-write runs as one BEGIN IMMEDIATE transaction. Two processes
+ * hold this DB file open (the MCP server and the UserPromptSubmit hook), and
+ * under WAL a deferred transaction that reads first can fail its write upgrade
+ * (SQLITE_BUSY_SNAPSHOT) if the other process commits in between — immediate
+ * mode takes the write lock up front, so busy_timeout does the waiting and the
+ * SELECT-then-UPDATE pair is atomic.
  */
 export function applyStatAllocation(companionId: string, stat: StatName, points: number): AllocateResult {
   if (!STAT_NAMES.includes(stat)) {
@@ -63,5 +65,5 @@ export function applyStatAllocation(companionId: string, stat: StatName, points:
     return { ok: true, spent: canSpend, newValue, remaining: after.stat_points_available ?? 0 };
   });
 
-  return allocate();
+  return allocate.immediate();
 }
