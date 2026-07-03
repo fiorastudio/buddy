@@ -24,6 +24,7 @@ import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
+import { applyStatAllocation } from "../lib/allocate.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
 import { captureSnapshot } from "../lib/snapshot.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
@@ -189,7 +190,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Which stat to raise."
             },
             points: {
-              type: "number",
+              type: "integer",
+              minimum: 1,
               description: "How many available points to spend on this stat (default 1)."
             }
           },
@@ -448,33 +450,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (!row) {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
     }
-
     if (!STAT_NAMES.includes(stat as any)) {
       return { content: [{ type: "text", text: `Unknown stat "${stat}". Choose from: ${STAT_NAMES.join(', ')}.` }] };
     }
-
-    const available = row.stat_points_available || 0;
-    if (available <= 0) {
-      return { content: [{ type: "text", text: `${row.name} has no stat points available. Level up to earn more!` }] };
+    if (!Number.isInteger(points) || points < 1) {
+      return { content: [{ type: "text", text: `points must be a positive integer (got ${points}).` }] };
     }
 
-    const currentValue = row[stat.toLowerCase()] ?? 0;
-    const canSpend = Math.min(points, available, 100 - currentValue);
-    if (canSpend <= 0) {
-      return { content: [{ type: "text", text: `${stat} is already at 100 — can't go higher!` }] };
+    const result = applyStatAllocation(row.id, stat as any, points);
+    if (!result.ok) {
+      if (result.reason === 'no_points') {
+        return { content: [{ type: "text", text: `${row.name} has no stat points available. Level up to earn more!` }] };
+      }
+      if (result.reason === 'at_cap') {
+        return { content: [{ type: "text", text: `${stat} is already at 100 — can't go higher!` }] };
+      }
+      return { content: [{ type: "text", text: "Something went wrong — no companion found." }] };
     }
 
-    db.prepare(`UPDATE companions SET ${stat.toLowerCase()} = ${stat.toLowerCase()} + ?, stat_points_available = stat_points_available - ? WHERE id = ?`)
-      .run(canSpend, canSpend, row.id);
-
-    const updated = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
-    const companion = loadCompanion(updated)!;
+    const updatedRow = db.prepare("SELECT * FROM companions WHERE id = ?").get(row.id) as any;
+    const companion = loadCompanion(updatedRow)!;
+    writeBuddyStatus(companion);
     const statusCard = renderCard(companion);
-    const remaining = updated.stat_points_available;
+    const { spent, remaining } = result;
 
     const summary = remaining > 0
-      ? `Spent ${canSpend} point${canSpend === 1 ? '' : 's'} on ${stat}. ${remaining} point${remaining === 1 ? '' : 's'} remaining.`
-      : `Spent ${canSpend} point${canSpend === 1 ? '' : 's'} on ${stat}. No points remaining.`;
+      ? `Spent ${spent} point${spent === 1 ? '' : 's'} on ${stat}. ${remaining} point${remaining === 1 ? '' : 's'} remaining.`
+      : `Spent ${spent} point${spent === 1 ? '' : 's'} on ${stat}. No points remaining.`;
 
     return { content: [{ type: "text", text: `${summary}\n\nDISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n${statusCard}` }] };
   }
