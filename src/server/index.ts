@@ -450,22 +450,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (!row) {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
     }
-    if (!STAT_NAMES.includes(stat as any)) {
-      return { content: [{ type: "text", text: `Unknown stat "${stat}". Choose from: ${STAT_NAMES.join(', ')}.` }] };
-    }
-    if (!Number.isInteger(points) || points < 1) {
-      return { content: [{ type: "text", text: `points must be a positive integer (got ${points}).` }] };
-    }
 
     const result = applyStatAllocation(row.id, stat as any, points);
     if (!result.ok) {
-      if (result.reason === 'no_points') {
-        return { content: [{ type: "text", text: `${row.name} has no stat points available. Level up to earn more!` }] };
+      switch (result.reason) {
+        case 'no_points':
+          return { content: [{ type: "text", text: `${row.name} has no stat points available. Level up to earn more!` }] };
+        case 'at_cap':
+          return { content: [{ type: "text", text: `${stat} is already at 100 — can't go higher!` }] };
+        case 'invalid_stat':
+          return { content: [{ type: "text", text: `Unknown stat "${stat}". Choose from: ${STAT_NAMES.join(', ')}.` }] };
+        case 'invalid_points':
+          return { content: [{ type: "text", text: `points must be a positive integer (got ${points}).` }] };
+        case 'no_companion':
+        default:
+          return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
       }
-      if (result.reason === 'at_cap') {
-        return { content: [{ type: "text", text: `${stat} is already at 100 — can't go higher!` }] };
-      }
-      return { content: [{ type: "text", text: "Something went wrong — no companion found." }] };
     }
 
     const updatedRow = db.prepare("SELECT * FROM companions WHERE id = ?").get(row.id) as any;

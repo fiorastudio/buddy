@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { initDb, db } from '../db/schema.js';
 import { createCompanion, rescueCompanion, loadCompanion } from '../lib/companion.js';
 import { applyStatAllocation } from '../lib/allocate.js';
+import { STAT_NAMES } from '../lib/types.js';
 
 beforeEach(() => {
   initDb();
@@ -20,11 +21,20 @@ function getRow(id: string): any {
   return db.prepare('SELECT * FROM companions WHERE id = ?').get(id);
 }
 
+// Deterministic rolls can put a rarity's "peak stat" at 100 already, which
+// would spuriously trip the at_cap path in tests that just want to exercise
+// plain allocation bookkeeping. Pin a stat to a known-safe baseline so those
+// tests don't depend on which stat a given userId happens to roll as peak.
+function pinStat(id: string, stat: string, value: number) {
+  db.prepare(`UPDATE companions SET stat_${stat.toLowerCase()} = ? WHERE id = ?`).run(value, id);
+}
+
 // ─── fresh companions ────────────────────────────────────────────────────────
 
 describe('fresh companion', () => {
   it('raises the target stat by the requested amount', () => {
     const { id } = createCompanion({ userId: 'fresh-1' });
+    pinStat(id, 'SNARK', 50);
     givePoints(id, 5);
     const before = loadCompanion(getRow(id))!;
     const result = applyStatAllocation(id, 'SNARK', 3);
@@ -37,21 +47,23 @@ describe('fresh companion', () => {
 
   it('writes the correct stat_ column name (not the bare stat name)', () => {
     const { id } = createCompanion({ userId: 'fresh-col' });
+    pinStat(id, 'DEBUGGING', 50);
     givePoints(id, 3);
     applyStatAllocation(id, 'DEBUGGING', 2);
     const row = getRow(id);
     // stat_debugging must be updated; the bare "debugging" column does not exist
-    expect(typeof row.stat_debugging).toBe('number');
-    expect(row.stat_debugging).toBeGreaterThan(0);
+    expect(row.stat_debugging).toBe(52);
     // sanity: stat_points_available must be decremented
     expect(row.stat_points_available).toBe(1);
   });
 
   it('does not touch other stat columns', () => {
     const { id } = createCompanion({ userId: 'fresh-notouch' });
+    pinStat(id, 'CHAOS', 50); // ensure the target actually has headroom to write
     givePoints(id, 5);
     const before = loadCompanion(getRow(id))!;
-    applyStatAllocation(id, 'CHAOS', 2);
+    const result = applyStatAllocation(id, 'CHAOS', 2);
+    expect(result.ok).toBe(true);
     const after = loadCompanion(getRow(id))!;
     expect(after.stats.DEBUGGING).toBe(before.stats.DEBUGGING);
     expect(after.stats.PATIENCE).toBe(before.stats.PATIENCE);
@@ -69,39 +81,55 @@ describe('fresh companion', () => {
 });
 
 // ─── rescued companions (NULL stat columns) ──────────────────────────────────
+//
+// These tests can't pin the target stat -- the whole point is to exercise the
+// NULL-column bones-fallback path. Instead they dynamically pick any stat
+// that currently has headroom (a rescued companion has at most one stat
+// pinned near a cap by its rarity roll, so 4 of 5 are virtually guaranteed to
+// have room).
 
 describe('rescued companion (NULL stat columns)', () => {
   it('initialises a NULL stat column rather than producing NULL', () => {
     const { id } = rescueCompanion({ name: 'Nullbert', species: 'Lava Salamander' });
-    // rescueCompanion does not set stat_* columns, so they are NULL
-    expect(getRow(id).stat_snark).toBeNull();
+    // rescueCompanion does not set stat_* columns, so they are all NULL
+    const row0 = getRow(id);
+    for (const s of STAT_NAMES) {
+      expect(row0[`stat_${s.toLowerCase()}`]).toBeNull();
+    }
 
     givePoints(id, 5);
 
     const companion = loadCompanion(getRow(id))!; // bones fallback resolves NULL
-    const expectedNew = companion.stats.SNARK + 2;
+    const stat = STAT_NAMES.find(s => companion.stats[s] < 100)!;
+    const expectedNew = companion.stats[stat] + 2;
 
-    const result = applyStatAllocation(id, 'SNARK', 2);
+    const result = applyStatAllocation(id, stat, 2);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
     const row = getRow(id);
-    expect(row.stat_snark).toBe(expectedNew); // must be a number, not NULL
+    expect(row[`stat_${stat.toLowerCase()}`]).toBe(expectedNew); // must be a number, not NULL
     expect(result.newValue).toBe(expectedNew);
   });
 
   it('deducts stat_points_available correctly even with NULL stat columns', () => {
     const { id } = rescueCompanion({ name: 'Nullbert2' });
     givePoints(id, 8);
-    applyStatAllocation(id, 'CHAOS', 3);
+    const companion = loadCompanion(getRow(id))!;
+    const stat = STAT_NAMES.find(s => companion.stats[s] < 98)!; // headroom for 3 points
+    const result = applyStatAllocation(id, stat, 3);
+    expect(result.ok).toBe(true);
     expect(getRow(id).stat_points_available).toBe(5);
   });
 
   it('returns the correct remaining count after multiple allocations on a rescued companion', () => {
     const { id } = rescueCompanion({ name: 'Nullbert3' });
     givePoints(id, 10);
-    applyStatAllocation(id, 'PATIENCE', 4);
-    const result = applyStatAllocation(id, 'WISDOM', 2);
+    const companion = loadCompanion(getRow(id))!;
+    const [statA, statB] = STAT_NAMES.filter(s => companion.stats[s] < 96); // headroom for 4 then 2
+    const r1 = applyStatAllocation(id, statA, 4);
+    const result = applyStatAllocation(id, statB, 2);
+    expect(r1.ok).toBe(true);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.remaining).toBe(4);
@@ -131,6 +159,44 @@ describe('stat cap', () => {
     expect(result.newValue).toBe(100);
     expect(result.spent).toBe(2);      // clamped from 5 to 2
     expect(result.remaining).toBe(8);  // 10 - 2
+  });
+});
+
+// ─── invalid stat names ──────────────────────────────────────────────────────
+
+describe('invalid stat names', () => {
+  it('rejects a stat name outside STAT_NAMES', () => {
+    const { id } = createCompanion({ userId: 'badstat-1' });
+    givePoints(id, 5);
+    const result = applyStatAllocation(id, 'NOTASTAT' as any, 1);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('invalid_stat');
+  });
+
+  it('rejects a lowercase stat name (must match STAT_NAMES exactly)', () => {
+    const { id } = createCompanion({ userId: 'badstat-2' });
+    givePoints(id, 5);
+    const result = applyStatAllocation(id, 'snark' as any, 1);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('invalid_stat');
+  });
+
+  it('safely rejects a SQL-injection-shaped stat string without touching the DB', () => {
+    const { id } = createCompanion({ userId: 'badstat-injection' });
+    givePoints(id, 5);
+    const before = getRow(id);
+
+    const result = applyStatAllocation(id, 'snark = 999; DROP TABLE companions; --' as any, 1);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('invalid_stat');
+
+    // Table must still exist and this row must be untouched.
+    const after = getRow(id);
+    expect(after).toEqual(before);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='companions'").get()).toBeTruthy();
   });
 });
 
@@ -179,6 +245,8 @@ describe('invalid point amounts', () => {
 describe('multi-level point gains', () => {
   it('allows spending points earned across multiple levels', () => {
     const { id } = createCompanion({ userId: 'multilevel-1' });
+    pinStat(id, 'SNARK', 50);
+    pinStat(id, 'CHAOS', 50);
     // Simulate 3 level-ups (10 points each)
     givePoints(id, 30);
     const r1 = applyStatAllocation(id, 'SNARK', 10);
@@ -193,6 +261,7 @@ describe('multi-level point gains', () => {
 
   it('each allocation is reflected in subsequent loadCompanion calls', () => {
     const { id } = createCompanion({ userId: 'multilevel-2' });
+    pinStat(id, 'DEBUGGING', 50);
     givePoints(id, 20);
     const base = loadCompanion(getRow(id))!.stats.DEBUGGING;
     applyStatAllocation(id, 'DEBUGGING', 5);
@@ -204,11 +273,33 @@ describe('multi-level point gains', () => {
   it('stat_points_available from a level-up is honoured by the allocator', () => {
     // Simulate what awardXp does when a companion levels up
     const { id } = createCompanion({ userId: 'levelup-sim' });
+    pinStat(id, 'WISDOM', 50);
     db.prepare('UPDATE companions SET stat_points_available = stat_points_available + 10 WHERE id = ?').run(id);
     expect(getRow(id).stat_points_available).toBe(10);
     const result = applyStatAllocation(id, 'WISDOM', 10);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.remaining).toBe(0);
+  });
+
+  it('a single award spanning 3 levels (levelsGained * 10) can be fully spent across stats', () => {
+    // Mirrors awardXp's `stat_points_available += levelsGained * 10` for a
+    // 3-level jump from one XP award, then spends all 30 across 3 stats.
+    const { id } = createCompanion({ userId: 'multilevel-jump' });
+    pinStat(id, 'DEBUGGING', 50);
+    pinStat(id, 'PATIENCE', 50);
+    pinStat(id, 'SNARK', 50);
+    const levelsGained = 3;
+    db.prepare('UPDATE companions SET stat_points_available = stat_points_available + ? WHERE id = ?')
+      .run(levelsGained * 10, id);
+    expect(getRow(id).stat_points_available).toBe(30);
+
+    const r1 = applyStatAllocation(id, 'DEBUGGING', 10);
+    const r2 = applyStatAllocation(id, 'PATIENCE', 10);
+    const r3 = applyStatAllocation(id, 'SNARK', 10);
+    expect(r1.ok && r2.ok && r3.ok).toBe(true);
+    if (!r1.ok || !r2.ok || !r3.ok) return;
+    expect(r3.remaining).toBe(0);
+    expect(getRow(id).stat_points_available).toBe(0);
   });
 });
