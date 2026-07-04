@@ -26,22 +26,38 @@ $NODE_BIN = (Get-Command node).Source
 # exposes node at C:\Program Files\nodejs (a junction it repoints on every
 # `nvm use`), so pinning that path silently swaps the runtime later and
 # crashes better-sqlite3 with an ABI mismatch. Pin the resolved target instead.
+# Only follow reparse points that actually redirect (SymbolicLink/Junction).
+# HardLink Targets are alternate names for the same file and must not be
+# followed — Target[0] could pin an arbitrary alias. Loop to unwind chained
+# links (nvm shim -> junction -> version dir), bounded to avoid cycles.
+$REDIRECT_LINK_TYPES = @('SymbolicLink', 'Junction')
 try {
-  $nodeItem = Get-Item $NODE_BIN -ErrorAction Stop
-  if ($nodeItem.LinkType -and $nodeItem.Target) {
-    $resolvedFile = @($nodeItem.Target)[0]
-    if (Test-Path $resolvedFile) { $NODE_BIN = $resolvedFile }
-  }
-  $nodeDirItem = Get-Item (Split-Path $NODE_BIN) -ErrorAction Stop
-  if ($nodeDirItem.LinkType -and $nodeDirItem.Target) {
-    $resolvedDir = @($nodeDirItem.Target)[0]
-    $resolvedNode = Join-Path $resolvedDir (Split-Path $NODE_BIN -Leaf)
-    if (Test-Path $resolvedNode) {
-      Write-Host "  Pinning node to resolved path: $resolvedNode" -ForegroundColor DarkGray
-      $NODE_BIN = $resolvedNode
+  $resolvedAny = $false
+  for ($hop = 0; $hop -lt 4; $hop++) {
+    $changed = $false
+
+    $nodeItem = Get-Item $NODE_BIN -ErrorAction Stop
+    if ($REDIRECT_LINK_TYPES -contains $nodeItem.LinkType -and $nodeItem.Target) {
+      $resolvedFile = @($nodeItem.Target)[0]
+      if (Test-Path $resolvedFile) { $NODE_BIN = $resolvedFile; $changed = $true }
     }
+
+    $nodeDirItem = Get-Item (Split-Path $NODE_BIN) -ErrorAction Stop
+    if ($REDIRECT_LINK_TYPES -contains $nodeDirItem.LinkType -and $nodeDirItem.Target) {
+      $resolvedDir = @($nodeDirItem.Target)[0]
+      $resolvedNode = Join-Path $resolvedDir (Split-Path $NODE_BIN -Leaf)
+      if (Test-Path $resolvedNode) { $NODE_BIN = $resolvedNode; $changed = $true }
+    }
+
+    if ($changed) { $resolvedAny = $true } else { break }
   }
-} catch {}
+  if ($resolvedAny) {
+    Write-Host "  Pinning node to resolved path: $NODE_BIN" -ForegroundColor DarkGray
+  }
+} catch {
+  Write-Host "  ! Could not resolve node's link target; pinning $NODE_BIN as-is." -ForegroundColor Yellow
+  Write-Host "    If you use nvm-windows, re-run this installer after 'nvm use' changes." -ForegroundColor Yellow
+}
 
 $nodeVersion = (& $NODE_BIN -v) -replace 'v(\d+)\..*', '$1'
 if ([int]$nodeVersion -lt 20) {
