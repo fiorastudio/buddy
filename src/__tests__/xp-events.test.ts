@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { classifySummary, detectCommandEvent } from '../lib/xp-classify.js';
 import { appendPendingEvent, consumePendingEvents } from '../lib/pending-events.js';
 import { XP_REWARDS, applyBlessing } from '../lib/leveling.js';
-import { currentStreakDays } from '../lib/streaks.js';
+import { currentStreakFromDays, checkStreakMilestone } from '../lib/streaks.js';
 
 describe('classifySummary (self-report channel)', () => {
   it('classifies deploys, bug fixes, commits, and test wins', () => {
@@ -104,28 +104,54 @@ describe('reward table and blessing', () => {
   });
 });
 
-describe('currentStreakDays', () => {
-  const DAY = 86_400_000;
-  const now = 1_800_000_000_000;
-
+describe('currentStreakFromDays', () => {
   it('counts consecutive days with activity ending today', () => {
-    const days = [now, now - DAY, now - 2 * DAY];
-    expect(currentStreakDays(days, now)).toBe(3);
+    expect(currentStreakFromDays(['2026-07-04', '2026-07-03', '2026-07-02'], '2026-07-04')).toBe(3);
   });
 
   it('breaks on a gap', () => {
-    const days = [now, now - DAY, now - 3 * DAY];
-    expect(currentStreakDays(days, now)).toBe(2);
+    expect(currentStreakFromDays(['2026-07-04', '2026-07-03', '2026-07-01'], '2026-07-04')).toBe(2);
   });
 
   it('counts yesterday-ending streaks (grace until today is played)', () => {
-    const days = [now - DAY, now - 2 * DAY];
-    expect(currentStreakDays(days, now)).toBe(2);
+    expect(currentStreakFromDays(['2026-07-03', '2026-07-02'], '2026-07-04')).toBe(2);
   });
 
   it('returns 0 for stale activity', () => {
-    expect(currentStreakDays([now - 3 * DAY], now)).toBe(0);
-    expect(currentStreakDays([], now)).toBe(0);
+    expect(currentStreakFromDays(['2026-07-01'], '2026-07-04')).toBe(0);
+    expect(currentStreakFromDays([], '2026-07-04')).toBe(0);
+  });
+});
+
+describe('checkStreakMilestone', () => {
+  function dbWith(daysAgoList: number[], todayEvents: number) {
+    const Database = require('better-sqlite3');
+    const db = new Database(':memory:');
+    db.exec(
+      "CREATE TABLE xp_events (id TEXT, companion_id TEXT, event_type TEXT, xp_gained INTEGER, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    );
+    const ins = db.prepare(
+      "INSERT INTO xp_events (id, companion_id, event_type, xp_gained, created_at) VALUES (?, 'c1', 'observe', 5, datetime('now', ?))"
+    );
+    let i = 0;
+    for (const d of daysAgoList) ins.run(`e${i++}`, `-${d} days`);
+    for (let j = 0; j < todayEvents; j++) ins.run(`t${j}`, '-0 days');
+    return db;
+  }
+
+  it('fires on the 7th consecutive day, first award of the day', () => {
+    const db = dbWith([6, 5, 4, 3, 2, 1], 1);
+    expect(checkStreakMilestone(db, 'c1', 1)).toBe(true);
+  });
+
+  it('does not fire twice in the same day', () => {
+    const db = dbWith([6, 5, 4, 3, 2, 1], 3);
+    expect(checkStreakMilestone(db, 'c1', 1)).toBe(false);
+  });
+
+  it('does not fire on non-milestone days', () => {
+    const db = dbWith([2, 1], 1);
+    expect(checkStreakMilestone(db, 'c1', 1)).toBe(false);
   });
 });
 

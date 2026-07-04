@@ -15,9 +15,9 @@ import {
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
 import { autoSyncWorld, isWorldBlessed } from "../lib/world/client.js";
-import { classifySummary } from "../lib/xp-classify.js";
+import { classifySummary, resolveEventType } from "../lib/xp-classify.js";
 import { consumePendingEvents } from "../lib/pending-events.js";
-import { currentStreakDays } from "../lib/streaks.js";
+import { checkStreakMilestone } from "../lib/streaks.js";
 import { statBar } from "../lib/rng.js";
 import { getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
@@ -64,21 +64,29 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
   return calculateMood(new Array(xpCount), memCount);
 }
 
-function awardXp(companionId: string, eventType: string): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number } {
+/**
+ * Award XP for one or more events in a single SELECT + one UPDATE (each
+ * event still gets its own xp_events row). A hook batch of commit + tests
+ * + deploy therefore costs 5 statements, not 3 SELECT/UPDATE pairs.
+ */
+function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number } {
   // Buddy World blessing: teleported buddies earn +10% (local file check, cached).
-  const xp = applyBlessing(XP_REWARDS[eventType] || 1, isWorldBlessed());
-  const id = randomUUID();
-  db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)").run(id, companionId, eventType, xp);
+  const blessed = isWorldBlessed();
+  const insert = db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)");
+  let xpGained = 0;
+  for (const eventType of eventTypes) {
+    const xp = applyBlessing(XP_REWARDS[eventType] || 1, blessed);
+    insert.run(randomUUID(), companionId, eventType, xp);
+    xpGained += xp;
+  }
 
-  // Get current total XP
   const row = db.prepare("SELECT xp, level FROM companions WHERE id = ?").get(companionId) as any;
-  const newXp = (row?.xp || 0) + xp;
+  const newXp = (row?.xp || 0) + xpGained;
   const newLevel = levelFromXp(newXp);
   const leveledUp = newLevel > (row?.level || 1);
-
   db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
 
-  return { newXp, newLevel, leveledUp, xpGained: xp };
+  return { newXp, newLevel, leveledUp, xpGained };
 }
 
 /**
@@ -90,38 +98,25 @@ function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string)
   // Ground-truth channel: commits/deploys/test-passes the hook actually saw.
   const pending = consumePendingEvents();
   const pendingTypes = new Set(pending.map((e) => e.type));
-  // Hook wins on duplicates: if the hook recorded a commit this window and
-  // the summary also classified as commit, the self-report demotes to observe.
-  const effectiveType = pendingTypes.has(eventType) ? 'observe' : eventType;
-
-  let xpResult = awardXp(row.id, effectiveType);
-  let leveledUp = xpResult.leveledUp;
-  const worldEvents: string[] = [effectiveType];
+  const worldEvents: string[] = [resolveEventType(eventType as never, pendingTypes)];
   for (const ev of pending) {
-    if (XP_REWARDS[ev.type] === undefined) continue;
-    xpResult = awardXp(row.id, ev.type);
-    leveledUp = leveledUp || xpResult.leveledUp;
-    worldEvents.push(ev.type);
+    if (XP_REWARDS[ev.type] !== undefined) worldEvents.push(ev.type);
   }
-  xpResult = { ...xpResult, leveledUp };
 
-  // Streak milestone: first event of a new day that lands on a multiple of 7.
-  const dayRows = db.prepare(
-    "SELECT COUNT(*) AS n FROM xp_events WHERE companion_id = ? AND date(created_at) = date('now')"
-  ).get(row.id) as any;
-  if ((dayRows?.n ?? 0) <= worldEvents.length) {
-    const tsRows = db.prepare(
-      "SELECT strftime('%s', created_at) * 1000 AS ts FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-60 days')"
-    ).all(row.id) as any[];
-    const streak = currentStreakDays(tsRows.map((r) => Number(r.ts)), Date.now());
-    if (streak > 0 && streak % 7 === 0) worldEvents.push('streak_7');
-  }
+  const xpResult = awardXpBatch(row.id, worldEvents);
+
+  // Streak milestone: first award of a new day landing on a 7-day multiple.
+  if (checkStreakMilestone(db, row.id, worldEvents.length)) worldEvents.push('streak_7');
 
   const newMood = recalcMood(row.id, xpResult.leveledUp);
   db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
   const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
-  // Buddy World: no-op unless the user ran buddy-world teleport (fire-and-forget).
-  for (const evType of worldEvents) void autoSyncWorld(companion, evType);
+  // Buddy World: no-op unless the user ran buddy-world teleport. A level-up
+  // flushes instantly — the server derives the level_up world event from
+  // the snapshot delta, so the wings appear within one plaza poll.
+  for (const evType of worldEvents) {
+    void autoSyncWorld(companion, evType, xpResult.leveledUp ? { instant: true } : {});
+  }
   return { companion, xpResult };
 }
 

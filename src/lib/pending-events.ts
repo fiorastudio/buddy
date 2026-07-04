@@ -6,14 +6,16 @@
 
 import { appendFileSync, existsSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
+import { BUDDY_DB_PATH } from './constants.js';
 
 export interface PendingEvent {
   type: string;
   ts: number;
 }
 
-export const DEFAULT_PENDING_EVENTS_PATH = join(homedir(), '.buddy', 'pending-events.jsonl');
+// Derive from the DB path so the ~/.buddy location has exactly one owner
+// (constants.ts) — a future env override there carries over automatically.
+export const DEFAULT_PENDING_EVENTS_PATH = join(dirname(BUDDY_DB_PATH), 'pending-events.jsonl');
 
 export function appendPendingEvent(file: string, event: PendingEvent): void {
   try {

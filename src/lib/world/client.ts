@@ -10,6 +10,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Companion } from '../types.js';
 import type { WorldSnapshot } from './validate.js';
+import { INSTANT_WORLD_EVENTS } from './schema-sql.js';
 
 export interface WorldConfig {
   token: string;
@@ -173,22 +174,24 @@ let processSyncToken: string | null = null;
 let cfgCache: { cfg: WorldConfig | null; at: number; path: string | undefined } | null = null;
 const CFG_CACHE_MS = 30_000;
 
+// Config reads happen on the MCP request path: hydrate at most once per 30s.
+function cachedConfig(path: string | undefined, nowMs: number): WorldConfig | null {
+  if (!cfgCache || cfgCache.path !== path || nowMs - cfgCache.at > CFG_CACHE_MS) {
+    cfgCache = { cfg: loadWorldConfig(path), at: nowMs, path };
+  }
+  return cfgCache.cfg;
+}
+
 export interface AutoSyncDeps extends WorldSyncOpts {
   configPath?: string;
+  /** Force an immediate flush (e.g. the awarding call just caused a level-up). */
+  instant?: boolean;
 }
 
 /** Teleported buddies earn the +10% XP blessing. Cached like autoSync. */
 export function isWorldBlessed(configPath?: string): boolean {
-  const now = Date.now();
-  if (!cfgCache || cfgCache.path !== configPath || now - cfgCache.at > CFG_CACHE_MS) {
-    cfgCache = { cfg: loadWorldConfig(configPath), at: now, path: configPath };
-  }
-  return cfgCache.cfg !== null;
+  return cachedConfig(configPath, Date.now()) !== null;
 }
-
-// Celebration-worthy events skip the debounce so fireworks land within one
-// plaza poll (~10s) of the real moment instead of a minute later.
-const INSTANT_TYPES = new Set(['deploy', 'level_up', 'streak_7']);
 
 export async function autoSyncWorld(
   companion: Companion,
@@ -196,13 +199,8 @@ export async function autoSyncWorld(
   deps: AutoSyncDeps = {}
 ): Promise<void> {
   try {
-    // Cache the config read: this runs on the MCP request path, so keep
-    // filesystem touches to once per 30s, not once per XP event.
     const now = (deps.now ?? Date.now)();
-    if (!cfgCache || cfgCache.path !== deps.configPath || now - cfgCache.at > CFG_CACHE_MS) {
-      cfgCache = { cfg: loadWorldConfig(deps.configPath), at: now, path: deps.configPath };
-    }
-    const cfg = cfgCache.cfg;
+    const cfg = cachedConfig(deps.configPath, now);
     if (!cfg) return;
     if (!processSync || processSyncToken !== cfg.token) {
       processSync = new WorldSync(cfg, deps);
@@ -210,7 +208,7 @@ export async function autoSyncWorld(
     }
     processSync.queue(eventType);
     const snapshot = buildWorldSnapshot(companion, cfg.avatar);
-    if (INSTANT_TYPES.has(eventType)) {
+    if (deps.instant || INSTANT_WORLD_EVENTS.has(eventType as never)) {
       await processSync.flush(snapshot);
     } else {
       await processSync.maybeFlush(snapshot);

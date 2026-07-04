@@ -16,6 +16,11 @@ export const WORLD_EVENT_TYPES = [
 
 export type WorldEventType = (typeof WORLD_EVENT_TYPES)[number];
 
+// Celebration-class events skip the client's sync debounce so plaza VFX
+// land within one poll of the real moment. Lives with the type definitions:
+// adding a new celebration event means touching this file, not the client.
+export const INSTANT_WORLD_EVENTS: ReadonlySet<WorldEventType> = new Set(['deploy', 'level_up', 'streak_7']);
+
 export const WORLD_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS citizens (
   id TEXT PRIMARY KEY,

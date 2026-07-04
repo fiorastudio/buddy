@@ -254,7 +254,7 @@
     ctx.fillText(AVATARS[avatarIdx % AVATARS.length], actor.x + w / 2 + 12, actor.y - 4);
 
     // name tag, RO style: white with dark outline
-    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}${hasStreakFlame(c.slug, now) ? ' 🔥' : ''}`;
+    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}${flameSlugs.has(c.slug) ? ' 🔥' : ''}`;
     ctx.font = 'bold 11px Menlo, Consolas, monospace';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
@@ -270,13 +270,23 @@
     }
   }
 
+  // Data-driven celebration rendering: a new event type is one line here.
+  // level_up keeps its bespoke branch (gold text + glow + bob) — the one
+  // genuine outlier.
+  const CELEBRATION_SPEC = {
+    deploy: { frames: ['🎆', '🎇', '✨'], font: '15px serif', dx: 18, dy: -66 },
+    commit: { frames: ['✨'], font: '12px serif', dx: -16, dy: -60 },
+    streak_7: { frames: ['🎊'], font: '14px serif', dx: 0, dy: -66 },
+    tests_passed: { frames: ['✅'], font: '13px serif', dx: -18, dy: -62 },
+  };
+
   function drawCelebrations(now) {
     for (const cel of state.celebrations) {
       const actor = actors.get(cel.citizen_slug);
       if (!actor) continue;
-      const age = (now - cel.ts) / 1000;
       ctx.textAlign = 'center';
       if (cel.type === 'level_up') {
+        const age = (now - cel.ts) / 1000;
         ctx.font = 'bold 13px Menlo, Consolas, monospace';
         ctx.fillStyle = '#ffd700';
         ctx.shadowColor = '#ff8c00';
@@ -286,34 +296,31 @@
         ctx.font = '16px serif';
         ctx.fillText('🪽', actor.x, actor.y - 56);
         ctx.shadowBlur = 0;
-      } else if (cel.type === 'deploy') {
-        ctx.font = '15px serif';
-        const burst = REDUCED_MOTION ? 0 : Math.floor(performance.now() / 400) % 3;
-        ctx.fillText(['🎆', '🎇', '✨'][burst], actor.x + 18, actor.y - 66);
-      } else if (cel.type === 'commit') {
-        ctx.font = '12px serif';
-        ctx.fillText('✨', actor.x - 16, actor.y - 60);
-      } else if (cel.type === 'streak_7') {
-        ctx.font = '14px serif';
-        ctx.fillText('🎊', actor.x, actor.y - 66);
-      } else if (cel.type === 'tests_passed') {
-        ctx.font = '13px serif';
-        ctx.fillText('✅', actor.x - 18, actor.y - 62);
+        continue;
       }
+      const spec = CELEBRATION_SPEC[cel.type];
+      if (!spec) continue;
+      ctx.font = spec.font;
+      const frame = REDUCED_MOTION ? 0 : Math.floor(performance.now() / 400) % spec.frames.length;
+      ctx.fillText(spec.frames[frame], actor.x + spec.dx, actor.y + spec.dy);
     }
   }
 
-  // Streak flame: buddies with a streak_7 event in the last 7 days carry
-  // the fire by their name tag — the public commitment device.
-  function hasStreakFlame(slug, now) {
-    return state.events.some(
-      (e) => e.citizen_slug === slug && e.type === 'streak_7' && now - e.ts < 7 * 86_400_000
+  // Streak flames (🔥 by the name tag): recomputed once per frame for all
+  // citizens — O(events), not O(citizens × events) inside drawCitizen.
+  let flameSlugs = new Set();
+  function computeFlameSlugs(now) {
+    return new Set(
+      state.events
+        .filter((e) => e.type === 'streak_7' && now - e.ts < 7 * 86_400_000)
+        .map((e) => e.citizen_slug)
     );
   }
 
   function tick() {
     const now = Date.now();
     drawGround();
+    flameSlugs = computeFlameSlugs(now);
     ctx.font = SPRITE_FONT;
     charW = ctx.measureText('M').width;
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
