@@ -54,9 +54,11 @@ try {
   }
   if ($resolvedAny) {
     Write-Host "  Pinning node to resolved path: $NODE_BIN" -ForegroundColor DarkGray
-    # Verify the hop limit actually finished the job.
+    # Verify the hop limit actually finished the job — check both the
+    # file and its parent directory (a remaining dir junction is also unresolved).
     $finalItem = Get-Item $NODE_BIN -ErrorAction Stop
-    if ($REDIRECT_LINK_TYPES -contains $finalItem.LinkType) {
+    $finalDirItem = Get-Item (Split-Path $NODE_BIN) -ErrorAction Stop
+    if (($REDIRECT_LINK_TYPES -contains $finalItem.LinkType) -or ($REDIRECT_LINK_TYPES -contains $finalDirItem.LinkType)) {
       Write-Host "  ! node path is still a link after 4 hops; pinning it as-is." -ForegroundColor Yellow
       Write-Host "    Re-run this installer if node version switches cause crashes." -ForegroundColor Yellow
     }
