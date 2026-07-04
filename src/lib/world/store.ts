@@ -29,6 +29,7 @@ export interface CitizenRow {
   district: string;
   hidden: boolean;
   flagged: boolean;
+  xp_bucket: number;
   created_at: number;
   last_seen_at: number;
 }
@@ -53,7 +54,7 @@ export interface DistrictView {
 export interface WorldStore {
   teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number): Promise<TeleportResult>;
   findByTokenHash(tokenHash: string): Promise<CitizenRow | null>;
-  updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number): Promise<void>;
+  updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number, xpBucket?: number): Promise<void>;
   recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number>;
   recall(tokenHash: string, purge: boolean): Promise<boolean>;
   district(name: string, sinceMs: number): Promise<DistrictView>;
@@ -84,6 +85,7 @@ function rowToCitizen(row: Record<string, unknown>): CitizenRow {
     district: row.district as string,
     hidden: !!row.hidden,
     flagged: !!row.flagged,
+    xp_bucket: row.xp_bucket as number,
     created_at: row.created_at as number,
     last_seen_at: row.last_seen_at as number,
   };
@@ -100,7 +102,8 @@ export class SqliteWorldStore implements WorldStore {
       | undefined;
 
     if (existing) {
-      await this.updateSnapshot(existing.id as string, snap, nowMs);
+      // Snapshot fields are NOT written here: re-teleport must go through
+      // the handler's clamped update path, never around it.
       this.db
         .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar) WHERE id = ?')
         .run(snap.avatar ?? null, existing.id);
@@ -149,16 +152,16 @@ export class SqliteWorldStore implements WorldStore {
     return row ? rowToCitizen(row) : null;
   }
 
-  async updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number): Promise<void> {
-    const prev = this.db.prepare('SELECT level FROM citizens WHERE id = ?').get(citizenId) as
-      | { level: number }
+  async updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number, xpBucket?: number): Promise<void> {
+    const prev = this.db.prepare('SELECT level, xp_bucket FROM citizens WHERE id = ?').get(citizenId) as
+      | { level: number; xp_bucket: number }
       | undefined;
     if (!prev) return;
 
     this.db
       .prepare(
         `UPDATE citizens SET name = ?, species = ?, level = ?, xp = ?, mood = ?, stats = ?,
-          rarity = ?, shiny = ?, hat = ?, eye = ?, last_seen_at = ? WHERE id = ?`
+          rarity = ?, shiny = ?, hat = ?, eye = ?, last_seen_at = ?, xp_bucket = ? WHERE id = ?`
       )
       .run(
         snap.name,
@@ -172,6 +175,7 @@ export class SqliteWorldStore implements WorldStore {
         snap.hat,
         snap.eye,
         nowMs,
+        xpBucket ?? prev.xp_bucket,
         citizenId
       );
 

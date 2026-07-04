@@ -75,6 +75,14 @@ describe('worldCommand', () => {
     expect(loadWorldConfig(configPath)).toBeNull();
   });
 
+  it('recall keeps the local token when the server call fails', async () => {
+    await worldCommand(['teleport'], deps);
+    const offlineDeps = { ...deps, fetchFn: () => Promise.reject(new Error('ECONNREFUSED')) };
+    const out = await worldCommand(['recall', '--purge'], offlineDeps);
+    expect(out.join('\n')).toMatch(/could not reach|failed|try again/i);
+    expect(loadWorldConfig(configPath)).not.toBeNull(); // token preserved for retry
+  });
+
   it('anon on toggles anonymous mode via the API', async () => {
     await worldCommand(['teleport'], deps);
     const out = await worldCommand(['anon', 'on'], deps);

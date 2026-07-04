@@ -39,7 +39,8 @@ export function loadWorldConfig(file: string = DEFAULT_WORLD_CONFIG_PATH): World
 
 export function saveWorldConfig(cfg: WorldConfig, file: string = DEFAULT_WORLD_CONFIG_PATH): void {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(cfg, null, 2));
+  // Bearer token: owner-only on POSIX; mode is ignored on Windows.
+  writeFileSync(file, JSON.stringify(cfg, null, 2), { mode: 0o600 });
 }
 
 export function deleteWorldConfig(file: string = DEFAULT_WORLD_CONFIG_PATH): void {
@@ -169,6 +170,8 @@ export class WorldSync {
 
 let processSync: WorldSync | null = null;
 let processSyncToken: string | null = null;
+let cfgCache: { cfg: WorldConfig | null; at: number; path: string | undefined } | null = null;
+const CFG_CACHE_MS = 30_000;
 
 export interface AutoSyncDeps extends WorldSyncOpts {
   configPath?: string;
@@ -180,7 +183,13 @@ export async function autoSyncWorld(
   deps: AutoSyncDeps = {}
 ): Promise<void> {
   try {
-    const cfg = loadWorldConfig(deps.configPath);
+    // Cache the config read: this runs on the MCP request path, so keep
+    // filesystem touches to once per 30s, not once per XP event.
+    const now = (deps.now ?? Date.now)();
+    if (!cfgCache || cfgCache.path !== deps.configPath || now - cfgCache.at > CFG_CACHE_MS) {
+      cfgCache = { cfg: loadWorldConfig(deps.configPath), at: now, path: deps.configPath };
+    }
+    const cfg = cfgCache.cfg;
     if (!cfg) return;
     if (!processSync || processSyncToken !== cfg.token) {
       processSync = new WorldSync(cfg, deps);

@@ -344,9 +344,19 @@
     state.tickerLines = state.events
       .slice(0, 6)
       .map((e) => `${nameBySlug[e.citizen_slug] || e.citizen_slug} ${EVENT_LABEL[e.type] || e.type}`);
-    tickerEl.innerHTML =
-      '<span class="brand">⛲ BUDDY WORLD · ' + district + '</span>' +
-      state.tickerLines.map((l) => `<span class="line">${l}</span>`).join('');
+    // textContent-only construction: citizen names are external input and
+    // must never reach an HTML parser (stored-XSS defense in depth).
+    tickerEl.replaceChildren();
+    const brand = document.createElement('span');
+    brand.className = 'brand';
+    brand.textContent = `⛲ BUDDY WORLD · ${district}`;
+    tickerEl.appendChild(brand);
+    for (const l of state.tickerLines) {
+      const span = document.createElement('span');
+      span.className = 'line';
+      span.textContent = l;
+      tickerEl.appendChild(span);
+    }
   }
 
   function updateAccessibility() {
@@ -356,14 +366,22 @@
         (state.tickerLines[0] ? `Latest: ${state.tickerLines.join('; ')}.` : '')
     );
     if (srListEl) {
-      srListEl.innerHTML = state.citizens
-        .map((c) => `<li>${c.name}, level ${c.level} ${c.species}, feeling ${c.mood}</li>`)
-        .join('');
+      srListEl.replaceChildren();
+      for (const c of state.citizens) {
+        const li = document.createElement('li');
+        li.textContent = `${c.name}, level ${c.level} ${c.species}, feeling ${c.mood}`;
+        srListEl.appendChild(li);
+      }
     }
   }
 
   async function refresh() {
-    const res = await fetch(`${API_BASE}/v1/world/${district}`);
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/v1/world/${district}`);
+    } catch {
+      return; // offline/refused: keep rendering the last known state
+    }
     if (!res.ok) return;
     const data = await res.json();
     state.citizens = data.citizens || [];

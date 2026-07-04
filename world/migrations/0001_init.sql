@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS citizens (
   district TEXT NOT NULL,
   hidden INTEGER NOT NULL DEFAULT 0,
   flagged INTEGER NOT NULL DEFAULT 0,
+  xp_bucket REAL NOT NULL DEFAULT 200,
   created_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
 );

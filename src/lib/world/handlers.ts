@@ -6,9 +6,11 @@
 import { createHash } from 'node:crypto';
 import { validateSnapshot, type WorldSnapshot } from './validate.js';
 import { isNameClean } from './identity.js';
-import { clampXpDelta } from './antiabuse.js';
+import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
-import type { WorldStore } from './store.js';
+import type { WorldStore, CitizenRow } from './store.js';
+
+export const MAX_EVENT_BATCH = 50;
 
 export interface HandlerResult {
   status: number;
@@ -28,6 +30,28 @@ function bad(status: number, error: string): HandlerResult {
   return { status, body: { error } };
 }
 
+// The ONLY path that may write xp/level to an existing citizen: refills the
+// persisted budget, spends it on the claimed delta, re-derives level from
+// granted XP, and flags anything that exceeded the budget.
+async function applyClampedSnapshot(
+  citizen: CitizenRow,
+  snap: WorldSnapshot,
+  store: WorldStore,
+  now: number
+): Promise<void> {
+  const elapsed = now - citizen.last_seen_at;
+  const requested = snap.xp - citizen.xp;
+  const spend = spendXpBudget(citizen.xp_bucket, elapsed, requested);
+  const decreased = requested < 0;
+  const effectiveXp = decreased ? citizen.xp : citizen.xp + spend.granted;
+  const effective: WorldSnapshot =
+    spend.flagged || decreased || effectiveXp !== snap.xp
+      ? { ...snap, xp: effectiveXp, level: levelFromXp(effectiveXp) }
+      : snap;
+  await store.updateSnapshot(citizen.id, effective, now, spend.budget);
+  if (spend.flagged || decreased) await store.markFlagged(citizen.id);
+}
+
 export async function handleTeleport(
   payload: { token?: unknown; snapshot?: unknown },
   store: WorldStore,
@@ -41,7 +65,13 @@ export async function handleTeleport(
   if (!valid.ok) return bad(400, valid.reason);
   if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
 
-  const result = await store.teleport(hashToken(payload.token), snap, opts.now);
+  const tokenHash = hashToken(payload.token);
+  const result = await store.teleport(tokenHash, snap, opts.now);
+  if (!result.created) {
+    // Existing citizen: snapshot changes go through the clamp, never around it.
+    const citizen = await store.findByTokenHash(tokenHash);
+    if (citizen) await applyClampedSnapshot(citizen, snap, store, opts.now);
+  }
   return {
     status: 200,
     body: {
@@ -62,6 +92,10 @@ export async function handleEvents(
   const citizen = await store.findByTokenHash(hashToken(payload.token));
   if (!citizen) return bad(401, 'unknown token');
 
+  if (Array.isArray(payload.events) && payload.events.length > MAX_EVENT_BATCH) {
+    return bad(400, `event batch exceeds ${MAX_EVENT_BATCH}`);
+  }
+
   let accepted = 0;
   if (Array.isArray(payload.events)) {
     accepted = await store.recordEvents(citizen.id, payload.events as Array<{ type: string; ts: number }>);
@@ -71,13 +105,7 @@ export async function handleEvents(
     const snap = payload.snapshot as WorldSnapshot;
     const valid = validateSnapshot(snap);
     if (!valid.ok) return bad(400, valid.reason);
-
-    const clamp = clampXpDelta(citizen.xp, snap.xp, opts.now - citizen.last_seen_at);
-    const effective: WorldSnapshot = clamp.flagged
-      ? { ...snap, xp: clamp.xp, level: levelFromXp(clamp.xp) }
-      : snap;
-    await store.updateSnapshot(citizen.id, effective, opts.now);
-    if (clamp.flagged) await store.markFlagged(citizen.id);
+    await applyClampedSnapshot(citizen, snap, store, opts.now);
   }
 
   return { status: 200, body: { accepted } };
@@ -112,10 +140,12 @@ export async function handleWorld(
   const anonSlugByReal = new Map<string, string>();
 
   const citizens = view.citizens.map((c) => {
-    if (!c.anon) return c;
-    const masked = `anon-${hashToken(c.slug).slice(0, 6)}`;
-    anonSlugByReal.set(c.slug, masked);
-    return { ...c, name: `a wild ${c.species}`, slug: masked };
+    // Internal moderation/accounting fields never leave the server.
+    const { flagged: _f, hidden: _h, xp_bucket: _b, ...pub } = c;
+    if (!pub.anon) return pub;
+    const masked = `anon-${hashToken(pub.slug).slice(0, 6)}`;
+    anonSlugByReal.set(pub.slug, masked);
+    return { ...pub, name: `a wild ${pub.species}`, slug: masked };
   });
 
   const events = view.events.map((e) =>
@@ -130,9 +160,21 @@ export async function handleWorld(
 export class RateLimiter {
   private windows = new Map<string, { start: number; count: number }>();
 
+  // Memory bound for attacker-minted keys: when the map hits the cap we
+  // drop expired windows, and failing that, reset. Resetting briefly
+  // forgives counts, which is acceptable — the XP bucket is the real
+  // economic backstop; this limiter is volumetric.
+  private static MAX_KEYS = 10_000;
+
   constructor(private max: number, private windowMs: number) {}
 
   allow(key: string, now: number): boolean {
+    if (this.windows.size >= RateLimiter.MAX_KEYS && !this.windows.has(key)) {
+      for (const [k, w] of this.windows) {
+        if (now - w.start >= this.windowMs) this.windows.delete(k);
+      }
+      if (this.windows.size >= RateLimiter.MAX_KEYS) this.windows.clear();
+    }
     const win = this.windows.get(key);
     if (!win || now - win.start >= this.windowMs) {
       this.windows.set(key, { start: now, count: 1 });

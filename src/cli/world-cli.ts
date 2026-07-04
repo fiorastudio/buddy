@@ -102,7 +102,12 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       const cfg = loadWorldConfig(configPath);
       if (!cfg) return ['Not teleported — nothing to recall.'];
       const purge = rest.includes('--purge');
-      await makeSync(cfg, deps).recall(purge);
+      const ok = await makeSync(cfg, deps).recall(purge);
+      if (!ok) {
+        // Never delete the only token on an unconfirmed server call — the
+        // user would lose the ability to purge their data later.
+        return ['Could not reach Buddy World to recall — your token is kept so you can try again.'];
+      }
       deleteWorldConfig(configPath);
       return [`Your buddy has been recalled${purge ? ' and all server data purged' : ''}. Welcome home.`];
     }

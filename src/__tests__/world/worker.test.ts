@@ -87,6 +87,26 @@ describe('world worker fetch handler', () => {
     expect(third.status).toBe(429);
   });
 
+  it('rotating bogus tokens cannot evade the per-IP rate limit', async () => {
+    const tight = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      ratePerMinute: 2,
+    });
+    const req = (i: number) =>
+      tight(
+        new Request('https://world.example.com/v1/events', {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': '203.0.113.7' },
+          body: JSON.stringify({ token: `rotating-token-${i}-0123456789abcdef`, events: [] }),
+        })
+      );
+    await req(0);
+    await req(1);
+    const third = await req(2); // fresh token every time, same IP
+    expect(third.status).toBe(429);
+  });
+
   it('sets CORS headers so the plaza page can fetch world state', async () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/world/plaza-1'));
     expect(res.headers.get('access-control-allow-origin')).toBe('*');

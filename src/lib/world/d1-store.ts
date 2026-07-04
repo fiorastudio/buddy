@@ -47,6 +47,7 @@ function rowToCitizen(row: Record<string, unknown>): CitizenRow {
     district: row.district as string,
     hidden: !!row.hidden,
     flagged: !!row.flagged,
+    xp_bucket: row.xp_bucket as number,
     created_at: row.created_at as number,
     last_seen_at: row.last_seen_at as number,
   };
@@ -72,7 +73,8 @@ export class D1WorldStore implements WorldStore {
       .first<Record<string, unknown>>();
 
     if (existing) {
-      await this.updateSnapshot(existing.id as string, snap, nowMs);
+      // Snapshot fields are NOT written here: re-teleport must go through
+      // the handler's clamped update path, never around it.
       await this.db
         .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar) WHERE id = ?')
         .bind(snap.avatar ?? null, existing.id)
@@ -123,17 +125,17 @@ export class D1WorldStore implements WorldStore {
     return row ? rowToCitizen(row) : null;
   }
 
-  async updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number): Promise<void> {
+  async updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number, xpBucket?: number): Promise<void> {
     const prev = await this.db
-      .prepare('SELECT level FROM citizens WHERE id = ?')
+      .prepare('SELECT level, xp_bucket FROM citizens WHERE id = ?')
       .bind(citizenId)
-      .first<{ level: number }>();
+      .first<{ level: number; xp_bucket: number }>();
     if (!prev) return;
 
     await this.db
       .prepare(
         `UPDATE citizens SET name = ?, species = ?, level = ?, xp = ?, mood = ?, stats = ?,
-          rarity = ?, shiny = ?, hat = ?, eye = ?, last_seen_at = ? WHERE id = ?`
+          rarity = ?, shiny = ?, hat = ?, eye = ?, last_seen_at = ?, xp_bucket = ? WHERE id = ?`
       )
       .bind(
         snap.name,
@@ -147,6 +149,7 @@ export class D1WorldStore implements WorldStore {
         snap.hat,
         snap.eye,
         nowMs,
+        xpBucket ?? prev.xp_bucket,
         citizenId
       )
       .run();

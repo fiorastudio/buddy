@@ -35,6 +35,12 @@ export function validateSnapshot(snap: WorldSnapshot): ValidationResult {
   if (snap.name.length > MAX_NAME_LENGTH) {
     return { ok: false, reason: `name exceeds ${MAX_NAME_LENGTH} characters` };
   }
+  // Names render in web viewers; ban HTML-metacharacters outright rather
+  // than trusting every render site to escape (defense in depth with the
+  // client's textContent-only construction).
+  if (/[<>&"'`]/.test(snap.name)) {
+    return { ok: false, reason: 'name contains disallowed characters' };
+  }
   if (!SPECIES_LIST.includes(snap.species as (typeof SPECIES_LIST)[number])) {
     return { ok: false, reason: `unknown species: ${snap.species}` };
   }

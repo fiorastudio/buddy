@@ -17,7 +17,9 @@ function fixtureDistrict() {
     district: 'plaza-1',
     citizens: species.map((sp, i) => ({
       slug: `buddy-${i}`,
-      name: `Buddy${i}`,
+      // Defense-in-depth check: even if a hostile name got past server
+      // validation, the client must render it inert.
+      name: i === 0 ? 'Buddy0<img src=x onerror=window.__XSS__=1>' : `Buddy${i}`,
       species: sp,
       level: 5 + i,
       xp: totalXpForLevel(5 + i) + 1,
@@ -143,6 +145,23 @@ describe('plaza smoke test (headless browser)', () => {
     expect(a11y.label.length).toBeGreaterThan(10);
     expect(a11y.srCount).toBe(8);
     expect(a11y.tickerLive).toBe('polite');
+  }, 60_000);
+
+  it('renders hostile citizen names inert (no stored XSS in SR list or ticker)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    const probe = (await page.evaluate(`(() => ({
+      xss: window.__XSS__ === 1,
+      injectedImgs: document.querySelectorAll('#sr-citizens img, #ticker img').length,
+      srText: document.querySelector('#sr-citizens').textContent,
+      tickerText: document.querySelector('#ticker').textContent,
+    }))()`)) as { xss: boolean; injectedImgs: number; srText: string; tickerText: string };
+    expect(probe.xss).toBe(false);
+    expect(probe.injectedImgs).toBe(0);
+    // The hostile name must appear as literal text, not parsed markup.
+    expect(probe.srText).toContain('<img src=x');
+    expect(probe.tickerText).toContain('<img src=x');
   }, 60_000);
 
   it('honors prefers-reduced-motion', async () => {

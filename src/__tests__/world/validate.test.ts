@@ -41,6 +41,13 @@ describe('validateSnapshot', () => {
     expect(validateSnapshot({ ...validSnapshot(), name: 'x'.repeat(33) }).ok).toBe(false);
   });
 
+  it('rejects names containing HTML-dangerous characters', () => {
+    for (const name of ['<img src=x onerror=alert(1)>', 'a<b>b', 'x&y', 'q"q', "p'p", 'tick`tick']) {
+      expect(validateSnapshot({ ...validSnapshot(), name }).ok, name).toBe(false);
+    }
+    expect(validateSnapshot({ ...validSnapshot(), name: 'Sir Quacks-a-lot III.' }).ok).toBe(true);
+  });
+
   it('rejects stats outside 0-100', () => {
     const snap = validSnapshot();
     snap.stats.chaos = 150;

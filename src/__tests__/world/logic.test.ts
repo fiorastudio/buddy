@@ -1,30 +1,47 @@
 import { describe, it, expect } from 'vitest';
-import { clampXpDelta, XP_PER_HOUR_CAP } from '../../lib/world/antiabuse.js';
+import { spendXpBudget, XP_PER_HOUR_CAP, XP_BURST_CAP } from '../../lib/world/antiabuse.js';
 import { makeSlug, isNameClean } from '../../lib/world/identity.js';
 import { pickDistrict, DISTRICT_CAPACITY } from '../../lib/world/districts.js';
 
-describe('clampXpDelta', () => {
-  it('allows xp gains within the hourly budget', () => {
-    const r = clampXpDelta(1000, 1200, 60 * 60 * 1000); // +200 over 1h
-    expect(r.xp).toBe(1200);
+describe('spendXpBudget (persisted token bucket)', () => {
+  it('grants a legitimate steady gain in full', () => {
+    const r = spendXpBudget(0, 60 * 60 * 1000, 200); // empty bucket, 1h refill, +200
+    expect(r.granted).toBe(200);
     expect(r.flagged).toBe(false);
   });
 
-  it('clamps impossible gains and flags them', () => {
-    const r = clampXpDelta(1000, 6000, 10 * 60 * 1000); // +5000 in 10min
-    expect(r.xp).toBeLessThan(6000);
+  it('grants a legitimate burst after idle time from the stored budget', () => {
+    const r = spendXpBudget(XP_BURST_CAP, 60 * 1000, 150); // full bucket, 1min later
+    expect(r.granted).toBe(150);
+    expect(r.flagged).toBe(false);
+  });
+
+  it('caps refill at the burst ceiling no matter how long the idle', () => {
+    const r = spendXpBudget(0, 1000 * 60 * 60 * 1000, 5000); // ~41 days idle
+    expect(r.granted).toBeLessThanOrEqual(XP_BURST_CAP);
     expect(r.flagged).toBe(true);
   });
 
-  it('never lowers xp below the previous value', () => {
-    const r = clampXpDelta(1000, 400, 60 * 60 * 1000);
-    expect(r.xp).toBe(1000);
-    expect(r.flagged).toBe(true);
+  it('bounds ANY request pattern to cap*time + burst (the grace-amplification exploit)', () => {
+    // Adversary: 120 requests of +26 XP each, spaced 30s apart over 1 hour.
+    // The old per-request grace granted ~1500-2000 XP/hr; the bucket must
+    // hold the line at 500 (refill) + 200 (initial burst) = 700.
+    let budget = XP_BURST_CAP;
+    let total = 0;
+    for (let i = 0; i < 120; i++) {
+      const r = spendXpBudget(budget, 30_000, 26);
+      budget = r.budget;
+      total += r.granted;
+    }
+    expect(total).toBeLessThanOrEqual(XP_PER_HOUR_CAP + XP_BURST_CAP);
+    expect(total).toBeGreaterThan(XP_PER_HOUR_CAP * 0.8); // legit-rate work still mostly flows
   });
 
-  it('exports a sane hourly cap derived from max event rate', () => {
+  it('exports sane constants', () => {
     expect(XP_PER_HOUR_CAP).toBeGreaterThanOrEqual(400);
     expect(XP_PER_HOUR_CAP).toBeLessThanOrEqual(1000);
+    expect(XP_BURST_CAP).toBeGreaterThanOrEqual(100);
+    expect(XP_BURST_CAP).toBeLessThanOrEqual(XP_PER_HOUR_CAP);
   });
 });
 

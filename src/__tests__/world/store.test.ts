@@ -44,13 +44,14 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(res.district).toBe('plaza-1');
   });
 
-  it('re-teleport with the same token updates state but keeps slug', async () => {
+  it('re-teleport keeps the slug and does NOT write snapshot fields (clamping is the handler tier)', async () => {
     const first = await store.teleport('tokenhash-1', snap(), T0);
-    const second = await store.teleport('tokenhash-1', snap({ mood: 'grumpy' }), T0 + 1000);
+    const second = await store.teleport('tokenhash-1', snap({ mood: 'grumpy', xp: 999_999, level: 50 }), T0 + 1000);
     expect(second.created).toBe(false);
     expect(second.slug).toBe(first.slug);
     const citizen = await store.findByTokenHash('tokenhash-1');
-    expect(citizen?.mood).toBe('grumpy');
+    expect(citizen?.mood).toBe('happy'); // unchanged — store.teleport must not bypass the clamp
+    expect(citizen?.level).toBe(5);
   });
 
   it('records events and bumps last_seen_at', async () => {

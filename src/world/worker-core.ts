@@ -67,11 +67,14 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
         return json({ status: 400, body: { error: 'invalid JSON' } });
       }
 
-      const rateKey =
-        typeof payload.token === 'string'
-          ? `t:${payload.token}`
-          : `ip:${req.headers.get('cf-connecting-ip') ?? 'unknown'}`;
-      if (!limiter.allow(rateKey, opts.now)) {
+      // IP limit first — attacker-chosen tokens must not mint fresh buckets
+      // (limiter-rotation finding). Token bucket is a secondary, tighter
+      // scope for legitimate multi-user NATs.
+      const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+      if (!limiter.allow(`ip:${ip}`, opts.now)) {
+        return json({ status: 429, body: { error: 'rate limited' } });
+      }
+      if (typeof payload.token === 'string' && !limiter.allow(`t:${payload.token}`, opts.now)) {
         return json({ status: 429, body: { error: 'rate limited' } });
       }
 

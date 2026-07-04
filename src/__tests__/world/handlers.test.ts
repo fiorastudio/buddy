@@ -91,6 +91,47 @@ describe('world handlers', () => {
     expect(citizen!.flagged).toBe(true);
   });
 
+  it('re-teleport cannot bypass the XP clamp (level 1 to 50 in one call)', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const cheat = snap({ level: 50, xp: totalXpForLevel(50) });
+    const res = await handleTeleport(
+      { token: 'tok-0123456789abcdef', snapshot: cheat },
+      store,
+      { ...OPTS, now: T0 + 1 }
+    );
+    expect(res.status).toBe(200);
+    const citizen = await store.findByTokenHash(hashToken('tok-0123456789abcdef'));
+    expect(citizen!.level).toBeLessThan(50);
+    expect(citizen!.flagged).toBe(true);
+  });
+
+  it('re-teleport still updates benign fields like mood', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    await handleTeleport(
+      { token: 'tok-0123456789abcdef', snapshot: snap({ mood: 'grumpy' }) },
+      store,
+      { ...OPTS, now: T0 + 1000 }
+    );
+    const citizen = await store.findByTokenHash(hashToken('tok-0123456789abcdef'));
+    expect(citizen!.mood).toBe('grumpy');
+  });
+
+  it('rejects oversized event batches with 400', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const events = Array.from({ length: 51 }, (_, i) => ({ type: 'commit', ts: T0 + i }));
+    const res = await handleEvents({ token: 'tok-0123456789abcdef', events }, store, OPTS);
+    expect(res.status).toBe(400);
+  });
+
+  it('strips internal flags from the public world view', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const body = res.body as { citizens: Array<Record<string, unknown>> };
+    expect(body.citizens[0]).not.toHaveProperty('flagged');
+    expect(body.citizens[0]).not.toHaveProperty('hidden');
+    expect(body.citizens[0]).not.toHaveProperty('xp_bucket');
+  });
+
   it('recall hides the citizen and purge removes it', async () => {
     await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
     const res = await handleRecall({ token: 'tok-0123456789abcdef', purge: false }, store);
