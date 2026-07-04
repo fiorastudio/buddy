@@ -46,6 +46,7 @@
   const state = {
     citizens: [], events: [], celebrations: [], tickerLines: [],
     sprites: null, palettes: null, spriteColors: {}, reducedMotion: REDUCED_MOTION,
+    actorFrames: {}, spriteBottoms: {},
   };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames
@@ -96,7 +97,7 @@
     let cols = 1, rows = 1;
     for (const frame of frames) {
       rows = Math.max(rows, frame.length);
-      for (const line of frame) cols = Math.max(cols, line.replaceAll('{E}', '·').length);
+      for (const line of frame) cols = Math.max(cols, line.replaceAll('{E}', '·').replace(/\s+$/, '').length);
     }
     const m = { cols, rows };
     metricsBySpecies.set(species, m);
@@ -145,6 +146,7 @@
       y: b.cy + Math.sin(angle) * b.ry * r,
       tx: 0, ty: 0, rng,
       frame: Math.floor(rng() * 4),
+      phaseMs: rng() * 1800, // desync frame flips between citizens
       behavior: dominantStat(c.stats || {}),
       emoteAt: rng() * 8000,
     };
@@ -227,9 +229,23 @@
     ctx.shadowColor = active ? `rgb(${r},${g},${b2})` : 'rgba(0,0,0,0.9)';
     ctx.shadowBlur = active ? 14 : 3;
     ctx.fillStyle = `rgb(${r},${g},${b2})`;
-    // anchor to the stable per-species box, not this frame's own width
-    lines.forEach((line, i) => ctx.fillText(line, actor.x - w / 2, actor.y + i * SPRITE_LINE_H - h));
+    // Horizontal: center on the stable per-species box (immune to frames
+    // that render narrower). Vertical: bottom-anchor THIS frame's lines so
+    // variable line counts can never bob the sprite.
+    let lastLineY = actor.y;
+    lines.forEach((line, i) => {
+      const y = actor.y + (i - lines.length) * SPRITE_LINE_H;
+      ctx.fillText(line, actor.x - w / 2, y);
+      lastLineY = y;
+    });
     ctx.restore();
+
+    // test instrumentation: bottom row must sit at a constant offset
+    const bottomOffset = Math.round(lastLineY - actor.y);
+    const rec = state.spriteBottoms[c.slug] || { min: bottomOffset, max: bottomOffset };
+    rec.min = Math.min(rec.min, bottomOffset);
+    rec.max = Math.max(rec.max, bottomOffset);
+    state.spriteBottoms[c.slug] = rec;
 
     // owner avatar walks beside the buddy
     ctx.font = '15px serif';
@@ -302,8 +318,10 @@
           actor.x += (dx / dist) * speed;
           actor.y += (dy / dist) * speed;
         }
-        if (Math.floor(performance.now() / 450) % 2 === 0) actor.frame++;
+        // time-based: exactly one frame advance per 450ms, per-actor phase
+        actor.frame = Math.floor((performance.now() + actor.phaseMs) / 450);
       }
+      state.actorFrames[c.slug] = actor.frame;
       drawCitizen(c, actor, now);
     }
     drawCelebrations(now);

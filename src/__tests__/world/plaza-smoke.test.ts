@@ -153,6 +153,41 @@ describe('plaza smoke test (headless browser)', () => {
     expect(await page.evaluate('window.__PLAZA__.reducedMotion')).toBe(true);
   }, 60_000);
 
+  it('advances sprite animation at a calm cadence, not per render tick', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.actorFrames && Object.keys(window.__PLAZA__.actorFrames).length > 0'
+    );
+    const before = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    await new Promise((r) => setTimeout(r, 1300));
+    const after = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    for (const slug of Object.keys(before)) {
+      const delta = after[slug] - before[slug];
+      // ~450ms per frame over 1.3s → expect roughly 2-3 advances; the old
+      // bug advanced ~60x/sec in bursts (delta would be 20+).
+      expect(delta, `frame cadence for ${slug}`).toBeGreaterThanOrEqual(1);
+      expect(delta, `frame cadence for ${slug}`).toBeLessThanOrEqual(5);
+    }
+  }, 60_000);
+
+  it('keeps every sprite bottom-anchored across all frames (no vertical jitter)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.spriteBottoms && Object.keys(window.__PLAZA__.spriteBottoms).length > 0'
+    );
+    await new Promise((r) => setTimeout(r, 1500)); // let several frames render
+    const bottoms = (await page.evaluate('({...window.__PLAZA__.spriteBottoms})')) as Record<
+      string,
+      { min: number; max: number }
+    >;
+    for (const [slug, b] of Object.entries(bottoms)) {
+      // Bottom row offset relative to the actor must never vary by frame.
+      expect(b.max - b.min, `bottom anchor drift for ${slug}`).toBe(0);
+    }
+  }, 60_000);
+
   it('renders every sprite with WCAG AA contrast against the plaza tiles', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
