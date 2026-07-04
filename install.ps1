@@ -30,7 +30,8 @@ $NODE_BIN = (Get-Command node).Source
 # HardLink Targets are alternate names for the same file and must not be
 # followed — Target[0] could pin an arbitrary alias. Loop to unwind chained
 # links (nvm shim -> junction -> version dir), bounded to avoid cycles.
-$REDIRECT_LINK_TYPES = @('SymbolicLink', 'Junction')
+# 'SymLink' included defensively: LinkType string varies across PS builds.
+$REDIRECT_LINK_TYPES = @('SymbolicLink', 'SymLink', 'Junction')
 try {
   $resolvedAny = $false
   for ($hop = 0; $hop -lt 4; $hop++) {
@@ -53,6 +54,12 @@ try {
   }
   if ($resolvedAny) {
     Write-Host "  Pinning node to resolved path: $NODE_BIN" -ForegroundColor DarkGray
+    # Verify the hop limit actually finished the job.
+    $finalItem = Get-Item $NODE_BIN -ErrorAction Stop
+    if ($REDIRECT_LINK_TYPES -contains $finalItem.LinkType) {
+      Write-Host "  ! node path is still a link after 4 hops; pinning it as-is." -ForegroundColor Yellow
+      Write-Host "    Re-run this installer if node version switches cause crashes." -ForegroundColor Yellow
+    }
   }
 } catch {
   Write-Host "  ! Could not resolve node's link target; pinning $NODE_BIN as-is." -ForegroundColor Yellow
