@@ -121,4 +121,48 @@ describe('plaza smoke test (headless browser)', () => {
       path: `${process.env.SCRATCHPAD_DIR ?? '/tmp'}/plaza_smoke.png` as `${string}.png`,
     });
   }, 60_000);
+
+  it('meets the accessibility contract: canvas alt, SR citizen list, live ticker', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+
+    const a11y = (await page.evaluate(`(() => {
+      const canvas = document.querySelector('#plaza');
+      const sr = document.querySelector('#sr-citizens');
+      const ticker = document.querySelector('#ticker');
+      return {
+        role: canvas.getAttribute('role'),
+        label: canvas.getAttribute('aria-label') || '',
+        srCount: sr ? sr.children.length : 0,
+        tickerLive: ticker.getAttribute('aria-live'),
+      };
+    })()`)) as { role: string; label: string; srCount: number; tickerLive: string };
+
+    expect(a11y.role).toBe('img');
+    expect(a11y.label.length).toBeGreaterThan(10);
+    expect(a11y.srCount).toBe(8);
+    expect(a11y.tickerLive).toBe('polite');
+  }, 60_000);
+
+  it('honors prefers-reduced-motion', async () => {
+    const page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    expect(await page.evaluate('window.__PLAZA__.reducedMotion')).toBe(true);
+  }, 60_000);
+
+  it('renders every sprite with WCAG AA contrast against the plaza tiles', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.spriteColors && Object.keys(window.__PLAZA__.spriteColors).length > 0'
+    );
+    const ratios = (await page.evaluate('window.__PLAZA__.spriteColors')) as Record<string, number>;
+    expect(Object.keys(ratios).length).toBeGreaterThan(0);
+    for (const [slug, ratio] of Object.entries(ratios)) {
+      expect(ratio, `contrast for ${slug}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }, 60_000);
 });
