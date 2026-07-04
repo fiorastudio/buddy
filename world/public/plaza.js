@@ -254,7 +254,7 @@
     ctx.fillText(AVATARS[avatarIdx % AVATARS.length], actor.x + w / 2 + 12, actor.y - 4);
 
     // name tag, RO style: white with dark outline
-    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}`;
+    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}${hasStreakFlame(c.slug, now) ? ' 🔥' : ''}`;
     ctx.font = 'bold 11px Menlo, Consolas, monospace';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
@@ -296,8 +296,19 @@
       } else if (cel.type === 'streak_7') {
         ctx.font = '14px serif';
         ctx.fillText('🎊', actor.x, actor.y - 66);
+      } else if (cel.type === 'tests_passed') {
+        ctx.font = '13px serif';
+        ctx.fillText('✅', actor.x - 18, actor.y - 62);
       }
     }
+  }
+
+  // Streak flame: buddies with a streak_7 event in the last 7 days carry
+  // the fire by their name tag — the public commitment device.
+  function hasStreakFlame(slug, now) {
+    return state.events.some(
+      (e) => e.citizen_slug === slug && e.type === 'streak_7' && now - e.ts < 7 * 86_400_000
+    );
   }
 
   function tick() {
@@ -333,8 +344,9 @@
     level_up: 'leveled up! 🎉',
     deploy: 'deployed to prod 🚀',
     commit: 'shipped a commit',
+    tests_passed: 'got the tests green ✅',
     bug_fix: 'squashed a bug 🔧',
-    streak_7: 'hit a 7-day streak 🎊',
+    streak_7: 'is on a streak 🔥',
     observe: 'is coding',
     session: 'got pets',
   };

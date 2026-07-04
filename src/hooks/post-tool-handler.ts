@@ -9,6 +9,8 @@
 
 import { readFileSync, writeFileSync } from "fs";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
+import { detectCommandEvent } from "../lib/xp-classify.js";
+import { appendPendingEvent, DEFAULT_PENDING_EVENTS_PATH } from "../lib/pending-events.js";
 
 // Error patterns — word-boundary anchored to avoid false positives
 // like "error handling added", "0 errors", or "isError: false"
@@ -119,9 +121,43 @@ export function writeConcernedReaction(statusPath: string = BUDDY_STATUS_PATH, e
 /**
  * Main handler — reads stdin, processes PostToolUse event.
  */
+function inferCommand(input: GenericHookInput): string {
+  const ti = input.tool_input;
+  if (ti && typeof ti.command === "string") return ti.command;
+  if (typeof input.command === "string") return input.command;
+  if (typeof input.toolArgs === "string") return input.toolArgs;
+  return "";
+}
+
+/**
+ * Ground-truth XP channel: when the executed command IS a commit/deploy/
+ * test-pass, queue it for the MCP server to award on the next observe.
+ * Exit code falls back to the error heuristic when the host omits it.
+ */
+export function recordGroundTruthEvent(
+  input: PostToolUseInput | GenericHookInput,
+  pendingPath: string = DEFAULT_PENDING_EVENTS_PATH
+): string | null {
+  const toolName = inferToolName(input);
+  const output = inferToolOutput(input);
+  const command = inferCommand(input as GenericHookInput);
+  const exitCode =
+    typeof (input as GenericHookInput).exitCode === "number"
+      ? ((input as GenericHookInput).exitCode as number)
+      : ERROR_REGEX.test(output)
+        ? 1
+        : 0;
+  const canonicalTool = toolName.toLowerCase() === "bash" ? "Bash" : toolName;
+  const event = detectCommandEvent(canonicalTool, command, output, exitCode);
+  if (event) appendPendingEvent(pendingPath, { type: event, ts: Date.now() });
+  return event;
+}
+
 export function handlePostToolUse(input: PostToolUseInput | GenericHookInput, statusPath: string = BUDDY_STATUS_PATH): boolean {
   const toolName = inferToolName(input);
   if (toolName.toLowerCase() !== "bash") return false;
+
+  recordGroundTruthEvent(input);
 
   const output = inferToolOutput(input);
 

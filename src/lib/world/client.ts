@@ -177,6 +177,19 @@ export interface AutoSyncDeps extends WorldSyncOpts {
   configPath?: string;
 }
 
+/** Teleported buddies earn the +10% XP blessing. Cached like autoSync. */
+export function isWorldBlessed(configPath?: string): boolean {
+  const now = Date.now();
+  if (!cfgCache || cfgCache.path !== configPath || now - cfgCache.at > CFG_CACHE_MS) {
+    cfgCache = { cfg: loadWorldConfig(configPath), at: now, path: configPath };
+  }
+  return cfgCache.cfg !== null;
+}
+
+// Celebration-worthy events skip the debounce so fireworks land within one
+// plaza poll (~10s) of the real moment instead of a minute later.
+const INSTANT_TYPES = new Set(['deploy', 'level_up', 'streak_7']);
+
 export async function autoSyncWorld(
   companion: Companion,
   eventType: string,
@@ -196,7 +209,12 @@ export async function autoSyncWorld(
       processSyncToken = cfg.token;
     }
     processSync.queue(eventType);
-    await processSync.maybeFlush(buildWorldSnapshot(companion, cfg.avatar));
+    const snapshot = buildWorldSnapshot(companion, cfg.avatar);
+    if (INSTANT_TYPES.has(eventType)) {
+      await processSync.flush(snapshot);
+    } else {
+      await processSync.maybeFlush(snapshot);
+    }
   } catch {
     // never let plaza problems reach the buddy
   }

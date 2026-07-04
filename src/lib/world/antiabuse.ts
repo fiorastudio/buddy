@@ -6,8 +6,11 @@
 // pattern to cap*elapsed + burst — per-request grace amplified to 4x the
 // cap and is gone (Codex review finding, PR #143).
 
-export const XP_PER_HOUR_CAP = 500;
-export const XP_BURST_CAP = 200;
+// Recalibrated for the 2026-07 reward boost (deploy 60, bug_fix 35,
+// commit 25, tests_passed 20, observe 8, +10% blessing): a genuinely
+// intense hour tops out near 800; 900 leaves honest headroom.
+export const XP_PER_HOUR_CAP = 900;
+export const XP_BURST_CAP = 300;
 
 export interface SpendResult {
   /** XP actually granted (≤ requested). */

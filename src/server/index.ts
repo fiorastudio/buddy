@@ -14,12 +14,15 @@ import {
   renderSprite,
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
-import { autoSyncWorld } from "../lib/world/client.js";
+import { autoSyncWorld, isWorldBlessed } from "../lib/world/client.js";
+import { classifySummary } from "../lib/xp-classify.js";
+import { consumePendingEvents } from "../lib/pending-events.js";
+import { currentStreakDays } from "../lib/streaks.js";
 import { statBar } from "../lib/rng.js";
 import { getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble, renderMarkdownBubble } from "../lib/bubble.js";
-import { XP_REWARDS, levelFromXp, levelBar } from "../lib/leveling.js";
+import { XP_REWARDS, levelFromXp, levelBar, applyBlessing } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -61,8 +64,9 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
   return calculateMood(new Array(xpCount), memCount);
 }
 
-function awardXp(companionId: string, eventType: string): { newXp: number; newLevel: number; leveledUp: boolean } {
-  const xp = XP_REWARDS[eventType] || 1;
+function awardXp(companionId: string, eventType: string): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number } {
+  // Buddy World blessing: teleported buddies earn +10% (local file check, cached).
+  const xp = applyBlessing(XP_REWARDS[eventType] || 1, isWorldBlessed());
   const id = randomUUID();
   db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)").run(id, companionId, eventType, xp);
 
@@ -74,19 +78,50 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
 
   db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
 
-  return { newXp, newLevel, leveledUp };
+  return { newXp, newLevel, leveledUp, xpGained: xp };
 }
 
 /**
  * Award XP, recalculate mood, update DB, and load companion — shared by observe + pet.
+ * Also ingests ground-truth events queued by the PostToolUse hook, dedupes
+ * them against the self-reported event, and emits streak milestones.
  */
 function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
-  const xpResult = awardXp(row.id, eventType);
+  // Ground-truth channel: commits/deploys/test-passes the hook actually saw.
+  const pending = consumePendingEvents();
+  const pendingTypes = new Set(pending.map((e) => e.type));
+  // Hook wins on duplicates: if the hook recorded a commit this window and
+  // the summary also classified as commit, the self-report demotes to observe.
+  const effectiveType = pendingTypes.has(eventType) ? 'observe' : eventType;
+
+  let xpResult = awardXp(row.id, effectiveType);
+  let leveledUp = xpResult.leveledUp;
+  const worldEvents: string[] = [effectiveType];
+  for (const ev of pending) {
+    if (XP_REWARDS[ev.type] === undefined) continue;
+    xpResult = awardXp(row.id, ev.type);
+    leveledUp = leveledUp || xpResult.leveledUp;
+    worldEvents.push(ev.type);
+  }
+  xpResult = { ...xpResult, leveledUp };
+
+  // Streak milestone: first event of a new day that lands on a multiple of 7.
+  const dayRows = db.prepare(
+    "SELECT COUNT(*) AS n FROM xp_events WHERE companion_id = ? AND date(created_at) = date('now')"
+  ).get(row.id) as any;
+  if ((dayRows?.n ?? 0) <= worldEvents.length) {
+    const tsRows = db.prepare(
+      "SELECT strftime('%s', created_at) * 1000 AS ts FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-60 days')"
+    ).all(row.id) as any[];
+    const streak = currentStreakDays(tsRows.map((r) => Number(r.ts)), Date.now());
+    if (streak > 0 && streak % 7 === 0) worldEvents.push('streak_7');
+  }
+
   const newMood = recalcMood(row.id, xpResult.leveledUp);
   db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
   const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
   // Buddy World: no-op unless the user ran buddy-world teleport (fire-and-forget).
-  void autoSyncWorld(companion, eventType);
+  for (const evType of worldEvents) void autoSyncWorld(companion, evType);
   return { companion, xpResult };
 }
 
@@ -431,7 +466,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
     }
 
-    const { companion, xpResult } = awardXpAndRefresh(row, 'observe', user_id);
+    // Self-report channel: classify the summary so commits/deploys/bug
+    // fixes pay their real rewards instead of flat observe XP.
+    const { companion, xpResult } = awardXpAndRefresh(row, classifySummary(summary || ''), user_id);
     // Priority: explicit arg > DB setting > default 'both'
     const mode: 'backseat' | 'skillcoach' | 'both' = modeArg || row.observer_mode || 'both';
 
