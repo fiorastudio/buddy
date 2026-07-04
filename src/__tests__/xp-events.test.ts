@@ -230,6 +230,13 @@ describe('anti-farming hardening (Codex round 2)', () => {
     expect(detectCommandEvent('Bash', 'ls && echo wrangler deploy', '', 0)).toBeNull();
   });
 
+  it('quoted shell operators cannot inject fake segments', () => {
+    expect(detectCommandEvent('Bash', "echo 'x; git commit -m y'", '', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'echo "a && wrangler deploy"', '', 0)).toBeNull();
+    // ...while quotes inside genuine commands stay harmless
+    expect(detectCommandEvent('Bash', 'git commit -m "fix; also cleanup"', '', 0)).toBe('commit');
+  });
+
   it('tests_passed requires a recognized test runner command, not just output', () => {
     expect(detectCommandEvent('Bash', 'echo "12 passed"', '12 passed', 0)).toBeNull();
     expect(detectCommandEvent('Bash', 'cat results.txt', '12 passed', 0)).toBeNull();
