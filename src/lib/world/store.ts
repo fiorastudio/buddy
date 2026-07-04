@@ -120,8 +120,8 @@ export class SqliteWorldStore implements WorldStore {
     this.db
       .prepare(
         `INSERT INTO citizens (id, slug, token_hash, name, species, level, xp, mood, stats, rarity,
-          shiny, hat, eye, avatar, district, created_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          shiny, hat, eye, avatar, district, created_at, last_seen_at, xp_bucket)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 60)`
       )
       .run(
         id,

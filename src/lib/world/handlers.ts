@@ -66,6 +66,12 @@ export async function handleTeleport(
   if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
 
   const tokenHash = hashToken(payload.token);
+  // ACCEPTED RISK: a first teleport's claimed XP is trusted (the server
+  // never saw the buddy's local history — that's inherent to opt-in sync
+  // of a local-first game). Mitigations: level must match the XP curve,
+  // fresh citizens start with a near-empty budget (no fast growth on top),
+  // and analytics can segment by entry level. Post-creation changes all go
+  // through the clamped path below.
   const result = await store.teleport(tokenHash, snap, opts.now);
   if (!result.created) {
     // Existing citizen: snapshot changes go through the clamp, never around it.

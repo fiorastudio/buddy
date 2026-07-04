@@ -5,7 +5,7 @@
 // request path or block it on the network.
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Companion } from '../types.js';
@@ -42,6 +42,12 @@ export function saveWorldConfig(cfg: WorldConfig, file: string = DEFAULT_WORLD_C
   mkdirSync(dirname(file), { recursive: true });
   // Bearer token: owner-only on POSIX; mode is ignored on Windows.
   writeFileSync(file, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  try {
+    chmodSync(file, 0o600); // mode option only applies to NEW files; repair pre-existing ones
+  } catch {
+    // best effort (Windows)
+  }
+  invalidateWorldConfigCache();
 }
 
 export function deleteWorldConfig(file: string = DEFAULT_WORLD_CONFIG_PATH): void {
@@ -50,6 +56,12 @@ export function deleteWorldConfig(file: string = DEFAULT_WORLD_CONFIG_PATH): voi
   } catch {
     // already gone
   }
+  invalidateWorldConfigCache();
+}
+
+/** Drop the 30s config cache so opt-in/opt-out takes effect immediately. */
+export function invalidateWorldConfigCache(): void {
+  cfgCache = null;
 }
 
 export function buildWorldSnapshot(c: Companion, avatar?: string): WorldSnapshot {
