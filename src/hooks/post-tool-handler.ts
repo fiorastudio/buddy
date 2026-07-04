@@ -26,10 +26,17 @@ const CONCERNED_REACTIONS = [
   "oops... let me take a closer look",
 ];
 
+// Verified against https://code.claude.com/docs/en/hooks.md: tool_response
+// is an OBJECT — {type:'text', text} on success, {type:'error', error,
+// stdout, stderr} on failure — and NO Bash exit-code field exists anywhere
+// in the payload. Success/failure must be inferred from the error field
+// and output text. Older/other hosts may still send plain strings.
 export interface PostToolUseInput {
   tool_name: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: string;
+  tool_response?:
+    | string
+    | { type?: string; text?: string; error?: string; stdout?: string; stderr?: string };
 }
 
 interface GenericHookInput {
@@ -59,6 +66,16 @@ function inferToolName(input: GenericHookInput): string {
 
 function inferToolOutput(input: GenericHookInput): string {
   if (typeof input.tool_response === "string") return input.tool_response;
+  // Documented Claude Code shape: object with text (success) or
+  // error/stdout/stderr (failure). Include the error string so the
+  // ERROR_REGEX ("exit code N", "Error:") sees real failures.
+  if (input.tool_response && typeof input.tool_response === "object") {
+    const r = input.tool_response as { text?: string; error?: string; stdout?: string; stderr?: string };
+    const parts = [r.error, r.text, r.stdout, r.stderr].filter(
+      (p): p is string => typeof p === "string" && p.length > 0
+    );
+    if (parts.length > 0) return parts.join("\n");
+  }
   if (typeof input.toolResult?.textResultForLlm === "string") return input.toolResult.textResultForLlm;
 
   const parts = [

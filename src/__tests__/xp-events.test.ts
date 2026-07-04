@@ -158,3 +158,39 @@ describe('hook ground-truth recording', () => {
     expect(consumePendingEvents(file)).toEqual([]);
   });
 });
+
+describe('hook payloads matching the DOCUMENTED Claude Code schema', () => {
+  // Verified against https://code.claude.com/docs/en/hooks.md:
+  // tool_response is an OBJECT ({type, text} on success; {type:'error',
+  // error, stdout, stderr} on failure), and NO exit-code field exists.
+  it('extracts output from the object-shaped tool_response', async () => {
+    const { recordGroundTruthEvent } = await import('../hooks/post-tool-handler.js');
+    const dir = mkdtempSync(join(tmpdir(), 'buddy-hook3-'));
+    const file = join(dir, 'pending.jsonl');
+    const event = recordGroundTruthEvent(
+      {
+        tool_name: 'Bash',
+        tool_input: { command: 'npx vitest run' },
+        tool_response: { type: 'text', text: 'Tests  12 passed (12)' },
+      } as never,
+      file
+    );
+    expect(event).toBe('tests_passed');
+  });
+
+  it('suppresses awards when the object response carries an error', async () => {
+    const { recordGroundTruthEvent } = await import('../hooks/post-tool-handler.js');
+    const dir = mkdtempSync(join(tmpdir(), 'buddy-hook4-'));
+    const file = join(dir, 'pending.jsonl');
+    const event = recordGroundTruthEvent(
+      {
+        tool_name: 'Bash',
+        tool_input: { command: 'git commit -m x' },
+        tool_response: { type: 'error', error: 'Command failed with exit code 1', stderr: 'nothing to commit' },
+      } as never,
+      file
+    );
+    expect(event).toBeNull();
+    expect(consumePendingEvents(file)).toEqual([]);
+  });
+});
