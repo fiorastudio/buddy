@@ -28,7 +28,11 @@ export type ValidationResult = { ok: true } | { ok: false; reason: string };
 
 const STAT_KEYS = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'] as const;
 
-export function validateSnapshot(snap: WorldSnapshot): ValidationResult {
+export function validateSnapshot(input: unknown): ValidationResult {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return { ok: false, reason: 'snapshot must be an object' };
+  }
+  const snap = input as WorldSnapshot;
   if (typeof snap.name !== 'string' || snap.name.trim().length === 0) {
     return { ok: false, reason: 'name must be a non-empty string' };
   }

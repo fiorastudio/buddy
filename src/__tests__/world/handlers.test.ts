@@ -158,4 +158,17 @@ describe('world handlers', () => {
     expect(limiter.allow('k', T0 + 61_000)).toBe(true); // window rolls
     expect(limiter.allow('other', T0 + 4)).toBe(true); // independent keys
   });
+
+  it('returns 400, not a crash, for null/primitive snapshots', async () => {
+    for (const snapshot of [null, 42, 'hi', []]) {
+      const res = await handleTeleport({ token: 'tttttttt', snapshot }, store, OPTS);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('fresh citizens start with a near-empty XP budget', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const citizen = await store.findByTokenHash(hashToken('tok-0123456789abcdef'));
+    expect(citizen!.xp_bucket).toBeLessThanOrEqual(60);
+  });
 });
