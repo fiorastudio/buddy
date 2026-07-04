@@ -122,10 +122,18 @@ echo "  Installing dependencies..."
 npm install --quiet 2>/dev/null
 
 # Verify native module ABI matches current node. A stale binary from a prior
-# install with a different node version will crash at runtime. Rebuild if needed.
+# install with a different node version will crash at runtime. Rebuild if
+# needed, then re-verify — a silent half-broken install is worse than failing.
 if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
-  echo "  Rebuilding native module for $(\"$NODE_BIN\" -v)..."
-  npm rebuild better-sqlite3 --quiet 2>/dev/null
+  echo "  Rebuilding native module for $("$NODE_BIN" -v)..."
+  npm rebuild better-sqlite3
+  if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+    echo ""
+    echo -e "${YELLOW}  ✗ better-sqlite3 does not load under node $("$NODE_BIN" -v) ($NODE_BIN) and the rebuild failed.${NC}"
+    echo -e "${YELLOW}    If you use nvm, switch to the node version Buddy should run under (nvm use <version>),${NC}"
+    echo -e "${YELLOW}    then re-run this installer. See the rebuild output above for details.${NC}"
+    exit 1
+  fi
 fi
 
 echo "  Building..."
@@ -687,12 +695,6 @@ fi
 
 ONBOARD_SCRIPT="$INSTALL_DIR/dist/cli/onboard.js"
 
-echo ""
-echo -e "${BLUE}  💬 Join the Buddy Community!${NC}"
-echo -e "  Connect with other rescuers on Slack:"
-echo -e "  ${DIM}👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ${NC}"
-echo ""
-
 if [ -f "$ONBOARD_SCRIPT" ] && [ "$NO_ONBOARD" -eq 0 ]; then
   # Let onboard.ts detect TTY itself — don't force /dev/tty
   # (fails in headless SSH, CI, cron where no controlling terminal exists)
@@ -716,6 +718,10 @@ if [ "$CODEX_CONFIGURED" -ne 1 ] && command -v codex &> /dev/null; then
   echo ""
   echo -e "  ${YELLOW}!${NC} Codex CLI prompt injection was skipped because Buddy MCP is not configured there yet."
 fi
+echo ""
+echo -e "${BLUE}  💬 Join the Buddy Community!${NC}"
+echo -e "  Connect with other buddy rescuers, share your companion's evolution, and get help on Slack:"
+echo -e "  ${DIM}👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ${NC}"
 echo ""
 echo -e "  💛 If you like it, star the repo:"
 echo "  github.com/fiorastudio/buddy"
