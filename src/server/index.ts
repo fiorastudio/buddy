@@ -15,7 +15,7 @@ import {
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
 import { autoSyncWorld, isWorldBlessed } from "../lib/world/client.js";
-import { classifySummary, resolveEventType } from "../lib/xp-classify.js";
+import { classifySummary, resolveEventType, shouldDampenSelfReport } from "../lib/xp-classify.js";
 import { consumePendingEvents } from "../lib/pending-events.js";
 import { checkStreakMilestone } from "../lib/streaks.js";
 import { statBar } from "../lib/rng.js";
@@ -98,7 +98,16 @@ function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string)
   // Ground-truth channel: commits/deploys/test-passes the hook actually saw.
   const pending = consumePendingEvents();
   const pendingTypes = new Set(pending.map((e) => e.type));
-  const worldEvents: string[] = [resolveEventType(eventType as never, pendingTypes)];
+  let selfType = resolveEventType(eventType as never, pendingTypes);
+  // Honor-system damper: summary-classified elevated events cap per day;
+  // hook-verified events below are exempt.
+  if (selfType !== 'observe' && selfType !== 'session') {
+    const elevated = (db.prepare(
+      "SELECT COUNT(*) AS n FROM xp_events WHERE companion_id = ? AND date(created_at) = date('now') AND event_type IN ('commit','tests_passed','bug_fix','deploy')"
+    ).get(row.id) as any)?.n ?? 0;
+    if (shouldDampenSelfReport(elevated)) selfType = 'observe';
+  }
+  const worldEvents: string[] = [selfType];
   for (const ev of pending) {
     if (XP_REWARDS[ev.type] !== undefined) worldEvents.push(ev.type);
   }

@@ -43,7 +43,7 @@ export function checkStreakMilestone(db: DbLike, companionId: string, eventsJust
 
   const dayRows = db
     .prepare(
-      "SELECT DISTINCT date(created_at) AS d FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-60 days')"
+      "SELECT DISTINCT date(created_at) AS d FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-400 days')"
     )
     .all(companionId) as Array<{ d: string }>;
   const streak = currentStreakFromDays(

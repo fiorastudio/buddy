@@ -42,19 +42,49 @@ export function resolveEventType(selfReported: XpEventType, pendingTypes: Readon
   return pendingTypes.has(selfReported) ? 'observe' : selfReported;
 }
 
+// The self-report channel is honor-system (summaries are model/user
+// controlled), so its elevated awards are capped per day. Ground-truth
+// hook events are never dampened. 8/day covers honest heavy use; a
+// summary-spam loop degrades to plain observes after that.
+export const SELF_REPORT_DAILY_CAP = 8;
+
+export function shouldDampenSelfReport(elevatedEventsToday: number): boolean {
+  return elevatedEventsToday >= SELF_REPORT_DAILY_CAP;
+}
+
+// All command detection is ANCHORED to the executed program at the start
+// of a shell segment — `echo git commit` and output containing "12 passed"
+// must never award (Codex round-2: substring matching was farmable).
+// PREFIX allows env assignments / sudo / package-runner shims before the
+// real program name.
+const PREFIX = String.raw`^(?:\S+=\S+\s+)*(?:sudo\s+)?(?:npx\s+|pnpm\s+(?:exec\s+)?|yarn\s+|bunx?\s+)?`;
+
+const COMMIT_COMMAND = new RegExp(PREFIX + String.raw`git\s+(?:-\S+\s+)*commit\b`);
+
 const DEPLOY_COMMANDS = [
-  /\bnpm publish\b/,
-  /\bwrangler (deploy|publish)\b/,
-  /\bvercel\b.*(--prod|deploy)/,
-  /\bgh release create\b/,
-  /\b(flyctl|fly) deploy\b/,
-  /\bfirebase deploy\b/,
-  /\bcdk deploy\b/,
-  /\bkubectl (apply|rollout)\b/,
+  new RegExp(PREFIX + String.raw`npm\s+publish\b`),
+  new RegExp(PREFIX + String.raw`wrangler\s+(deploy|publish)\b`),
+  new RegExp(PREFIX + String.raw`vercel\b.*(--prod|\bdeploy\b)`),
+  new RegExp(PREFIX + String.raw`gh\s+release\s+create\b`),
+  new RegExp(PREFIX + String.raw`(flyctl|fly)\s+deploy\b`),
+  new RegExp(PREFIX + String.raw`firebase\s+deploy\b`),
+  new RegExp(PREFIX + String.raw`cdk\s+deploy\b`),
+  new RegExp(PREFIX + String.raw`kubectl\s+(apply|rollout)\b`),
 ];
 
+// tests_passed needs BOTH a recognized runner command AND passing output.
+const TEST_RUNNER_COMMAND = new RegExp(
+  PREFIX + String.raw`(vitest|jest|mocha|pytest|tox|go\s+test|cargo\s+test|npm\s+(t|test)\b|bun\s+test|rspec|phpunit)`
+);
 const TEST_PASS_OUTPUT = /(\d+)\s+pass(ed|ing)/i;
 const TEST_FAIL_OUTPUT = /(\d+)\s+fail(ed|ing)|\bFAILED\b/i;
+
+function shellSegments(cmd: string): string[] {
+  return cmd
+    .split(/&&|\|\||;|\|/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export function detectCommandEvent(
   toolName: string,
@@ -63,11 +93,17 @@ export function detectCommandEvent(
   exitCode: number
 ): XpEventType | null {
   if (toolName !== 'Bash' || exitCode !== 0) return null;
-  const cmd = command || '';
+  const segments = shellSegments(command || '');
   const out = output || '';
 
-  if (/\bgit commit\b/.test(cmd)) return 'commit';
-  if (DEPLOY_COMMANDS.some((re) => re.test(cmd))) return 'deploy';
-  if (TEST_PASS_OUTPUT.test(out) && !TEST_FAIL_OUTPUT.test(out)) return 'tests_passed';
+  if (segments.some((s) => COMMIT_COMMAND.test(s))) return 'commit';
+  if (segments.some((s) => DEPLOY_COMMANDS.some((re) => re.test(s)))) return 'deploy';
+  if (
+    segments.some((s) => TEST_RUNNER_COMMAND.test(s)) &&
+    TEST_PASS_OUTPUT.test(out) &&
+    !TEST_FAIL_OUTPUT.test(out)
+  ) {
+    return 'tests_passed';
+  }
   return null;
 }

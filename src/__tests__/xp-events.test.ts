@@ -71,19 +71,19 @@ describe('pending events file (hook → server handoff)', () => {
   it('appends and consumes events, clearing the file', () => {
     appendPendingEvent(file, { type: 'commit', ts: 1000 });
     appendPendingEvent(file, { type: 'deploy', ts: 2000 });
-    const events = consumePendingEvents(file);
+    const events = consumePendingEvents(file, 3000);
     expect(events).toEqual([
       { type: 'commit', ts: 1000 },
       { type: 'deploy', ts: 2000 },
     ]);
-    expect(consumePendingEvents(file)).toEqual([]); // consumed
+    expect(consumePendingEvents(file, 3000)).toEqual([]); // consumed
   });
 
   it('tolerates corrupt lines and missing files', () => {
     expect(consumePendingEvents(join(dir, 'nope.jsonl'))).toEqual([]);
     appendPendingEvent(file, { type: 'commit', ts: 3000 });
     require('node:fs').appendFileSync(file, 'not json\n');
-    expect(consumePendingEvents(file)).toEqual([{ type: 'commit', ts: 3000 }]);
+    expect(consumePendingEvents(file, 4000)).toEqual([{ type: 'commit', ts: 3000 }]);
   });
 });
 
@@ -218,5 +218,36 @@ describe('hook payloads matching the DOCUMENTED Claude Code schema', () => {
     );
     expect(event).toBeNull();
     expect(consumePendingEvents(file)).toEqual([]);
+  });
+});
+
+describe('anti-farming hardening (Codex round 2)', () => {
+  it('command detection anchors on the executed program, not substrings', () => {
+    expect(detectCommandEvent('Bash', 'echo git commit', '', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'echo "vercel --prod"', '', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'FOO=1 git commit -m x', '', 0)).toBe('commit');
+    expect(detectCommandEvent('Bash', 'git add -A && git commit -m x', '', 0)).toBe('commit');
+    expect(detectCommandEvent('Bash', 'ls && echo wrangler deploy', '', 0)).toBeNull();
+  });
+
+  it('tests_passed requires a recognized test runner command, not just output', () => {
+    expect(detectCommandEvent('Bash', 'echo "12 passed"', '12 passed', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'cat results.txt', '12 passed', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'npx vitest run', 'Tests  12 passed (12)', 0)).toBe('tests_passed');
+    expect(detectCommandEvent('Bash', 'pytest -q', '5 passed in 1.2s', 0)).toBe('tests_passed');
+  });
+
+  it('pending events expire, dedupe, and cap', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'buddy-pend2-'));
+    const file = join(dir, 'p.jsonl');
+    const now = 1_800_000_000_000;
+    appendPendingEvent(file, { type: 'commit', ts: now - 20 * 60_000 }); // stale
+    appendPendingEvent(file, { type: 'deploy', ts: now - 1000 });
+    appendPendingEvent(file, { type: 'deploy', ts: now - 1000 }); // exact dupe
+    for (let i = 0; i < 15; i++) appendPendingEvent(file, { type: 'commit', ts: now - i });
+    const events = consumePendingEvents(file, now);
+    expect(events.some((e) => e.ts === now - 20 * 60_000)).toBe(false); // stale dropped
+    expect(events.filter((e) => e.type === 'deploy')).toHaveLength(1); // deduped
+    expect(events.length).toBeLessThanOrEqual(10); // capped
   });
 });
