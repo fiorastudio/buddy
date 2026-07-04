@@ -80,7 +80,10 @@ const TEST_PASS_OUTPUT = /(\d+)\s+pass(ed|ing)/i;
 const TEST_FAIL_OUTPUT = /(\d+)\s+fail(ed|ing)|\bFAILED\b/i;
 
 function shellSegments(cmd: string): string[] {
-  return cmd
+  // Strip quoted strings before splitting so a quoted operator like
+  // `echo 'x; git commit'` cannot inject a fake git-commit segment.
+  const unquoted = cmd.replace(/"(?:[^"\\]|\\.)*"|'[^']*'|`[^`]*`/g, '""');
+  return unquoted
     .split(/&&|\|\||;|\|/)
     .map((s) => s.trim())
     .filter(Boolean);
