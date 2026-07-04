@@ -9,6 +9,7 @@ import {
   loadWorldConfig,
   saveWorldConfig,
   deleteWorldConfig,
+  isWorldBlessed,
   WorldSync,
 } from '../../lib/world/client.js';
 import { validateSnapshot } from '../../lib/world/validate.js';
@@ -57,6 +58,13 @@ describe('world config persistence', () => {
     expect(loaded?.token).toHaveLength(32);
     deleteWorldConfig(file);
     expect(loadWorldConfig(file)).toBeNull();
+  });
+
+  it('invalidates the blessing cache immediately when deleted', () => {
+    saveWorldConfig({ token: generateToken(), apiUrl: 'https://api.example.com' }, file);
+    expect(isWorldBlessed(file)).toBe(true);
+    deleteWorldConfig(file);
+    expect(isWorldBlessed(file)).toBe(false);
   });
 });
 
