@@ -1,0 +1,22 @@
+# Buddy World — Cloudflare Worker config
+# Deploy: wrangler d1 create buddy-world (once), then
+#         wrangler d1 migrations apply buddy-world --remote
+#         wrangler deploy
+
+name = "buddy-world"
+main = "../src/world/worker.ts"
+compatibility_date = "2026-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "buddy-world"
+database_id = "REPLACE_AFTER_wrangler_d1_create"
+migrations_dir = "migrations"
+
+[vars]
+BASE_URL = "https://world.buddy-mcp.com"
+
+# Nightly analytics rollup (spec: daily_rollups)
+[triggers]
+crons = ["17 0 * * *"]

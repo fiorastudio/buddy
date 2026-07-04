@@ -33,7 +33,7 @@ A hosted, Ragnarok-Online-inspired isometric plaza where buddy owners teleport t
 | Privacy | Game-state-only sync by default; observe-text bubbles = explicit opt-in (v2); anonymous mode toggle ("a wild Void Cat") |
 | Owner avatar | Preset chibi picker (8–12 RO-style sprites), buddy follows RO-pet-style |
 | Onboarding | `/buddy-world` slash command → 3-line privacy note → token + snapshot POST → browser opens on your buddy's teleport-in VFX |
-| Backend | Cloudflare Workers + D1 + Pages; PixiJS isometric frontend |
+| Backend | Cloudflare Workers + D1 + Pages; vanilla Canvas 2D isometric frontend (ASCII citizens are text — fillText renders them faithfully with zero runtime deps; revisit PixiJS/WebGL when pixel skins land) |
 
 ## Architecture
 

@@ -132,7 +132,7 @@ echo "  Building..."
 npm run build --quiet 2>/dev/null
 
 # ── Symlink CLI binaries onto PATH ──
-for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js; do
+for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js buddy-world:world-cli.js; do
   bin_name="${bin_entry%%:*}"
   bin_file="$INSTALL_DIR/dist/cli/${bin_entry##*:}"
   if [ -f "$bin_file" ]; then
@@ -197,6 +197,35 @@ fi
 Execute the bash block above, then report the saved graph path and basic graph counts back to the user.
 EOF
   echo -e "  ${GREEN}✓${NC} Claude Code global /buddy-graph command installed ${DIM}($buddy_graph_command)${NC}"
+
+  local buddy_world_command="$commands_dir/buddy-world.md"
+  cat > "$buddy_world_command" <<EOF
+---
+description: Teleport your buddy into Buddy World — a shared plaza where buddies wander and celebrate your commits, deploys, and level-ups.
+---
+
+Run the Buddy World CLI.
+
+If \`\$ARGUMENTS\` is present pass it through. Subcommands: \`teleport [--avatar chibi-1..8]\`, \`status\`, \`anon on|off\`, \`recall [--purge]\`. With no arguments: run \`status\` first; if the buddy is not in the world yet, run \`teleport\`.
+
+\`\`\`bash
+set -euo pipefail
+
+args=()
+if [ -n "\${ARGUMENTS:-}" ]; then
+  read -r -a args <<< "\$ARGUMENTS"
+fi
+
+if command -v buddy-world >/dev/null 2>&1; then
+  buddy-world "\${args[@]}"
+else
+  "$CONFIG_NODE_BIN" "$INSTALL_DIR/dist/cli/world-cli.js" "\${args[@]}"
+fi
+\`\`\`
+
+Execute the bash block above. After a successful teleport, open the printed world URL in the browser and relay it to the user with a short celebratory note.
+EOF
+  echo -e "  ${GREEN}✓${NC} Claude Code global /buddy-world command installed ${DIM}($buddy_world_command)${NC}"
 
   local registered=0
   if command -v claude &> /dev/null; then

@@ -318,6 +318,23 @@ Execute the bash block above, then report the saved graph path and basic graph c
 '@ | Set-Content -Path $buddyGraphCommand -Encoding UTF8
 Write-Host "  ✓ Claude Code global /buddy-graph command installed ($buddyGraphCommand)" -ForegroundColor Green
 
+$buddyWorldCommand = Join-Path $commandsDir 'buddy-world.md'
+$worldCliPath = "$INSTALL_DIR\dist\cli\world-cli.js" -replace '\\', '/'
+@"
+---
+description: Teleport your buddy into Buddy World — a shared plaza where buddies wander and celebrate your commits, deploys, and level-ups.
+---
+
+Run the Buddy World CLI.
+
+If `$ARGUMENTS is present pass it through. Subcommands: teleport [--avatar chibi-1..8], status, anon on|off, recall [--purge]. With no arguments: run status first; if the buddy is not in the world yet, run teleport.
+
+Run: "$NODE_BIN" "$worldCliPath" followed by the subcommand arguments.
+
+After a successful teleport, open the printed world URL in the browser and relay it to the user with a short celebratory note.
+"@ | Set-Content -Path $buddyWorldCommand -Encoding UTF8
+Write-Host "  ✓ Claude Code global /buddy-world command installed ($buddyWorldCommand)" -ForegroundColor Green
+
 if ($settingsResult -match 'mcp:updated') {
   Write-Host "  ✓ MCP server registered in settings.json" -ForegroundColor Green
 } else {

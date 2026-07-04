@@ -14,6 +14,7 @@ import {
   renderSprite,
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
+import { autoSyncWorld } from "../lib/world/client.js";
 import { statBar } from "../lib/rng.js";
 import { getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
@@ -84,6 +85,8 @@ function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string)
   const newMood = recalcMood(row.id, xpResult.leveledUp);
   db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
   const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
+  // Buddy World: no-op unless the user ran buddy-world teleport (fire-and-forget).
+  void autoSyncWorld(companion, eventType);
   return { companion, xpResult };
 }
 

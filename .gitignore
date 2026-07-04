@@ -12,3 +12,6 @@ demo/*.mjs
 demo/*.sh
 demo/*.yml
 demo/frames/
+.gstack/
+
+.superpowers/
