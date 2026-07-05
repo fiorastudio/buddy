@@ -10,6 +10,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Companion } from '../types.js';
 import type { WorldSnapshot } from './validate.js';
+import { INSTANT_WORLD_EVENTS } from './schema-sql.js';
 
 export interface WorldConfig {
   token: string;
@@ -185,8 +186,23 @@ let processSyncToken: string | null = null;
 let cfgCache: { cfg: WorldConfig | null; at: number; path: string | undefined } | null = null;
 const CFG_CACHE_MS = 30_000;
 
+// Config reads happen on the MCP request path: hydrate at most once per 30s.
+function cachedConfig(path: string | undefined, nowMs: number): WorldConfig | null {
+  if (!cfgCache || cfgCache.path !== path || nowMs - cfgCache.at > CFG_CACHE_MS) {
+    cfgCache = { cfg: loadWorldConfig(path), at: nowMs, path };
+  }
+  return cfgCache.cfg;
+}
+
 export interface AutoSyncDeps extends WorldSyncOpts {
   configPath?: string;
+  /** Force an immediate flush (e.g. the awarding call just caused a level-up). */
+  instant?: boolean;
+}
+
+/** Teleported buddies earn the +10% XP blessing. Cached like autoSync. */
+export function isWorldBlessed(configPath?: string): boolean {
+  return cachedConfig(configPath, Date.now()) !== null;
 }
 
 export async function autoSyncWorld(
@@ -195,20 +211,20 @@ export async function autoSyncWorld(
   deps: AutoSyncDeps = {}
 ): Promise<void> {
   try {
-    // Cache the config read: this runs on the MCP request path, so keep
-    // filesystem touches to once per 30s, not once per XP event.
     const now = (deps.now ?? Date.now)();
-    if (!cfgCache || cfgCache.path !== deps.configPath || now - cfgCache.at > CFG_CACHE_MS) {
-      cfgCache = { cfg: loadWorldConfig(deps.configPath), at: now, path: deps.configPath };
-    }
-    const cfg = cfgCache.cfg;
+    const cfg = cachedConfig(deps.configPath, now);
     if (!cfg) return;
     if (!processSync || processSyncToken !== cfg.token) {
       processSync = new WorldSync(cfg, deps);
       processSyncToken = cfg.token;
     }
     processSync.queue(eventType);
-    await processSync.maybeFlush(buildWorldSnapshot(companion, cfg.avatar));
+    const snapshot = buildWorldSnapshot(companion, cfg.avatar);
+    if (deps.instant || INSTANT_WORLD_EVENTS.has(eventType as never)) {
+      await processSync.flush(snapshot);
+    } else {
+      await processSync.maybeFlush(snapshot);
+    }
   } catch {
     // never let plaza problems reach the buddy
   }
