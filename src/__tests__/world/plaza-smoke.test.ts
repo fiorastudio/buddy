@@ -36,7 +36,7 @@ function fixtureDistrict() {
       hidden: false,
       flagged: false,
       created_at: NOW - 1_000_000,
-      last_seen_at: i < 3 ? NOW - 60_000 : NOW - 7_200_000, // first 3 recently active
+      last_seen_at: i < 3 ? NOW - 60_000 : NOW - 5 * 3600_000, // first 3 active; rest long-AFK (>3h → sit)
     })),
     events: [
       { citizen_slug: 'buddy-0', type: 'level_up', ts: NOW - 30_000 },

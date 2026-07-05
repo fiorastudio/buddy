@@ -16,7 +16,8 @@
 
   const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const ACTIVE_WINDOW_MS = 15 * 60 * 1000;
+  const ACTIVE_WINDOW_MS = 15 * 60 * 1000;   // recently-active glow + energized walk
+  const IDLE_SIT_MS = 3 * 60 * 60 * 1000;    // only long-AFK buddies sit (RO vendor vibe)
   const CELEBRATION_WINDOW_MS = 60 * 60 * 1000;
   const AVATARS = ['🧍', '🧍‍♀️', '🚶', '🧍', '🧑‍💻', '🚶‍♀️', '🧍', '🧙'];
 
@@ -41,7 +42,9 @@
   (() => {
     const warp = document.getElementById('warp');
     if (!warp) return;
-    const cur = parseInt(String(district).replace(/\D/g, ''), 10) || 1;
+    // Clamp to a sane integer so the href is always ?district=plaza-<int>
+    // (huge inputs would otherwise stringify as exponent/Infinity).
+    const cur = Math.min(9999, Math.max(1, parseInt(String(district).replace(/\D/g, ''), 10) || 1));
     const nextNum = cur + 1;
     const nextTown = townFor('plaza-' + nextNum);
     warp.setAttribute('href', `?district=plaza-${nextNum}`);
@@ -422,8 +425,9 @@
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
     for (const c of sorted) {
       const actor = ensureActor(c);
-      // RO: idle owners' buddies sit (Insert-to-sit); active ones walk.
-      const idle = now - c.last_seen_at > ACTIVE_WINDOW_MS;
+      // RO: only long-AFK buddies sit (the vendor vibe). Everyone else
+      // wanders, so the plaza stays alive by default.
+      const idle = now - c.last_seen_at >= IDLE_SIT_MS;
       actor.sitting = idle;
       if (idle) sitting++;
       if (!REDUCED_MOTION) {
@@ -543,11 +547,17 @@
     if (best) petBuddy(best);
   });
 
+  const MAX_XP_POPUPS = 40;
   function spawnXpPopup(slug, type) {
     const xp = XP_VALUES[type] ?? 0;
     const text = xp > 0 ? `+${xp} XP` : (type === 'level_up' ? 'LEVEL UP!' : '');
     if (!text) return;
     state.xpPopups.push({ slug, text, born: Date.now() });
+    // Hard cap so a burst (or refreshes without an active tick) can't grow
+    // the array unbounded; keep the newest.
+    if (state.xpPopups.length > MAX_XP_POPUPS) {
+      state.xpPopups = state.xpPopups.slice(-MAX_XP_POPUPS);
+    }
   }
   state.spawnXpPopup = spawnXpPopup;
   function drawXpPopups(now) {
