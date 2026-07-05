@@ -79,7 +79,17 @@ describe('plaza smoke test (headless browser)', () => {
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
-    browser = await puppeteer.launch({ headless: true });
+    // Disable background throttling — headless treats the page as
+    // backgrounded and throttles requestAnimationFrame, so the canvas
+    // never paints under load. These flags keep rAF running.
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+      ],
+    });
   }, 60_000);
 
   afterAll(async () => {
