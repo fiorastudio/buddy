@@ -283,6 +283,18 @@ describe('plaza smoke test (headless browser)', () => {
     expect(await page.evaluate('window.__PLAZA__.sfxEnabled')).toBe(true);
   }, 60_000);
 
+  it('keeps sprites AA-readable in NIGHT mode too (dark floor)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1&time=night`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.spriteColors && Object.keys(window.__PLAZA__.spriteColors).length > 0'
+    );
+    const ratios = (await page.evaluate('window.__PLAZA__.spriteColors')) as Record<string, number>;
+    for (const [slug, ratio] of Object.entries(ratios)) {
+      expect(ratio, `night contrast for ${slug}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }, 60_000);
+
   it('plays the RO OST only after explicit opt-in (no YouTube request before click)', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });

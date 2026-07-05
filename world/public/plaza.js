@@ -32,7 +32,9 @@
     { name: 'Comodo', sky: ['#1a3a3a', '#245e50'], tiles: ['#4a8a6a', '#428060'] },
   ];
   function townFor(districtName) {
-    const n = parseInt(String(districtName).replace(/\D/g, ''), 10) || 1;
+    let n = parseInt(String(districtName).replace(/\D/g, ''), 10);
+    if (!Number.isFinite(n) || n < 1) n = 1; // crafted huge/NaN district → Prontera
+    n = Math.min(n, 9999);
     return TOWNS[(n - 1) % TOWNS.length];
   }
   const TOWN = townFor(district);
@@ -111,17 +113,22 @@
     const l2 = relLuminance(bg);
     return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
   }
-  // RO warm-stone daytime pavement — the contrast baseline for sprite AA.
-  const TILE_BG = [176, 166, 150]; // #b0a696 flagstone
+  // Pavement contrast baselines — must track the ACTUAL floor per lighting
+  // (day = light flagstone, night = dark slate), or night sprites go
+  // invisible. Chosen at draw time via activeTileBg().
+  const DAY_TILE_BG = [176, 166, 150];  // #b0a696
+  const NIGHT_TILE_BG = [59, 53, 80];   // #3b3550
   const AA_RATIO = 4.5;
+  function activeTileBg() { return isNight() ? NIGHT_TILE_BG : DAY_TILE_BG; }
 
   // Push a color toward whichever of black/white gives more contrast with
-  // the pavement, until it clears WCAG AA. Bidirectional so the plaza can
-  // use a light RO-stone floor without washing sprites out.
+  // the current pavement, until it clears WCAG AA. Bidirectional so both a
+  // light day floor and a dark night floor keep sprites readable.
   function ensureContrast(rgb) {
-    const target = relLuminance(TILE_BG) > 0.35 ? 0 : 255; // dark text on light stone, else light
+    const bg = activeTileBg();
+    const target = relLuminance(bg) > 0.35 ? 0 : 255; // dark text on light stone, light on dark
     let out = rgb.slice();
-    for (let step = 0; step < 24 && contrastRatio(out, TILE_BG) < AA_RATIO; step++) {
+    for (let step = 0; step < 24 && contrastRatio(out, bg) < AA_RATIO; step++) {
       out = out.map((c) => Math.round(c + (target - c) * 0.13));
     }
     return out;
@@ -443,7 +450,7 @@
     const frames = spriteFrames.length;
     const lines = spriteFrames[actor.frame % frames].map((l) => l.replaceAll('{E}', c.eye || '·'));
     const [r, g, b2] = speciesColor(c.species, c.level);
-    state.spriteColors[c.slug] = contrastRatio([r, g, b2], TILE_BG);
+    state.spriteColors[c.slug] = contrastRatio([r, g, b2], activeTileBg());
     const active = now - c.last_seen_at < ACTIVE_WINDOW_MS;
     const m = spriteMetrics(c.species);
     const w = m.cols * charW;
