@@ -16,7 +16,8 @@
 
   const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const ACTIVE_WINDOW_MS = 15 * 60 * 1000;
+  const ACTIVE_WINDOW_MS = 15 * 60 * 1000;   // recently-active glow + energized walk
+  const IDLE_SIT_MS = 3 * 60 * 60 * 1000;    // only long-AFK buddies sit (RO vendor vibe)
   const CELEBRATION_WINDOW_MS = 60 * 60 * 1000;
   const AVATARS = ['🧍', '🧍‍♀️', '🚶', '🧍', '🧑‍💻', '🚶‍♀️', '🧍', '🧙'];
 
@@ -41,7 +42,9 @@
   (() => {
     const warp = document.getElementById('warp');
     if (!warp) return;
-    const cur = parseInt(String(district).replace(/\D/g, ''), 10) || 1;
+    // Clamp to a sane integer so the href is always ?district=plaza-<int>
+    // (huge inputs would otherwise stringify as exponent/Infinity).
+    const cur = Math.min(9999, Math.max(1, parseInt(String(district).replace(/\D/g, ''), 10) || 1));
     const nextNum = cur + 1;
     const nextTown = townFor('plaza-' + nextNum);
     warp.setAttribute('href', `?district=plaza-${nextNum}`);
@@ -108,15 +111,18 @@
     const l2 = relLuminance(bg);
     return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
   }
-  // Worst-case (brightest) plaza tile: daytime light tile.
-  const TILE_BG = [93, 81, 128]; // #5d5180
+  // RO warm-stone daytime pavement — the contrast baseline for sprite AA.
+  const TILE_BG = [176, 166, 150]; // #b0a696 flagstone
   const AA_RATIO = 4.5;
 
-  // Lift a color toward white until it clears WCAG AA against the tiles.
+  // Push a color toward whichever of black/white gives more contrast with
+  // the pavement, until it clears WCAG AA. Bidirectional so the plaza can
+  // use a light RO-stone floor without washing sprites out.
   function ensureContrast(rgb) {
+    const target = relLuminance(TILE_BG) > 0.35 ? 0 : 255; // dark text on light stone, else light
     let out = rgb.slice();
-    for (let step = 0; step < 20 && contrastRatio(out, TILE_BG) < AA_RATIO; step++) {
-      out = out.map((c) => Math.min(255, Math.round(c + (255 - c) * 0.15)));
+    for (let step = 0; step < 24 && contrastRatio(out, TILE_BG) < AA_RATIO; step++) {
+      out = out.map((c) => Math.round(c + (target - c) * 0.13));
     }
     return out;
   }
@@ -166,12 +172,18 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // The walkable courtyard grows with population — a busier town is a
+  // bigger town (up to the viewport). Below the building line at the top.
   function plazaBounds() {
+    const pop = state.citizens.length || 6;
+    const grow = Math.min(1, 0.55 + pop / 60); // 6 buddies→~0.65, 60+→full
+    const skyline = Math.min(180, canvas.height * 0.24); // building band up top
     return {
       cx: canvas.width / 2,
-      cy: canvas.height / 2 + 20,
-      rx: Math.min(canvas.width * 0.4, 560),
-      ry: Math.min(canvas.height * 0.32, 300),
+      cy: skyline + (canvas.height - skyline) / 2 + 10,
+      rx: Math.min(canvas.width * 0.46 * grow, canvas.width * 0.46),
+      ry: Math.min((canvas.height - skyline) * 0.40 * grow, (canvas.height - skyline) * 0.42),
+      skyline,
     };
   }
 
@@ -204,44 +216,226 @@
     actor.ty = b.cy + Math.sin(angle) * b.ry * r;
   }
 
-  // ── drawing ────────────────────────────────────────────────────────────
-  function drawGround() {
-    const b = plazaBounds();
-    const hour = new Date().getHours();
-    const night = hour < 6 || hour >= 20;
-    const skyTop = night ? '#0d0a20' : TOWN.sky[0];
-    const skyBottom = night ? '#151030' : TOWN.sky[1];
-    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    sky.addColorStop(0, skyTop);
-    sky.addColorStop(1, skyBottom);
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // ── environment (pre-rendered offscreen, blitted each frame) ──────────
+  // A walled RO town square: cobblestone pavement filling the view,
+  // half-timbered buildings + market awnings framing the top, hanging
+  // banners, greenery, a fountain. Static → render once per (size, town,
+  // day/night, population-bucket) and cache; tick() just blits it.
+  let envBuf = null, envSig = '';
 
-    // isometric diamond tiles
-    const tileW = 52, tileH = 26, cols = Math.ceil(b.rx * 2 / tileW) + 2, rows = Math.ceil(b.ry * 2 / tileH) + 2;
-    for (let row = -rows; row <= rows; row++) {
-      for (let col = -cols; col <= cols; col++) {
-        const x = b.cx + ((col - row) * tileW) / 2;
-        const y = b.cy + ((col + row) * tileH) / 2;
-        const dx = (x - b.cx) / b.rx, dy = (y - b.cy) / b.ry;
-        if (dx * dx + dy * dy > 1) continue;
-        ctx.beginPath();
-        ctx.moveTo(x, y - tileH / 2);
-        ctx.lineTo(x + tileW / 2, y);
-        ctx.lineTo(x, y + tileH / 2);
-        ctx.lineTo(x - tileW / 2, y);
-        ctx.closePath();
-        ctx.fillStyle = (col + row) % 2 ? (night ? '#4a4066' : TOWN.tiles[0]) : (night ? '#443a60' : TOWN.tiles[1]);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-        ctx.stroke();
+  // ?time=day|night forces the lighting (preview/testing); otherwise clock.
+  const TIME_OVERRIDE = params.get('time');
+  function isNight() {
+    if (TIME_OVERRIDE === 'day') return false;
+    if (TIME_OVERRIDE === 'night') return true;
+    const h = new Date().getHours();
+    return h < 6 || h >= 20;
+  }
+
+  function buildEnvironment() {
+    const night = isNight();
+    const popBucket = Math.floor((state.citizens.length || 6) / 8);
+    const sig = `${canvas.width}x${canvas.height}|${TOWN.name}|${night}|${popBucket}`;
+    if (sig === envSig && envBuf) return;
+    envSig = sig;
+    envBuf = document.createElement('canvas');
+    envBuf.width = canvas.width;
+    envBuf.height = canvas.height;
+    const g = envBuf.getContext('2d');
+    const b = plazaBounds();
+
+    // backdrop sky (only shows above the rooftops)
+    const sky = g.createLinearGradient(0, 0, 0, b.skyline + 40);
+    sky.addColorStop(0, night ? '#0b0820' : TOWN.sky[0]);
+    sky.addColorStop(1, night ? '#141030' : TOWN.sky[1]);
+    g.fillStyle = sky;
+    g.fillRect(0, 0, canvas.width, b.skyline + 40);
+
+    drawPavement(g, b, night);
+    drawBuildings(g, b, night);
+    drawGreenery(g, b, night);
+    drawBanners(g, b, night);
+    drawFountain(g, b);
+  }
+
+  // Irregular cobblestone flagstones filling the whole floor (no shimmer:
+  // per-tile shade is seeded deterministically).
+  function drawPavement(g, b, night) {
+    const top = b.skyline;
+    // RO warm flagstone by day; a moody slate at night. Sprite AA is now
+    // bidirectional, so a light floor is fine. TILE_BG matches the day base.
+    const base = night ? '#3b3550' : '#b0a696';
+    g.fillStyle = base;
+    g.fillRect(0, top, canvas.width, canvas.height - top);
+    const tw = 46, th = 30;
+    for (let row = 0; row * th < canvas.height - top + th; row++) {
+      const oy = top + row * th;
+      const stagger = row % 2 ? tw / 2 : 0;
+      for (let col = -1; col * tw < canvas.width + tw; col++) {
+        const ox = col * tw + stagger;
+        const seed = hashStr(`${col}:${row}:${TOWN.name}`) / 4294967296;
+        const shade = 0.86 + seed * 0.22;
+        g.fillStyle = shadeColor(base, shade);
+        roundRectPath(g, ox + 2, oy + 2, tw - 4, th - 4, 5);
+        g.fill();
+        g.strokeStyle = night ? 'rgba(0,0,0,0.35)' : 'rgba(80,60,40,0.25)';
+        g.lineWidth = 1;
+        g.stroke();
       }
     }
+    // soft vignette so edges read as enclosed, not cut off
+    const vig = g.createRadialGradient(b.cx, b.cy, b.rx * 0.5, b.cx, b.cy, b.rx * 1.3);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, night ? 'rgba(0,0,0,0.5)' : 'rgba(20,10,30,0.35)');
+    g.fillStyle = vig;
+    g.fillRect(0, top, canvas.width, canvas.height - top);
+  }
 
-    // fountain
-    ctx.font = '34px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('⛲', b.cx, b.cy + 10);
+  // A skyline of RO half-timbered buildings + a couple of awning stalls.
+  function drawBuildings(g, b, night) {
+    const y0 = b.skyline;
+    const wallLit = night ? '#3a3352' : '#e8dcc0';
+    const timber = night ? '#241d38' : '#7a5230';
+    const roof = night ? '#2a2140' : '#8a4a3a';
+    let x = -20;
+    let i = 0;
+    while (x < canvas.width + 20) {
+      const bw = 90 + (hashStr('bw' + i + TOWN.name) % 70);
+      const bh = 60 + (hashStr('bh' + i + TOWN.name) % 50);
+      const bx = x, by = y0 - bh;
+      // roof
+      g.fillStyle = roof;
+      g.beginPath();
+      g.moveTo(bx - 4, by + 14);
+      g.lineTo(bx + bw / 2, by - 12);
+      g.lineTo(bx + bw + 4, by + 14);
+      g.closePath();
+      g.fill();
+      // wall
+      g.fillStyle = wallLit;
+      g.fillRect(bx, by + 12, bw, bh);
+      // half-timber crossbeams
+      g.strokeStyle = timber;
+      g.lineWidth = 3;
+      g.strokeRect(bx + 1, by + 13, bw - 2, bh - 2);
+      g.beginPath();
+      g.moveTo(bx + bw / 2, by + 13); g.lineTo(bx + bw / 2, by + bh + 10);
+      g.moveTo(bx, by + 12 + bh / 2); g.lineTo(bx + bw, by + 12 + bh / 2);
+      g.stroke();
+      // arched windows (RO glow at night)
+      g.fillStyle = night ? '#ffd27a' : '#4a3a6a';
+      for (const wx of [bx + bw * 0.28, bx + bw * 0.72]) {
+        g.beginPath();
+        g.moveTo(wx - 7, by + bh - 2);
+        g.lineTo(wx - 7, by + bh - 20);
+        g.arc(wx, by + bh - 20, 7, Math.PI, 0);
+        g.lineTo(wx + 7, by + bh - 2);
+        g.closePath();
+        g.fill();
+      }
+      x += bw + 6;
+      i++;
+    }
+    // two striped market awnings jutting into the square (RO vending stalls)
+    drawAwning(g, 40, y0 + 30, night ? '#4a3a6a' : '#5a8fd0');
+    drawAwning(g, canvas.width - 130, y0 + 30, night ? '#5a3a4a' : '#c05a7a');
+  }
+
+  function drawAwning(g, x, y, color) {
+    const w = 92, h = 16;
+    g.fillStyle = '#6b4a2a';
+    g.fillRect(x + 6, y + h, w - 12, 26); // stall counter
+    g.fillStyle = color;
+    g.beginPath();
+    g.moveTo(x, y + h); g.lineTo(x, y); g.lineTo(x + w, y); g.lineTo(x + w, y + h);
+    g.closePath(); g.fill();
+    // scalloped stripe edge
+    g.fillStyle = '#f5f0e6';
+    for (let s = 0; s < w; s += 16) {
+      g.beginPath();
+      g.moveTo(x + s, y + h); g.lineTo(x + s + 8, y + h);
+      g.lineTo(x + s + 4, y + h + 7); g.closePath(); g.fill();
+    }
+  }
+
+  function drawGreenery(g, b, night) {
+    const green = night ? '#1e3a24' : '#4e8f4a';
+    const beds = [[30, canvas.height - 70], [canvas.width - 80, canvas.height - 60], [b.cx - 200, b.skyline + 24]];
+    for (const [gx, gy] of beds) {
+      g.fillStyle = green;
+      roundRectPath(g, gx, gy, 54, 26, 8); g.fill();
+      // little flowers
+      for (let f = 0; f < 5; f++) {
+        const fx = gx + 8 + (hashStr('fx' + f + gx) % 40);
+        const fy = gy + 6 + (hashStr('fy' + f + gy) % 14);
+        g.fillStyle = ['#ffd54f', '#ff8fa3', '#e1bee7'][f % 3];
+        g.beginPath(); g.arc(fx, fy, 2.5, 0, Math.PI * 2); g.fill();
+      }
+    }
+  }
+
+  function drawBanners(g, b, night) {
+    const spots = [b.cx - b.rx * 0.6, b.cx + b.rx * 0.6];
+    for (const bx of spots) {
+      const by = b.skyline + 20;
+      g.strokeStyle = night ? '#5a4a2a' : '#8a6a3a';
+      g.lineWidth = 3;
+      g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, by + 90); g.stroke();
+      // triangular hanging banner (RO guild banner)
+      g.fillStyle = night ? '#3a2a5a' : '#b23a48';
+      g.beginPath();
+      g.moveTo(bx, by + 6); g.lineTo(bx + 30, by + 6);
+      g.lineTo(bx + 30, by + 44); g.lineTo(bx + 15, by + 56);
+      g.lineTo(bx, by + 44); g.closePath(); g.fill();
+      g.fillStyle = '#ffd700';
+      g.font = 'bold 13px serif'; g.textAlign = 'center';
+      g.fillText('⚜', bx + 15, by + 32);
+    }
+  }
+
+  function drawFountain(g, b) {
+    g.save();
+    g.translate(b.cx, b.cy);
+    g.fillStyle = 'rgba(0,0,0,0.2)';
+    g.beginPath(); g.ellipse(0, 8, 40, 14, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#8a9db0';
+    g.beginPath(); g.ellipse(0, 4, 38, 13, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#bcd9f0';
+    g.beginPath(); g.ellipse(0, 2, 30, 10, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#9aa8c0';
+    g.fillRect(-5, -22, 10, 24);
+    g.font = '18px serif'; g.textAlign = 'center'; g.fillStyle = '#dff0ff';
+    g.fillText('⛲', 0, -6);
+    g.restore();
+  }
+
+  // ── small color + path helpers ────────────────────────────────────────
+  function roundRectPath(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+  function hexToRgb(hex) {
+    const n = parseInt(hex.replace('#', ''), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function shadeColor(hex, mul) {
+    const [r, gg, bb] = hexToRgb(hex);
+    return `rgb(${Math.min(255, r * mul | 0)},${Math.min(255, gg * mul | 0)},${Math.min(255, bb * mul | 0)})`;
+  }
+  function hexMix(a, bHex, t) {
+    const [r1, g1, b1] = hexToRgb(a), [r2, g2, b2] = hexToRgb(bHex);
+    const m = (x, y) => Math.round(x + (y - x) * t);
+    return `#${((1 << 24) + (m(r1, r2) << 16) + (m(g1, g2) << 8) + m(b1, b2)).toString(16).slice(1)}`;
+  }
+
+  function drawGround() {
+    buildEnvironment();
+    if (envBuf) ctx.drawImage(envBuf, 0, 0);
   }
 
   function drawCitizen(c, actor, now) {
@@ -422,8 +616,9 @@
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
     for (const c of sorted) {
       const actor = ensureActor(c);
-      // RO: idle owners' buddies sit (Insert-to-sit); active ones walk.
-      const idle = now - c.last_seen_at > ACTIVE_WINDOW_MS;
+      // RO: only long-AFK buddies sit (the vendor vibe). Everyone else
+      // wanders, so the plaza stays alive by default.
+      const idle = now - c.last_seen_at >= IDLE_SIT_MS;
       actor.sitting = idle;
       if (idle) sitting++;
       if (!REDUCED_MOTION) {
@@ -543,11 +738,17 @@
     if (best) petBuddy(best);
   });
 
+  const MAX_XP_POPUPS = 40;
   function spawnXpPopup(slug, type) {
     const xp = XP_VALUES[type] ?? 0;
     const text = xp > 0 ? `+${xp} XP` : (type === 'level_up' ? 'LEVEL UP!' : '');
     if (!text) return;
     state.xpPopups.push({ slug, text, born: Date.now() });
+    // Hard cap so a burst (or refreshes without an active tick) can't grow
+    // the array unbounded; keep the newest.
+    if (state.xpPopups.length > MAX_XP_POPUPS) {
+      state.xpPopups = state.xpPopups.slice(-MAX_XP_POPUPS);
+    }
   }
   state.spawnXpPopup = spawnXpPopup;
   function drawXpPopups(now) {
