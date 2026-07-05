@@ -19,6 +19,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "build:world-data": "npm run build && node scripts/build-world-sprites.mjs",
     "start": "node dist/server/index.js",
     "dev": "ts-node src/server/index.ts",
     "test": "vitest run",

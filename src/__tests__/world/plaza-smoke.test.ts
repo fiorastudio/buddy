@@ -107,16 +107,20 @@ describe('plaza smoke test (headless browser)', () => {
     expect(state.celebrations.some((c) => c.type === 'level_up')).toBe(true);
     expect(state.tickerLines.length).toBeGreaterThan(0);
 
-    // The canvas must actually contain drawn pixels, not just exist.
-    const drawnPixels = await page.evaluate(`(() => {
+    // The canvas must actually contain drawn pixels. Wait for the first
+    // requestAnimationFrame paint (racy to sample immediately after data
+    // loads, especially under machine load) rather than reading once.
+    const countPixels = `(() => {
       const canvas = document.querySelector('#plaza');
       const ctx = canvas.getContext('2d');
       const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       let nonBlank = 0;
       for (let i = 3; i < data.length; i += 40) if (data[i] > 0) nonBlank++;
       return nonBlank;
-    })()`);
-    expect(drawnPixels as number).toBeGreaterThan(1000);
+    })()`;
+    await page.waitForFunction(`${countPixels} > 1000`, { timeout: 15_000 });
+    const drawnPixels = (await page.evaluate(countPixels)) as number;
+    expect(drawnPixels).toBeGreaterThan(1000);
 
     expect(errors).toEqual([]);
 
@@ -232,18 +236,17 @@ describe('plaza smoke test (headless browser)', () => {
     expect(bubble?.emote).toContain('♥');
   }, 60_000);
 
-  it('shows RO job classes on nameplates (from jobs.json)', async () => {
+  it('renders RO job classes on nameplates via jobLabel', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
-    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.jobLines');
-    const label = (await page.evaluate(`(() => {
-      const c = window.__PLAZA__.citizens.find(x => x.slug === 'buddy-7'); // high chaos, L12
-      return window.__PLAZA__ && typeof window.__PLAZA__.jobLines === 'object'
-        ? { has: !!window.__PLAZA__.jobLines.CHAOS, lines: window.__PLAZA__.jobLines.CHAOS }
-        : null;
-    })()`)) as { has: boolean; lines: string[] };
-    expect(label.has).toBe(true);
-    expect(label.lines).toContain('Assassin'); // CHAOS second job
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.jobLines && window.__PLAZA__.citizens.length > 0');
+    // buddy-7 fixture: level 12 (first-job tier), stats chaos 90-70=20, wisdom
+    // 30+35=65 -> peak WISDOM -> first-job Mage.
+    const label = (await page.evaluate(`window.__PLAZA__.jobLabelForSlug('buddy-7')`)) as string;
+    expect(label).toBe('Mage · Lv.12');
+    // buddy-0 fixture: level 5 -> Novice tier; peak stat drives the line.
+    const novice = (await page.evaluate(`window.__PLAZA__.jobLabelForSlug('buddy-0')`)) as string;
+    expect(novice).toMatch(/^Novice · Lv\.5$/);
   }, 60_000);
 
   it('captures the RO essence: porings, stalls, sitting idlers, town name, bubbles', async () => {

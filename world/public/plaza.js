@@ -6,7 +6,10 @@
   'use strict';
 
   const canvas = document.getElementById('plaza');
-  const ctx = canvas.getContext('2d');
+  // willReadFrequently keeps a CPU-readable backing store — steadier under
+  // GPU-accelerated headless (where getImageData can otherwise read empty)
+  // and fine for our draw pattern.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const tickerEl = document.getElementById('ticker');
   const srListEl = document.getElementById('sr-citizens');
 
@@ -107,6 +110,12 @@
     actorFrames: {}, spriteBottoms: {},
     porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
     sfxEnabled: false, spawnXpPopup: null, petBuddy: null, // bound below
+  };
+  // Test instrumentation: resolve the rendered nameplate job label by slug.
+  // (Assigned after `state` exists — jobLabel is hoisted so it's safe here.)
+  state.jobLabelForSlug = (slug) => {
+    const c = state.citizens.find((x) => x.slug === slug);
+    return c ? jobLabel(c) : null;
   };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames

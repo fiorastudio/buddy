@@ -31,7 +31,8 @@ function tierForLevel(level: number): number {
 }
 
 export function jobClass(peakStat: string, level: number): JobResult {
-  const line = JOB_LINES[peakStat] ? peakStat : 'DEBUGGING';
+  // Object.hasOwn so prototype keys ('toString', etc.) don't slip past.
+  const line = Object.hasOwn(JOB_LINES, peakStat) ? peakStat : 'DEBUGGING';
   const tier = tierForLevel(level);
   return { title: JOB_LINES[line][tier], tier, line };
 }

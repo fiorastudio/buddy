@@ -117,14 +117,20 @@ function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string)
     if (XP_REWARDS[ev.type] !== undefined) worldEvents.push(ev.type);
   }
 
-  const xpResult = awardXpBatch(row.id, worldEvents);
+  let xpResult = awardXpBatch(row.id, worldEvents);
 
   // Streak milestone: first award of a new day landing on a 7-day multiple.
-  if (checkStreakMilestone(db, row.id, worldEvents.length)) worldEvents.push('streak_7');
+  // Award it through the batch too so its XP AND Zeny (500z) actually land —
+  // it must go through awardXpBatch, not just get appended to worldEvents.
+  if (checkStreakMilestone(db, row.id, worldEvents.length)) {
+    worldEvents.push('streak_7');
+    const streakResult = awardXpBatch(row.id, ['streak_7']);
+    xpResult = { ...streakResult, leveledUp: xpResult.leveledUp || streakResult.leveledUp };
+  }
 
   const newMood = recalcMood(row.id, xpResult.leveledUp);
   db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
-  const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
+  const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel, zeny: xpResult.newZeny }, userIdOverride)!;
   // Buddy World: no-op unless the user ran buddy-world teleport. A level-up
   // flushes instantly — the server derives the level_up world event from
   // the snapshot delta, so the wings appear within one plaza poll.

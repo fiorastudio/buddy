@@ -15,7 +15,8 @@ const ZENY_REWARDS: Record<string, number> = {
 };
 
 export function zenyForEvent(eventType: string): number {
-  return ZENY_REWARDS[eventType] ?? 5;
+  // Object.hasOwn so a prototype key ('toString') can't return a function.
+  return Object.hasOwn(ZENY_REWARDS, eventType) ? ZENY_REWARDS[eventType] : 5;
 }
 
 export function formatZeny(z: number): string {
