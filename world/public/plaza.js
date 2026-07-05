@@ -652,19 +652,25 @@
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
     for (const c of sorted) {
       const actor = ensureActor(c);
-      // RO: only long-AFK buddies sit (the vendor vibe). Everyone else
-      // wanders, so the plaza stays alive by default.
-      const idle = now - c.last_seen_at >= IDLE_SIT_MS;
-      actor.sitting = idle;
-      if (idle) sitting++;
+      // The plaza is ALWAYS alive: every buddy wanders. Long-idle owners'
+      // buddies just stroll calmer, and any buddy occasionally takes a
+      // brief RO-vendor sit-break, then gets up and moves again — so the
+      // square never freezes even when synced data is stale.
+      const calm = now - c.last_seen_at >= IDLE_SIT_MS; // owner long-AFK → calmer
       if (!REDUCED_MOTION) {
-        // Idle buddies sit (no walking) but keep their sprite's idle cadence.
-        if (!idle) {
-          const speed = BEHAVIORS[actor.behavior].speed * 0.35;
+        // Transient sit-break: start occasionally, last ~4-8s, then resume.
+        if (!actor.sitUntil && actor.rng() < (calm ? 0.004 : 0.0015)) {
+          actor.sitUntil = performance.now() + 4000 + actor.rng() * 4000;
+        }
+        actor.sitting = actor.sitUntil ? performance.now() < actor.sitUntil : false;
+        if (actor.sitting && performance.now() >= actor.sitUntil) { actor.sitUntil = 0; actor.sitting = false; }
+
+        if (!actor.sitting) {
+          const speed = BEHAVIORS[actor.behavior].speed * (calm ? 0.22 : 0.35);
           const dx = actor.tx - actor.x, dy = actor.ty - actor.y;
           const dist = Math.hypot(dx, dy);
           if (dist < 3) {
-            if (actor.rng() < 0.005) pickWaypoint(actor);
+            if (actor.rng() < 0.01) pickWaypoint(actor);
           } else {
             actor.x += (dx / dist) * speed;
             actor.y += (dy / dist) * speed;
@@ -672,6 +678,7 @@
         }
         actor.frame = Math.floor((performance.now() + actor.phaseMs) / 450);
       }
+      if (actor.sitting) sitting++;
       state.actorFrames[c.slug] = actor.frame;
       drawCitizen(c, actor, now);
     }
