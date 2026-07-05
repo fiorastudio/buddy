@@ -207,6 +207,35 @@ describe('plaza smoke test (headless browser)', () => {
     }
   }, 60_000);
 
+  it('plays the RO OST only after explicit opt-in (no YouTube request before click)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+
+    // Before opt-in: a labelled toggle exists, and NO YouTube iframe/request.
+    const before = (await page.evaluate(`(() => ({
+      hasButton: !!document.querySelector('#music-toggle'),
+      label: document.querySelector('#music-toggle')?.getAttribute('aria-label') || '',
+      iframes: document.querySelectorAll('iframe').length,
+    }))()`)) as { hasButton: boolean; label: string; iframes: number };
+    expect(before.hasButton).toBe(true);
+    expect(before.label.toLowerCase()).toContain('music');
+    expect(before.iframes).toBe(0);
+
+    await page.click('#music-toggle');
+    await page.waitForSelector('#music-player iframe', { timeout: 5000 });
+    const src = (await page.evaluate(
+      `document.querySelector('#music-player iframe').getAttribute('src')`
+    )) as string;
+    expect(src).toContain('youtube-nocookie.com/embed');
+    expect(src).toContain('PLWa6qxs0LO-v6pR8B9vVmqN-asyi8Crpp');
+
+    // Toggle off removes the player entirely (stops audio + network).
+    await page.click('#music-toggle');
+    const after = (await page.evaluate(`document.querySelectorAll('iframe').length`)) as number;
+    expect(after).toBe(0);
+  }, 60_000);
+
   it('renders every sprite with WCAG AA contrast against the plaza tiles', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
