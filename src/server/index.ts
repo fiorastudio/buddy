@@ -16,6 +16,8 @@ import {
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
 import { autoSyncWorld, isWorldBlessed } from "../lib/world/client.js";
 import { classifySummary, resolveEventType, shouldDampenSelfReport } from "../lib/xp-classify.js";
+import { zenyForEvent, formatZeny } from "../lib/zeny.js";
+import { jobClass } from "../lib/jobclass.js";
 import { consumePendingEvents } from "../lib/pending-events.js";
 import { checkStreakMilestone } from "../lib/streaks.js";
 import { statBar } from "../lib/rng.js";
@@ -69,24 +71,27 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
  * event still gets its own xp_events row). A hook batch of commit + tests
  * + deploy therefore costs 5 statements, not 3 SELECT/UPDATE pairs.
  */
-function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number } {
+function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number; newZeny: number } {
   // Buddy World blessing: teleported buddies earn +10% (local file check, cached).
   const blessed = isWorldBlessed();
   const insert = db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)");
   let xpGained = 0;
+  let zenyGained = 0;
   for (const eventType of eventTypes) {
     const xp = applyBlessing(XP_REWARDS[eventType] || 1, blessed);
     insert.run(randomUUID(), companionId, eventType, xp);
     xpGained += xp;
+    zenyGained += applyBlessing(zenyForEvent(eventType), blessed);
   }
 
-  const row = db.prepare("SELECT xp, level FROM companions WHERE id = ?").get(companionId) as any;
+  const row = db.prepare("SELECT xp, level, zeny FROM companions WHERE id = ?").get(companionId) as any;
   const newXp = (row?.xp || 0) + xpGained;
   const newLevel = levelFromXp(newXp);
   const leveledUp = newLevel > (row?.level || 1);
-  db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
+  const newZeny = (row?.zeny || 0) + zenyGained;
+  db.prepare("UPDATE companions SET xp = ?, level = ?, zeny = ? WHERE id = ?").run(newXp, newLevel, newZeny, companionId);
 
-  return { newXp, newLevel, leveledUp, xpGained };
+  return { newXp, newLevel, leveledUp, xpGained, newZeny };
 }
 
 /**

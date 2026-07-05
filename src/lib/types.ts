@@ -34,6 +34,7 @@ export type Companion = CompanionBones & CompanionSoul & {
   mood: string;
   availablePoints: number;
   hatchedAt: number;
+  zeny?: number;
 };
 
 export const RARITY_WEIGHTS: Record<Rarity, number> = {
