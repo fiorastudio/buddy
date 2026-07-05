@@ -36,6 +36,19 @@
   }
   const TOWN = townFor(district);
 
+  // Warp portal → next district/town (RO blue gate). Wire the label + href
+  // to whatever town comes next in the cycle.
+  (() => {
+    const warp = document.getElementById('warp');
+    if (!warp) return;
+    const cur = parseInt(String(district).replace(/\D/g, ''), 10) || 1;
+    const nextNum = cur + 1;
+    const nextTown = townFor('plaza-' + nextNum);
+    warp.setAttribute('href', `?district=plaza-${nextNum}`);
+    warp.setAttribute('aria-label', `Warp to ${nextTown.name} (next town)`);
+    warp.textContent = `🌀 warp to ${nextTown.name} →`;
+  })();
+
   // RO emote bubbles: recent activity pops the classic overhead marks.
   const EVENT_EMOTES = {
     commit: '!', deploy: '!!', bug_fix: '?!', tests_passed: '♪', streak_7: '★',
@@ -74,7 +87,7 @@
     sprites: null, palettes: null, spriteColors: {}, reducedMotion: REDUCED_MOTION,
     actorFrames: {}, spriteBottoms: {},
     porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
-    sfxEnabled: false, spawnXpPopup: null, // bound in the popups section
+    sfxEnabled: false, spawnXpPopup: null, petBuddy: null, // bound below
   };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames
@@ -259,14 +272,24 @@
     ctx.fillStyle = `rgb(${r},${g},${b2})`;
     // Horizontal: center on the stable per-species box (immune to frames
     // that render narrower). Vertical: bottom-anchor THIS frame's lines so
-    // variable line counts can never bob the sprite.
+    // variable line counts can never bob the sprite. Sitting buddies drop a
+    // few px (RO seated posture) and get a little cushion.
+    const sitDrop = actor.sitting ? 6 : 0;
     let lastLineY = actor.y;
     lines.forEach((line, i) => {
-      const y = actor.y + (i - lines.length) * SPRITE_LINE_H;
+      const y = actor.y + (i - lines.length) * SPRITE_LINE_H + sitDrop;
       ctx.fillText(line, actor.x - w / 2, y);
       lastLineY = y;
     });
     ctx.restore();
+    if (actor.sitting) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(actor.x, actor.y + sitDrop + 2, w * 0.3, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // test instrumentation: bottom row must sit at a constant offset
     const bottomOffset = Math.round(lastLineY - actor.y);
@@ -498,6 +521,28 @@
   }
 
   // ── Floating XP popups: RO damage numbers ─────────────────────────────
+  // Click-to-pet: RO /heart. Anyone can pet any buddy (pure delight);
+  // a temporary ♥ bubble appears over the head.
+  function petBuddy(slug) {
+    if (!actors.has(slug)) return;
+    state.bubbles[slug] = { emote: '♥', ts: Date.now() };
+    playSfx('session');
+  }
+  state.petBuddy = petBuddy;
+
+  canvas.addEventListener('click', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+    let best = null, bestD = 42; // click radius
+    for (const c of state.citizens) {
+      const a = actors.get(c.slug);
+      if (!a) continue;
+      const d = Math.hypot(a.x - mx, a.y - my);
+      if (d < bestD) { bestD = d; best = c.slug; }
+    }
+    if (best) petBuddy(best);
+  });
+
   function spawnXpPopup(slug, type) {
     const xp = XP_VALUES[type] ?? 0;
     const text = xp > 0 ? `+${xp} XP` : (type === 'level_up' ? 'LEVEL UP!' : '');

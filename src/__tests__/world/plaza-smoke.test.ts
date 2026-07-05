@@ -209,6 +209,29 @@ describe('plaza smoke test (headless browser)', () => {
   }, 60_000);
 
 
+
+  it('has a warp portal to the next RO town (RO navigation)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    const warp = (await page.evaluate(`(() => {
+      const el = document.querySelector('#warp');
+      return { exists: !!el, label: el?.getAttribute('aria-label') || '', href: el?.getAttribute('href') || el?.dataset.district || '' };
+    })()`)) as { exists: boolean; label: string; href: string };
+    expect(warp.exists).toBe(true);
+    expect(warp.label.toLowerCase()).toMatch(/warp|travel|payon/);
+    expect(warp.href).toContain('plaza-2'); // next district
+  }, 60_000);
+
+  it('click-to-pet spawns a heart emote on a buddy (RO /heart)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    await page.evaluate(`window.__PLAZA__.petBuddy('buddy-3')`);
+    const bubble = (await page.evaluate(`window.__PLAZA__.bubbles['buddy-3']`)) as { emote: string } | null;
+    expect(bubble?.emote).toContain('♥');
+  }, 60_000);
+
   it('captures the RO essence: porings, stalls, sitting idlers, town name, bubbles', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
