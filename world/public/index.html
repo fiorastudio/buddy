@@ -23,6 +23,20 @@
     padding: 8px 14px; font-size: 12px; color: #e1bee7;
   }
   #cta a { color: var(--gold); text-decoration: none; }
+  #warp {
+    position: fixed; top: 38px; right: 14px; z-index: 11;
+    background: rgba(15, 12, 41, 0.92); border: 1px solid #7c4dff; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; color: #b388ff; text-decoration: none;
+    font-family: inherit;
+  }
+  #warp:hover, #warp:focus-visible { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 12px rgba(124,77,255,0.5); }
+  #sfx-toggle {
+    position: fixed; bottom: 12px; left: 112px; z-index: 11;
+    background: rgba(15, 12, 41, 0.92); border: 1px solid #3a2f6b; border-radius: 8px;
+    padding: 8px 12px; font-size: 13px; color: #e1bee7; cursor: pointer;
+    font-family: inherit;
+  }
+  #sfx-toggle:hover, #sfx-toggle:focus-visible { border-color: var(--gold); color: var(--gold); }
   #music-toggle {
     position: fixed; bottom: 12px; left: 14px; z-index: 11;
     background: rgba(15, 12, 41, 0.92); border: 1px solid #3a2f6b; border-radius: 8px;
@@ -46,8 +60,10 @@
   <div id="ticker" aria-live="polite"><span class="brand">⛲ BUDDY WORLD</span></div>
   <canvas id="plaza" role="img" aria-label="Buddy World plaza"></canvas>
   <ul id="sr-citizens" class="visually-hidden" aria-label="Buddies currently in the plaza"></ul>
+  <a id="warp" href="?district=plaza-2" aria-label="Warp to Payon (next town)">🌀 warp →</a>
   <div id="cta">no buddy yet? <a href="https://github.com/fiorastudio/buddy" target="_blank" rel="noopener">adopt your own →</a></div>
   <button id="music-toggle" aria-label="Play plaza music (Ragnarok Online OST via YouTube)" aria-pressed="false">🎵 music</button>
+  <button id="sfx-toggle" aria-label="Enable sound effects (level-up chimes, deploy fireworks)" aria-pressed="false">🔔 sfx</button>
   <div id="music-player" hidden></div>
   <script src="plaza.js"></script>
 </body>
