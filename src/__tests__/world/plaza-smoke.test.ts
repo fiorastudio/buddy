@@ -1,0 +1,222 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import { readFileSync, existsSync } from 'node:fs';
+import { join, dirname, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import puppeteer, { type Browser } from 'puppeteer';
+import { totalXpForLevel } from '../../lib/leveling.js';
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const publicDir = join(repoRoot, 'world', 'public');
+
+const NOW = Date.now();
+
+function fixtureDistrict() {
+  const species = ['Void Cat', 'Duck', 'Axolotl', 'Mushroom', 'Capybara', 'Ghost', 'Robot', 'Penguin'];
+  return {
+    district: 'plaza-1',
+    citizens: species.map((sp, i) => ({
+      slug: `buddy-${i}`,
+      // Defense-in-depth check: even if a hostile name got past server
+      // validation, the client must render it inert.
+      name: i === 0 ? 'Buddy0<img src=x onerror=window.__XSS__=1>' : `Buddy${i}`,
+      species: sp,
+      level: 5 + i,
+      xp: totalXpForLevel(5 + i) + 1,
+      mood: 'happy',
+      stats: { debugging: 50, patience: 50, chaos: 90 - i * 10, wisdom: 30 + i * 5, snark: 50 },
+      rarity: 'common',
+      shiny: false,
+      hat: 'none',
+      eye: '·',
+      anon: false,
+      skin: 'ascii',
+      avatar: `chibi-${(i % 8) + 1}`,
+      district: 'plaza-1',
+      hidden: false,
+      flagged: false,
+      created_at: NOW - 1_000_000,
+      last_seen_at: i < 3 ? NOW - 60_000 : NOW - 7_200_000, // first 3 recently active
+    })),
+    events: [
+      { citizen_slug: 'buddy-0', type: 'level_up', ts: NOW - 30_000 },
+      { citizen_slug: 'buddy-1', type: 'deploy', ts: NOW - 45_000 },
+      { citizen_slug: 'buddy-2', type: 'commit', ts: NOW - 50_000 },
+    ],
+  };
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.json': 'application/json',
+  '.css': 'text/css',
+};
+
+describe('plaza smoke test (headless browser)', () => {
+  let server: Server;
+  let browser: Browser;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      const url = (req.url ?? '/').split('?')[0];
+      if (url.startsWith('/v1/world/')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(fixtureDistrict()));
+        return;
+      }
+      const file = join(publicDir, url === '/' ? 'index.html' : url.slice(1));
+      if (existsSync(file)) {
+        res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+        res.end(readFileSync(file));
+      } else {
+        res.writeHead(404);
+        res.end('not found');
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+    browser = await puppeteer.launch({ headless: true });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    server?.close();
+  });
+
+  it('renders the plaza with all citizens, celebrations, and a live ticker', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0', {
+      timeout: 15_000,
+    });
+
+    const state = (await page.evaluate('window.__PLAZA__')) as {
+      citizens: unknown[];
+      celebrations: Array<{ type: string }>;
+      tickerLines: string[];
+    };
+    expect(state.citizens).toHaveLength(8);
+    expect(state.celebrations.some((c) => c.type === 'level_up')).toBe(true);
+    expect(state.tickerLines.length).toBeGreaterThan(0);
+
+    // The canvas must actually contain drawn pixels, not just exist.
+    const drawnPixels = await page.evaluate(`(() => {
+      const canvas = document.querySelector('#plaza');
+      const ctx = canvas.getContext('2d');
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let nonBlank = 0;
+      for (let i = 3; i < data.length; i += 40) if (data[i] > 0) nonBlank++;
+      return nonBlank;
+    })()`);
+    expect(drawnPixels as number).toBeGreaterThan(1000);
+
+    expect(errors).toEqual([]);
+
+    await page.screenshot({
+      path: `${process.env.SCRATCHPAD_DIR ?? '/tmp'}/plaza_smoke.png` as `${string}.png`,
+    });
+  }, 60_000);
+
+  it('meets the accessibility contract: canvas alt, SR citizen list, live ticker', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+
+    const a11y = (await page.evaluate(`(() => {
+      const canvas = document.querySelector('#plaza');
+      const sr = document.querySelector('#sr-citizens');
+      const ticker = document.querySelector('#ticker');
+      return {
+        role: canvas.getAttribute('role'),
+        label: canvas.getAttribute('aria-label') || '',
+        srCount: sr ? sr.children.length : 0,
+        tickerLive: ticker.getAttribute('aria-live'),
+      };
+    })()`)) as { role: string; label: string; srCount: number; tickerLive: string };
+
+    expect(a11y.role).toBe('img');
+    expect(a11y.label.length).toBeGreaterThan(10);
+    expect(a11y.srCount).toBe(8);
+    expect(a11y.tickerLive).toBe('polite');
+  }, 60_000);
+
+  it('renders hostile citizen names inert (no stored XSS in SR list or ticker)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    const probe = (await page.evaluate(`(() => ({
+      xss: window.__XSS__ === 1,
+      injectedImgs: document.querySelectorAll('#sr-citizens img, #ticker img').length,
+      srText: document.querySelector('#sr-citizens').textContent,
+      tickerText: document.querySelector('#ticker').textContent,
+    }))()`)) as { xss: boolean; injectedImgs: number; srText: string; tickerText: string };
+    expect(probe.xss).toBe(false);
+    expect(probe.injectedImgs).toBe(0);
+    // The hostile name must appear as literal text, not parsed markup.
+    expect(probe.srText).toContain('<img src=x');
+    expect(probe.tickerText).toContain('<img src=x');
+  }, 60_000);
+
+  it('honors prefers-reduced-motion', async () => {
+    const page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    expect(await page.evaluate('window.__PLAZA__.reducedMotion')).toBe(true);
+  }, 60_000);
+
+  it('advances sprite animation at a calm cadence, not per render tick', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.actorFrames && Object.keys(window.__PLAZA__.actorFrames).length > 0'
+    );
+    const before = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    await new Promise((r) => setTimeout(r, 1300));
+    const after = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    for (const slug of Object.keys(before)) {
+      const delta = after[slug] - before[slug];
+      // ~450ms per frame over 1.3s → expect roughly 2-3 advances; the old
+      // bug advanced ~60x/sec in bursts (delta would be 20+).
+      expect(delta, `frame cadence for ${slug}`).toBeGreaterThanOrEqual(1);
+      expect(delta, `frame cadence for ${slug}`).toBeLessThanOrEqual(5);
+    }
+  }, 60_000);
+
+  it('keeps every sprite bottom-anchored across all frames (no vertical jitter)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.spriteBottoms && Object.keys(window.__PLAZA__.spriteBottoms).length > 0'
+    );
+    await new Promise((r) => setTimeout(r, 1500)); // let several frames render
+    const bottoms = (await page.evaluate('({...window.__PLAZA__.spriteBottoms})')) as Record<
+      string,
+      { min: number; max: number }
+    >;
+    for (const [slug, b] of Object.entries(bottoms)) {
+      // Bottom row offset relative to the actor must never vary by frame.
+      expect(b.max - b.min, `bottom anchor drift for ${slug}`).toBe(0);
+    }
+  }, 60_000);
+
+  it('renders every sprite with WCAG AA contrast against the plaza tiles', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.spriteColors && Object.keys(window.__PLAZA__.spriteColors).length > 0'
+    );
+    const ratios = (await page.evaluate('window.__PLAZA__.spriteColors')) as Record<string, number>;
+    expect(Object.keys(ratios).length).toBeGreaterThan(0);
+    for (const [slug, ratio] of Object.entries(ratios)) {
+      expect(ratio, `contrast for ${slug}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }, 60_000);
+});

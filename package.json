@@ -8,7 +8,8 @@
     "buddy-statusline": "dist/statusline-wrapper.js",
     "buddy-onboard": "dist/cli/onboard.js",
     "buddy-doctor": "dist/cli/doctor-cli.js",
-    "buddy-share": "dist/cli/snapshot-cli.js"
+    "buddy-share": "dist/cli/snapshot-cli.js",
+    "buddy-world": "dist/cli/world-cli.js"
   },
   "files": [
     "dist",

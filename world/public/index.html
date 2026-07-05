@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buddy World</title>
+<style>
+  :root { --gold: #ffd700; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1430; font-family: 'Menlo', 'Consolas', monospace; overflow: hidden; }
+  #ticker {
+    position: fixed; top: 0; left: 0; right: 0; height: 28px; z-index: 10;
+    background: rgba(15, 12, 41, 0.92); color: #b39ddb; font-size: 12px;
+    display: flex; align-items: center; padding: 0 12px; gap: 24px;
+    border-bottom: 1px solid #3a2f6b; white-space: nowrap; overflow: hidden;
+  }
+  #ticker .line { opacity: 0.9; }
+  #ticker .brand { color: var(--gold); font-weight: bold; flex-shrink: 0; }
+  #plaza { display: block; }
+  #cta {
+    position: fixed; bottom: 12px; right: 14px; z-index: 10;
+    background: rgba(15, 12, 41, 0.92); border: 1px solid #3a2f6b; border-radius: 8px;
+    padding: 8px 14px; font-size: 12px; color: #e1bee7;
+  }
+  #cta a { color: var(--gold); text-decoration: none; }
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+  <div id="ticker" aria-live="polite"><span class="brand">⛲ BUDDY WORLD</span></div>
+  <canvas id="plaza" role="img" aria-label="Buddy World plaza"></canvas>
+  <ul id="sr-citizens" class="visually-hidden" aria-label="Buddies currently in the plaza"></ul>
+  <div id="cta">no buddy yet? <a href="https://github.com/fiorastudio/buddy" target="_blank" rel="noopener">adopt your own →</a></div>
+  <script src="plaza.js"></script>
+</body>
+</html>

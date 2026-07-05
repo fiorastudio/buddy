@@ -13,3 +13,5 @@ demo/*.sh
 demo/*.yml
 demo/frames/
 .eval-cache/
+.gstack/
+.superpowers/
