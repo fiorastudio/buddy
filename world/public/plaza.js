@@ -450,8 +450,10 @@
         return;
       }
       const iframe = document.createElement('iframe');
-      iframe.width = '280';
-      iframe.height = '158';
+      // YouTube ToS requires the embedded player be >=200x200 and visible
+      // (Required Minimum Functionality). No smaller, no hiding.
+      iframe.width = '300';
+      iframe.height = '200';
       iframe.src =
         `https://www.youtube-nocookie.com/embed/videoseries?list=${MUSIC_PLAYLIST}` +
         '&autoplay=1&loop=1';
