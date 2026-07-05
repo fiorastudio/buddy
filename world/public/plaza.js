@@ -429,5 +429,42 @@
     requestAnimationFrame(tick);
   }
 
+  // ── plaza music (Ragnarok Online OST) ─────────────────────────────────
+  // Strictly opt-in: no YouTube iframe (and therefore no third-party
+  // request) exists until the visitor clicks. Official embed only —
+  // rights holders keep attribution/monetization. youtube-nocookie keeps
+  // tracking to the minimum YouTube offers.
+  const MUSIC_PLAYLIST = 'PLWa6qxs0LO-v6pR8B9vVmqN-asyi8Crpp';
+  const musicToggle = document.getElementById('music-toggle');
+  const musicPlayer = document.getElementById('music-player');
+
+  if (musicToggle && musicPlayer) {
+    musicToggle.addEventListener('click', () => {
+      const playing = musicPlayer.querySelector('iframe');
+      if (playing) {
+        musicPlayer.replaceChildren(); // removes iframe → stops audio + network
+        musicPlayer.hidden = true;
+        musicToggle.textContent = '🎵 music';
+        musicToggle.setAttribute('aria-pressed', 'false');
+        musicToggle.setAttribute('aria-label', 'Play plaza music (Ragnarok Online OST via YouTube)');
+        return;
+      }
+      const iframe = document.createElement('iframe');
+      iframe.width = '280';
+      iframe.height = '158';
+      iframe.src =
+        `https://www.youtube-nocookie.com/embed/videoseries?list=${MUSIC_PLAYLIST}` +
+        '&autoplay=1&loop=1';
+      iframe.title = 'Plaza music — Ragnarok Online OST (YouTube)';
+      iframe.allow = 'autoplay; encrypted-media';
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      musicPlayer.replaceChildren(iframe);
+      musicPlayer.hidden = false;
+      musicToggle.textContent = '🔇 stop music';
+      musicToggle.setAttribute('aria-pressed', 'true');
+      musicToggle.setAttribute('aria-label', 'Stop plaza music');
+    });
+  }
+
   boot();
 })();
