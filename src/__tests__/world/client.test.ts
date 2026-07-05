@@ -9,6 +9,7 @@ import {
   loadWorldConfig,
   saveWorldConfig,
   deleteWorldConfig,
+  isWorldBlessed,
   WorldSync,
 } from '../../lib/world/client.js';
 import { validateSnapshot } from '../../lib/world/validate.js';
@@ -57,6 +58,13 @@ describe('world config persistence', () => {
     expect(loaded?.token).toHaveLength(32);
     deleteWorldConfig(file);
     expect(loadWorldConfig(file)).toBeNull();
+  });
+
+  it('invalidates the blessing cache immediately when deleted', () => {
+    saveWorldConfig({ token: generateToken(), apiUrl: 'https://api.example.com' }, file);
+    expect(isWorldBlessed(file)).toBe(true);
+    deleteWorldConfig(file);
+    expect(isWorldBlessed(file)).toBe(false);
   });
 });
 
@@ -154,5 +162,33 @@ describe('autoSyncWorld (MCP server glue)', () => {
     const world = await fetchHandler(new Request(`https://world.example.com/v1/world/${tp.district}`));
     const body = (await world.json()) as { events: Array<{ type: string }> };
     expect(body.events.some((e) => e.type === 'commit')).toBe(true);
+  });
+});
+
+describe('autoSyncWorld instant flag', () => {
+  it('flushes immediately when the award caused a level-up, even inside the debounce window', async () => {
+    const { autoSyncWorld, saveWorldConfig, generateToken } = await import('../../lib/world/client.js');
+    const dir = mkdtempSync(join(tmpdir(), 'buddy-instant-'));
+    const file = join(dir, 'world.json');
+
+    const clock = { now: T0 };
+    const fetchHandler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      now: () => clock.now,
+    });
+    const fetchFn = (url: string, init?: RequestInit) => fetchHandler(new Request(url, init));
+
+    const cfg = { token: generateToken(), apiUrl: 'https://world.example.com' };
+    saveWorldConfig(cfg, file);
+    const sync = new WorldSync(cfg, { fetchFn, now: () => clock.now });
+    const tp = await sync.teleport(buildWorldSnapshot(companion()));
+
+    clock.now = T0 + 5_000; // well inside the 60s debounce
+    await autoSyncWorld(companion(), 'commit', { configPath: file, fetchFn, now: () => clock.now, instant: true });
+
+    const world = await fetchHandler(new Request(`https://world.example.com/v1/world/${tp.district}`));
+    const body = (await world.json()) as { events: Array<{ type: string }> };
+    expect(body.events.some((e) => e.type === 'commit')).toBe(true); // flushed despite debounce
   });
 });

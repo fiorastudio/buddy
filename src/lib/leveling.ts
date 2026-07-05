@@ -2,13 +2,25 @@
 
 export const MAX_LEVEL = 50;
 
+// Rewards boosted 2026-07: commit/bug_fix/deploy were defined but never
+// fired (no classification existed), leaving everyone at flat 5 XP —
+// level 50 (104,925 XP) needed ~21k observes. With two-channel event
+// classification these fire for real, and skilled events pay properly.
+// NOTE: the curve itself must NOT change — the world server validates
+// level === levelFromXp(xp), so a curve change breaks old clients.
 export const XP_REWARDS: Record<string, number> = {
-  observe: 5,
-  commit: 10,
-  bug_fix: 15,
-  deploy: 25,
-  session: 3,
+  observe: 8,
+  commit: 25,
+  tests_passed: 20,
+  bug_fix: 35,
+  deploy: 60,
+  session: 5,
 };
+
+// Buddy World blessing: teleported buddies earn +10%.
+export function applyBlessing(xp: number, blessed: boolean): number {
+  return blessed ? Math.round(xp * 1.1) : xp;
+}
 
 // Exponential curve: fast early, smooth mid, grindy late
 export function xpForLevel(level: number): number {

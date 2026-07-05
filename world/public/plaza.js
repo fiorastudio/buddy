@@ -254,7 +254,7 @@
     ctx.fillText(AVATARS[avatarIdx % AVATARS.length], actor.x + w / 2 + 12, actor.y - 4);
 
     // name tag, RO style: white with dark outline
-    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}`;
+    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}${flameSlugs.has(c.slug) ? ' 🔥' : ''}`;
     ctx.font = 'bold 11px Menlo, Consolas, monospace';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
@@ -270,13 +270,23 @@
     }
   }
 
+  // Data-driven celebration rendering: a new event type is one line here.
+  // level_up keeps its bespoke branch (gold text + glow + bob) — the one
+  // genuine outlier.
+  const CELEBRATION_SPEC = {
+    deploy: { frames: ['🎆', '🎇', '✨'], font: '15px serif', dx: 18, dy: -66 },
+    commit: { frames: ['✨'], font: '12px serif', dx: -16, dy: -60 },
+    streak_7: { frames: ['🎊'], font: '14px serif', dx: 0, dy: -66 },
+    tests_passed: { frames: ['✅'], font: '13px serif', dx: -18, dy: -62 },
+  };
+
   function drawCelebrations(now) {
     for (const cel of state.celebrations) {
       const actor = actors.get(cel.citizen_slug);
       if (!actor) continue;
-      const age = (now - cel.ts) / 1000;
       ctx.textAlign = 'center';
       if (cel.type === 'level_up') {
+        const age = (now - cel.ts) / 1000;
         ctx.font = 'bold 13px Menlo, Consolas, monospace';
         ctx.fillStyle = '#ffd700';
         ctx.shadowColor = '#ff8c00';
@@ -286,23 +296,31 @@
         ctx.font = '16px serif';
         ctx.fillText('🪽', actor.x, actor.y - 56);
         ctx.shadowBlur = 0;
-      } else if (cel.type === 'deploy') {
-        ctx.font = '15px serif';
-        const burst = REDUCED_MOTION ? 0 : Math.floor(performance.now() / 400) % 3;
-        ctx.fillText(['🎆', '🎇', '✨'][burst], actor.x + 18, actor.y - 66);
-      } else if (cel.type === 'commit') {
-        ctx.font = '12px serif';
-        ctx.fillText('✨', actor.x - 16, actor.y - 60);
-      } else if (cel.type === 'streak_7') {
-        ctx.font = '14px serif';
-        ctx.fillText('🎊', actor.x, actor.y - 66);
+        continue;
       }
+      const spec = CELEBRATION_SPEC[cel.type];
+      if (!spec) continue;
+      ctx.font = spec.font;
+      const frame = REDUCED_MOTION ? 0 : Math.floor(performance.now() / 400) % spec.frames.length;
+      ctx.fillText(spec.frames[frame], actor.x + spec.dx, actor.y + spec.dy);
     }
+  }
+
+  // Streak flames (🔥 by the name tag): recomputed once per frame for all
+  // citizens — O(events), not O(citizens × events) inside drawCitizen.
+  let flameSlugs = new Set();
+  function computeFlameSlugs(now) {
+    return new Set(
+      state.events
+        .filter((e) => e.type === 'streak_7' && now - e.ts < 7 * 86_400_000)
+        .map((e) => e.citizen_slug)
+    );
   }
 
   function tick() {
     const now = Date.now();
     drawGround();
+    flameSlugs = computeFlameSlugs(now);
     ctx.font = SPRITE_FONT;
     charW = ctx.measureText('M').width;
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
@@ -333,8 +351,9 @@
     level_up: 'leveled up! 🎉',
     deploy: 'deployed to prod 🚀',
     commit: 'shipped a commit',
+    tests_passed: 'got the tests green ✅',
     bug_fix: 'squashed a bug 🔧',
-    streak_7: 'hit a 7-day streak 🎊',
+    streak_7: 'is on a streak 🔥',
     observe: 'is coding',
     session: 'got pets',
   };
@@ -408,6 +427,45 @@
     await refresh();
     setInterval(refresh, 10_000);
     requestAnimationFrame(tick);
+  }
+
+  // ── plaza music (Ragnarok Online OST) ─────────────────────────────────
+  // Strictly opt-in: no YouTube iframe (and therefore no third-party
+  // request) exists until the visitor clicks. Official embed only —
+  // rights holders keep attribution/monetization. youtube-nocookie keeps
+  // tracking to the minimum YouTube offers.
+  const MUSIC_PLAYLIST = 'PLWa6qxs0LO-v6pR8B9vVmqN-asyi8Crpp';
+  const musicToggle = document.getElementById('music-toggle');
+  const musicPlayer = document.getElementById('music-player');
+
+  if (musicToggle && musicPlayer) {
+    musicToggle.addEventListener('click', () => {
+      const playing = musicPlayer.querySelector('iframe');
+      if (playing) {
+        musicPlayer.replaceChildren(); // removes iframe → stops audio + network
+        musicPlayer.hidden = true;
+        musicToggle.textContent = '🎵 music';
+        musicToggle.setAttribute('aria-pressed', 'false');
+        musicToggle.setAttribute('aria-label', 'Play plaza music (Ragnarok Online OST via YouTube)');
+        return;
+      }
+      const iframe = document.createElement('iframe');
+      // YouTube ToS requires the embedded player be >=200x200 and visible
+      // (Required Minimum Functionality). No smaller, no hiding.
+      iframe.width = '300';
+      iframe.height = '200';
+      iframe.src =
+        `https://www.youtube-nocookie.com/embed/videoseries?list=${MUSIC_PLAYLIST}` +
+        '&autoplay=1&loop=1';
+      iframe.title = 'Plaza music — Ragnarok Online OST (YouTube)';
+      iframe.allow = 'autoplay; encrypted-media';
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      musicPlayer.replaceChildren(iframe);
+      musicPlayer.hidden = false;
+      musicToggle.textContent = '🔇 stop music';
+      musicToggle.setAttribute('aria-pressed', 'true');
+      musicToggle.setAttribute('aria-label', 'Stop plaza music');
+    });
   }
 
   boot();

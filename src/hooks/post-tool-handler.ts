@@ -9,6 +9,8 @@
 
 import { readFileSync, writeFileSync } from "fs";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
+import { detectCommandEvent } from "../lib/xp-classify.js";
+import { appendPendingEvent, DEFAULT_PENDING_EVENTS_PATH } from "../lib/pending-events.js";
 
 // Error patterns — word-boundary anchored to avoid false positives
 // like "error handling added", "0 errors", or "isError: false"
@@ -24,10 +26,17 @@ const CONCERNED_REACTIONS = [
   "oops... let me take a closer look",
 ];
 
+// Verified against https://code.claude.com/docs/en/hooks.md: tool_response
+// is an OBJECT — {type:'text', text} on success, {type:'error', error,
+// stdout, stderr} on failure — and NO Bash exit-code field exists anywhere
+// in the payload. Success/failure must be inferred from the error field
+// and output text. Older/other hosts may still send plain strings.
 export interface PostToolUseInput {
   tool_name: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: string;
+  tool_response?:
+    | string
+    | { type?: string; text?: string; error?: string; stdout?: string; stderr?: string };
 }
 
 interface GenericHookInput {
@@ -57,6 +66,16 @@ function inferToolName(input: GenericHookInput): string {
 
 function inferToolOutput(input: GenericHookInput): string {
   if (typeof input.tool_response === "string") return input.tool_response;
+  // Documented Claude Code shape: object with text (success) or
+  // error/stdout/stderr (failure). Include the error string so the
+  // ERROR_REGEX ("exit code N", "Error:") sees real failures.
+  if (input.tool_response && typeof input.tool_response === "object") {
+    const r = input.tool_response as { text?: string; error?: string; stdout?: string; stderr?: string };
+    const parts = [r.error, r.text, r.stdout, r.stderr].filter(
+      (p): p is string => typeof p === "string" && p.length > 0
+    );
+    if (parts.length > 0) return parts.join("\n");
+  }
   if (typeof input.toolResult?.textResultForLlm === "string") return input.toolResult.textResultForLlm;
 
   const parts = [
@@ -119,9 +138,43 @@ export function writeConcernedReaction(statusPath: string = BUDDY_STATUS_PATH, e
 /**
  * Main handler — reads stdin, processes PostToolUse event.
  */
+function inferCommand(input: GenericHookInput): string {
+  const ti = input.tool_input;
+  if (ti && typeof ti.command === "string") return ti.command;
+  if (typeof input.command === "string") return input.command;
+  if (typeof input.toolArgs === "string") return input.toolArgs;
+  return "";
+}
+
+/**
+ * Ground-truth XP channel: when the executed command IS a commit/deploy/
+ * test-pass, queue it for the MCP server to award on the next observe.
+ * Exit code falls back to the error heuristic when the host omits it.
+ */
+export function recordGroundTruthEvent(
+  input: PostToolUseInput | GenericHookInput,
+  pendingPath: string = DEFAULT_PENDING_EVENTS_PATH
+): string | null {
+  const toolName = inferToolName(input);
+  const output = inferToolOutput(input);
+  const command = inferCommand(input as GenericHookInput);
+  const exitCode =
+    typeof (input as GenericHookInput).exitCode === "number"
+      ? ((input as GenericHookInput).exitCode as number)
+      : ERROR_REGEX.test(output)
+        ? 1
+        : 0;
+  const canonicalTool = toolName.toLowerCase() === "bash" ? "Bash" : toolName;
+  const event = detectCommandEvent(canonicalTool, command, output, exitCode);
+  if (event) appendPendingEvent(pendingPath, { type: event, ts: Date.now() });
+  return event;
+}
+
 export function handlePostToolUse(input: PostToolUseInput | GenericHookInput, statusPath: string = BUDDY_STATUS_PATH): boolean {
   const toolName = inferToolName(input);
   if (toolName.toLowerCase() !== "bash") return false;
+
+  recordGroundTruthEvent(input);
 
   const output = inferToolOutput(input);
 

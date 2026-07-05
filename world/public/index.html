@@ -23,6 +23,19 @@
     padding: 8px 14px; font-size: 12px; color: #e1bee7;
   }
   #cta a { color: var(--gold); text-decoration: none; }
+  #music-toggle {
+    position: fixed; bottom: 12px; left: 14px; z-index: 11;
+    background: rgba(15, 12, 41, 0.92); border: 1px solid #3a2f6b; border-radius: 8px;
+    padding: 8px 12px; font-size: 13px; color: #e1bee7; cursor: pointer;
+    font-family: inherit;
+  }
+  #music-toggle:hover, #music-toggle:focus-visible { border-color: var(--gold); color: var(--gold); }
+  #music-player {
+    position: fixed; bottom: 52px; left: 14px; z-index: 10;
+    border: 1px solid #3a2f6b; border-radius: 8px; overflow: hidden;
+    background: #0f0c29;
+  }
+  #music-player iframe { display: block; border: 0; }
   .visually-hidden {
     position: absolute; width: 1px; height: 1px; margin: -1px;
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
@@ -34,6 +47,8 @@
   <canvas id="plaza" role="img" aria-label="Buddy World plaza"></canvas>
   <ul id="sr-citizens" class="visually-hidden" aria-label="Buddies currently in the plaza"></ul>
   <div id="cta">no buddy yet? <a href="https://github.com/fiorastudio/buddy" target="_blank" rel="noopener">adopt your own →</a></div>
+  <button id="music-toggle" aria-label="Play plaza music (Ragnarok Online OST via YouTube)" aria-pressed="false">🎵 music</button>
+  <div id="music-player" hidden></div>
   <script src="plaza.js"></script>
 </body>
 </html>

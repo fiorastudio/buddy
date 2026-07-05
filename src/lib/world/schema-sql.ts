@@ -7,6 +7,7 @@ export const WORLD_EVENT_TYPES = [
   'observe',
   'session',
   'commit',
+  'tests_passed',
   'bug_fix',
   'deploy',
   'level_up',
@@ -14,6 +15,11 @@ export const WORLD_EVENT_TYPES = [
 ] as const;
 
 export type WorldEventType = (typeof WORLD_EVENT_TYPES)[number];
+
+// Celebration-class events skip the client's sync debounce so plaza VFX
+// land within one poll of the real moment. Lives with the type definitions:
+// adding a new celebration event means touching this file, not the client.
+export const INSTANT_WORLD_EVENTS: ReadonlySet<WorldEventType> = new Set(['deploy', 'level_up', 'streak_7']);
 
 export const WORLD_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS citizens (
@@ -36,7 +42,7 @@ CREATE TABLE IF NOT EXISTS citizens (
   district TEXT NOT NULL,
   hidden INTEGER NOT NULL DEFAULT 0,
   flagged INTEGER NOT NULL DEFAULT 0,
-  xp_bucket REAL NOT NULL DEFAULT 200,
+  xp_bucket REAL NOT NULL DEFAULT 300,
   created_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
 );
