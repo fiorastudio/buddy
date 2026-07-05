@@ -20,6 +20,32 @@
   const CELEBRATION_WINDOW_MS = 60 * 60 * 1000;
   const AVATARS = ['🧍', '🧍‍♀️', '🚶', '🧍', '🧑‍💻', '🚶‍♀️', '🧍', '🧙'];
 
+  // Districts are RO towns. plaza-1 is always Prontera; the rest cycle
+  // through the classics, each with its own sky/tile mood.
+  const TOWNS = [
+    { name: 'Prontera', sky: ['#2a2150', '#3a2f6b'], tiles: ['#5d5180', '#564a78'] },
+    { name: 'Payon', sky: ['#3a2a1a', '#4d3a24'], tiles: ['#7a5c3a', '#6d5233'] },
+    { name: 'Geffen', sky: ['#1a1040', '#2a1a5e'], tiles: ['#4a3a7e', '#413470'] },
+    { name: 'Alberta', sky: ['#1a2a3a', '#24455e'], tiles: ['#4a6a7e', '#416070'] },
+    { name: 'Morroc', sky: ['#3a241a', '#5e3a24'], tiles: ['#8a6a4a', '#7e6042'] },
+    { name: 'Comodo', sky: ['#1a3a3a', '#245e50'], tiles: ['#4a8a6a', '#428060'] },
+  ];
+  function townFor(districtName) {
+    const n = parseInt(String(districtName).replace(/\D/g, ''), 10) || 1;
+    return TOWNS[(n - 1) % TOWNS.length];
+  }
+  const TOWN = townFor(district);
+
+  // RO emote bubbles: recent activity pops the classic overhead marks.
+  const EVENT_EMOTES = {
+    commit: '!', deploy: '!!', bug_fix: '?!', tests_passed: '♪', streak_7: '★',
+    observe: '!', session: '♥',
+  };
+  const BUBBLE_TTL_MS = 90_000;
+
+  // Client-side mirror of XP_REWARDS for the floating damage numbers.
+  const XP_VALUES = { observe: 8, session: 5, commit: 25, tests_passed: 20, bug_fix: 35, deploy: 60, level_up: 0, streak_7: 0 };
+
   const SPRITE_FONT = '13px Menlo, Consolas, monospace';
   const SPRITE_LINE_H = 13;
 
@@ -47,6 +73,8 @@
     citizens: [], events: [], celebrations: [], tickerLines: [],
     sprites: null, palettes: null, spriteColors: {}, reducedMotion: REDUCED_MOTION,
     actorFrames: {}, spriteBottoms: {},
+    porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
+    sfxEnabled: false, spawnXpPopup: null, // bound in the popups section
   };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames
@@ -168,8 +196,8 @@
     const b = plazaBounds();
     const hour = new Date().getHours();
     const night = hour < 6 || hour >= 20;
-    const skyTop = night ? '#0d0a20' : '#2a2150';
-    const skyBottom = night ? '#151030' : '#3a2f6b';
+    const skyTop = night ? '#0d0a20' : TOWN.sky[0];
+    const skyBottom = night ? '#151030' : TOWN.sky[1];
     const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
     sky.addColorStop(0, skyTop);
     sky.addColorStop(1, skyBottom);
@@ -190,7 +218,7 @@
         ctx.lineTo(x, y + tileH / 2);
         ctx.lineTo(x - tileW / 2, y);
         ctx.closePath();
-        ctx.fillStyle = (col + row) % 2 ? (night ? '#4a4066' : '#5d5180') : (night ? '#443a60' : '#564a78');
+        ctx.fillStyle = (col + row) % 2 ? (night ? '#4a4066' : TOWN.tiles[0]) : (night ? '#443a60' : TOWN.tiles[1]);
         ctx.fill();
         ctx.strokeStyle = 'rgba(0,0,0,0.12)';
         ctx.stroke();
@@ -268,6 +296,47 @@
       ctx.font = '12px serif';
       ctx.fillText(BEHAVIORS[actor.behavior].emote, actor.x, actor.y - h - 16);
     }
+
+    // RO overhead chat bubble for recent activity
+    const bubble = state.bubbles[c.slug];
+    if (bubble) {
+      drawChatBubble(actor.x, actor.y - h - 30, bubble.emote);
+    }
+  }
+
+  // RO-style rounded speech bubble with a little tail.
+  function drawChatBubble(cx, cy, text) {
+    ctx.font = 'bold 13px Menlo, Consolas, monospace';
+    const w = Math.max(22, ctx.measureText(text).width + 14);
+    const hh = 20;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.strokeStyle = 'rgba(40,30,70,0.9)';
+    ctx.lineWidth = 1.5;
+    roundRect(cx - w / 2, cy - hh, w, hh, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath(); // tail
+    ctx.moveTo(cx - 4, cy);
+    ctx.lineTo(cx + 4, cy);
+    ctx.lineTo(cx, cy + 6);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.fill();
+    ctx.fillStyle = '#2a1e46';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, cx, cy - 6);
+    ctx.restore();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   // Data-driven celebration rendering: a new event type is one line here.
@@ -321,29 +390,140 @@
     const now = Date.now();
     drawGround();
     flameSlugs = computeFlameSlugs(now);
+    updatePorings(now);
     ctx.font = SPRITE_FONT;
     charW = ctx.measureText('M').width;
+    drawPorings();
+    drawStalls();
+    let sitting = 0;
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
     for (const c of sorted) {
       const actor = ensureActor(c);
+      // RO: idle owners' buddies sit (Insert-to-sit); active ones walk.
+      const idle = now - c.last_seen_at > ACTIVE_WINDOW_MS;
+      actor.sitting = idle;
+      if (idle) sitting++;
       if (!REDUCED_MOTION) {
-        const speed = BEHAVIORS[actor.behavior].speed * 0.35;
-        const dx = actor.tx - actor.x, dy = actor.ty - actor.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist < 3) {
-          if (actor.rng() < 0.005) pickWaypoint(actor);
-        } else {
-          actor.x += (dx / dist) * speed;
-          actor.y += (dy / dist) * speed;
+        // Idle buddies sit (no walking) but keep their sprite's idle cadence.
+        if (!idle) {
+          const speed = BEHAVIORS[actor.behavior].speed * 0.35;
+          const dx = actor.tx - actor.x, dy = actor.ty - actor.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 3) {
+            if (actor.rng() < 0.005) pickWaypoint(actor);
+          } else {
+            actor.x += (dx / dist) * speed;
+            actor.y += (dy / dist) * speed;
+          }
         }
-        // time-based: exactly one frame advance per 450ms, per-actor phase
         actor.frame = Math.floor((performance.now() + actor.phaseMs) / 450);
       }
       state.actorFrames[c.slug] = actor.frame;
       drawCitizen(c, actor, now);
     }
+    state.sittingCount = sitting;
     drawCelebrations(now);
+    drawXpPopups(now);
     requestAnimationFrame(tick);
+  }
+
+  // ── Poring: RO's mascot jelly, ambient plaza life ─────────────────────
+  const PORING_FRAMES = ['(◕ᴗ◕)', '(◕‿◕)'];
+  function ensurePorings() {
+    if (state.porings.length) return;
+    const seed = mulberry32(hashStr('porings-' + district + new Date().toISOString().slice(0, 10)));
+    const count = 3 + Math.floor(seed() * 3);
+    const b = plazaBounds();
+    for (let i = 0; i < count; i++) {
+      state.porings.push({
+        x: b.cx + (seed() - 0.5) * b.rx * 1.4,
+        y: b.cy + (seed() - 0.5) * b.ry * 1.4,
+        tx: 0, ty: 0, rng: mulberry32(hashStr('poring-' + i + district)), bob: seed() * 6,
+      });
+    }
+    state.porings.forEach(hopPoring);
+  }
+  function hopPoring(p) {
+    const b = plazaBounds();
+    p.tx = b.cx + (p.rng() - 0.5) * b.rx * 1.5;
+    p.ty = b.cy + (p.rng() - 0.5) * b.ry * 1.5;
+  }
+  function updatePorings(now) {
+    ensurePorings();
+    if (REDUCED_MOTION) return;
+    for (const p of state.porings) {
+      const dx = p.tx - p.x, dy = p.ty - p.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 4) { if (p.rng() < 0.01) hopPoring(p); }
+      else { p.x += (dx / dist) * 0.6; p.y += (dy / dist) * 0.6; }
+    }
+  }
+  function drawPorings() {
+    ctx.font = '12px Menlo, Consolas, monospace';
+    ctx.textAlign = 'center';
+    for (const p of state.porings) {
+      const hop = REDUCED_MOTION ? 0 : Math.abs(Math.sin(performance.now() / 300 + p.bob)) * 5;
+      const frame = REDUCED_MOTION ? 0 : Math.floor(performance.now() / 500) % PORING_FRAMES.length;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, 10, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff9ec7';
+      ctx.strokeStyle = 'rgba(60,20,40,0.7)';
+      ctx.lineWidth = 2;
+      ctx.strokeText(PORING_FRAMES[frame], p.x, p.y - hop);
+      ctx.fillText(PORING_FRAMES[frame], p.x, p.y - hop);
+      ctx.restore();
+    }
+  }
+
+  // ── Vending stalls: RO merchant flex boards ───────────────────────────
+  function drawStalls() {
+    for (const stall of state.stalls) {
+      const actor = actors.get(stall.slug);
+      if (!actor) continue;
+      const sx = actor.x, sy = actor.y - 40;
+      ctx.save();
+      ctx.font = 'bold 10px Menlo, Consolas, monospace';
+      const w = Math.max(60, ctx.measureText(stall.text).width + 16);
+      ctx.fillStyle = 'rgba(255, 214, 90, 0.95)';
+      ctx.strokeStyle = 'rgba(90, 60, 10, 0.9)';
+      ctx.lineWidth = 1.5;
+      roundRect(sx - w / 2, sy - 16, w, 18, 4);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#4a3400';
+      ctx.textAlign = 'center';
+      ctx.fillText(stall.text, sx, sy - 3);
+      ctx.restore();
+    }
+  }
+
+  // ── Floating XP popups: RO damage numbers ─────────────────────────────
+  function spawnXpPopup(slug, type) {
+    const xp = XP_VALUES[type] ?? 0;
+    const text = xp > 0 ? `+${xp} XP` : (type === 'level_up' ? 'LEVEL UP!' : '');
+    if (!text) return;
+    state.xpPopups.push({ slug, text, born: Date.now() });
+  }
+  state.spawnXpPopup = spawnXpPopup;
+  function drawXpPopups(now) {
+    const LIFE = 1600;
+    state.xpPopups = state.xpPopups.filter((p) => now - p.born < LIFE);
+    ctx.font = 'bold 12px Menlo, Consolas, monospace';
+    ctx.textAlign = 'center';
+    for (const p of state.xpPopups) {
+      const actor = actors.get(p.slug);
+      if (!actor) continue;
+      const t = (now - p.born) / LIFE;
+      const rise = REDUCED_MOTION ? 20 : t * 34;
+      ctx.save();
+      ctx.globalAlpha = 1 - t;
+      ctx.fillStyle = '#ffe082';
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(p.text, actor.x + 18, actor.y - 30 - rise);
+      ctx.fillText(p.text, actor.x + 18, actor.y - 30 - rise);
+      ctx.restore();
+    }
   }
 
   // ── data ───────────────────────────────────────────────────────────────
@@ -368,7 +548,7 @@
     tickerEl.replaceChildren();
     const brand = document.createElement('span');
     brand.className = 'brand';
-    brand.textContent = `⛲ BUDDY WORLD · ${district}`;
+    brand.textContent = `⛲ BUDDY WORLD · ${TOWN.name}`;
     tickerEl.appendChild(brand);
     for (const l of state.tickerLines) {
       const span = document.createElement('span');
@@ -403,15 +583,112 @@
     }
     if (!res.ok) return;
     const data = await res.json();
+    const prevSeen = seenEventKeys;
     state.citizens = data.citizens || [];
     state.events = data.events || [];
     const now = Date.now();
     state.celebrations = state.events.filter(
       (e) => now - e.ts < CELEBRATION_WINDOW_MS && e.type !== 'observe' && e.type !== 'session'
     );
+    rebuildBubbles(now);
+    rebuildStalls();
+    // Newly-arrived events (not seen last poll) spawn a floating XP popup + SFX.
+    // The first load only seeds the seen-set — no burst of popups for the
+    // last hour of history when you open the page.
+    seenEventKeys = new Set(state.events.map((e) => `${e.citizen_slug}:${e.type}:${e.ts}`));
+    if (!firstLoad) {
+      for (const e of state.events) {
+        const key = `${e.citizen_slug}:${e.type}:${e.ts}`;
+        if (!prevSeen.has(key) && now - e.ts < CELEBRATION_WINDOW_MS) {
+          spawnXpPopup(e.citizen_slug, e.type);
+          playSfx(e.type);
+        }
+      }
+    }
+    firstLoad = false;
     updateTicker();
     updateAccessibility();
     window.__PLAZA__ = state;
+  }
+
+  let seenEventKeys = new Set();
+  let firstLoad = true;
+
+  // Overhead RO emote bubbles for activity in the last 90s.
+  function rebuildBubbles(now) {
+    state.bubbles = {};
+    for (const e of state.events) {
+      if (now - e.ts > BUBBLE_TTL_MS) continue;
+      const emote = EVENT_EMOTES[e.type];
+      if (!emote) continue;
+      const existing = state.bubbles[e.citizen_slug];
+      if (!existing || e.ts > existing.ts) state.bubbles[e.citizen_slug] = { emote, ts: e.ts };
+    }
+  }
+
+  // Vending stalls: the highest-level active citizens flex a WTS-style board.
+  function rebuildStalls() {
+    const ranked = [...state.citizens]
+      .filter((c) => !c.anon)
+      .sort((a, b) => b.level - a.level)
+      .slice(0, 3);
+    state.stalls = ranked.map((c) => {
+      const peak = topStat(c.stats);
+      return { slug: c.slug, text: `WTS ${peak.name} ${peak.val}` };
+    });
+  }
+  function topStat(stats) {
+    let name = 'DEBUG', val = 0;
+    const labels = { debugging: 'DEBUG', patience: 'PATIENCE', chaos: 'CHAOS', wisdom: 'WISDOM', snark: 'SNARK' };
+    for (const k of Object.keys(labels)) {
+      if ((stats[k] ?? 0) > val) { val = stats[k]; name = labels[k]; }
+    }
+    return { name, val };
+  }
+
+  // ── SFX: synthesized RO-flavored chimes (no audio assets) ─────────────
+  // Opt-in like the music; WebAudio only, created on first enable so no
+  // AudioContext exists until the user asks for sound.
+  let audioCtx = null;
+  const SFX = {
+    level_up: [523, 659, 784, 1047], // C-E-G-C arpeggio (the RO "ding")
+    deploy: [392, 523, 659],
+    commit: [659],
+    tests_passed: [784, 988],
+    bug_fix: [440, 330],
+    streak_7: [523, 659, 784],
+  };
+  function playSfx(type) {
+    if (!state.sfxEnabled || !audioCtx) return;
+    const notes = SFX[type];
+    if (!notes) return;
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const start = audioCtx.currentTime + i * 0.09;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.06, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(start);
+      osc.stop(start + 0.18);
+    });
+  }
+  const sfxToggle = document.getElementById('sfx-toggle');
+  if (sfxToggle) {
+    sfxToggle.addEventListener('click', () => {
+      state.sfxEnabled = !state.sfxEnabled;
+      if (state.sfxEnabled && !audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) audioCtx = new AC();
+      }
+      sfxToggle.textContent = state.sfxEnabled ? '🔕 sfx' : '🔔 sfx';
+      sfxToggle.setAttribute('aria-pressed', String(state.sfxEnabled));
+      sfxToggle.setAttribute('aria-label', state.sfxEnabled ? 'Disable sound effects' : 'Enable sound effects (level-up chimes, deploy fireworks)');
+      if (state.sfxEnabled) playSfx('level_up'); // confirmation chime
+    });
   }
 
   async function boot() {

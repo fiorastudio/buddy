@@ -42,6 +42,7 @@ function fixtureDistrict() {
       { citizen_slug: 'buddy-0', type: 'level_up', ts: NOW - 30_000 },
       { citizen_slug: 'buddy-1', type: 'deploy', ts: NOW - 45_000 },
       { citizen_slug: 'buddy-2', type: 'commit', ts: NOW - 50_000 },
+      { citizen_slug: 'buddy-2', type: 'streak_7', ts: NOW - 40_000 },
     ],
   };
 }
@@ -205,6 +206,58 @@ describe('plaza smoke test (headless browser)', () => {
       // Bottom row offset relative to the actor must never vary by frame.
       expect(b.max - b.min, `bottom anchor drift for ${slug}`).toBe(0);
     }
+  }, 60_000);
+
+
+  it('captures the RO essence: porings, stalls, sitting idlers, town name, bubbles', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    await new Promise((r) => setTimeout(r, 800)); // let ambience spawn
+
+    const ro = (await page.evaluate(`(() => ({
+      porings: window.__PLAZA__.porings ? window.__PLAZA__.porings.length : 0,
+      stalls: window.__PLAZA__.stalls ? window.__PLAZA__.stalls.length : 0,
+      stallOwner: window.__PLAZA__.stalls && window.__PLAZA__.stalls[0] ? window.__PLAZA__.stalls[0].slug : '',
+      sitting: window.__PLAZA__.sittingCount ?? -1,
+      ticker: document.querySelector('#ticker').textContent,
+      bubbles: window.__PLAZA__.bubbles ? Object.keys(window.__PLAZA__.bubbles).length : 0,
+    }))()`)) as { porings: number; stalls: number; stallOwner: string; sitting: number; ticker: string; bubbles: number };
+
+    expect(ro.porings).toBeGreaterThanOrEqual(2); // ambient jellies
+    expect(ro.stalls).toBeGreaterThanOrEqual(1); // achievement vendor
+    expect(ro.stallOwner).toBeTruthy();
+    // fixture: buddies 3..7 have last_seen ~2h ago -> they sit
+    expect(ro.sitting).toBeGreaterThanOrEqual(4);
+    expect(ro.ticker).toContain('Prontera'); // districts are RO towns
+    // recent events (commit/deploy within the last minute) produce RO emote bubbles
+    expect(ro.bubbles).toBeGreaterThanOrEqual(1);
+  }, 60_000);
+
+  it('spawns floating XP popups for fresh events (RO damage numbers)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    const count = (await page.evaluate(`(() => {
+      window.__PLAZA__.spawnXpPopup('buddy-0', 'deploy');
+      return window.__PLAZA__.xpPopups.length;
+    })()`)) as number;
+    expect(count).toBe(1);
+    const popup = (await page.evaluate('window.__PLAZA__.xpPopups[0]')) as { text: string };
+    expect(popup.text).toContain('60'); // deploy pays 60 XP
+  }, 60_000);
+
+  it('offers an accessible SFX toggle, off by default', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    expect(await page.evaluate('window.__PLAZA__.sfxEnabled')).toBe(false);
+    const label = (await page.evaluate(
+      `document.querySelector('#sfx-toggle')?.getAttribute('aria-label') || ''`
+    )) as string;
+    expect(label.toLowerCase()).toContain('sound');
+    await page.click('#sfx-toggle');
+    expect(await page.evaluate('window.__PLAZA__.sfxEnabled')).toBe(true);
   }, 60_000);
 
   it('plays the RO OST only after explicit opt-in (no YouTube request before click)', async () => {
