@@ -64,6 +64,20 @@
   // Client-side mirror of XP_REWARDS for the floating damage numbers.
   const XP_VALUES = { observe: 8, session: 5, commit: 25, tests_passed: 20, bug_fix: 35, deploy: 60, level_up: 0, streak_7: 0 };
 
+  // RO job class from peak stat + level (JOB_LINES loaded from jobs.json,
+  // generated from src/lib/jobclass.ts — drift-guarded).
+  const STAT_KEYS = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'];
+  const STAT_UP = { debugging: 'DEBUGGING', patience: 'PATIENCE', chaos: 'CHAOS', wisdom: 'WISDOM', snark: 'SNARK' };
+  function jobTier(level) { return level >= 45 ? 3 : level >= 25 ? 2 : level >= 10 ? 1 : 0; }
+  function jobLabel(c) {
+    if (!state.jobLines) return `Lv.${c.level}`;
+    const stats = c.stats || {};
+    let peak = 'debugging', val = -1;
+    for (const k of STAT_KEYS) if ((stats[k] ?? 0) > val) { val = stats[k]; peak = k; }
+    const line = state.jobLines[STAT_UP[peak]] || state.jobLines.DEBUGGING;
+    return `${line[jobTier(c.level)]} · Lv.${c.level}`;
+  }
+
   const SPRITE_FONT = '13px Menlo, Consolas, monospace';
   const SPRITE_LINE_H = 13;
 
@@ -505,14 +519,20 @@
     const avatarIdx = (parseInt(String(c.avatar || 'chibi-1').replace(/\D/g, ''), 10) || 1) - 1;
     ctx.fillText(AVATARS[avatarIdx % AVATARS.length], actor.x + w / 2 + 12, actor.y - 4);
 
-    // name tag, RO style: white with dark outline
-    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}${flameSlugs.has(c.slug) ? ' 🔥' : ''}`;
-    ctx.font = 'bold 11px Menlo, Consolas, monospace';
+    // name tag, RO style: white with dark outline. RO nameplates show the
+    // job class + level under the name.
+    const label = `${c.name}${c.shiny ? ' ✨' : ''}${flameSlugs.has(c.slug) ? ' 🔥' : ''}`;
+    const job = jobLabel(c);
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.font = 'bold 11px Menlo, Consolas, monospace';
     ctx.strokeText(label, actor.x, actor.y + 15);
     ctx.fillStyle = active ? '#ffffff' : '#cfcbe2';
     ctx.fillText(label, actor.x, actor.y + 15);
+    ctx.font = '9px Menlo, Consolas, monospace';
+    ctx.strokeText(job, actor.x, actor.y + 26);
+    ctx.fillStyle = active ? '#ffe082' : '#b0a4c8';
+    ctx.fillText(job, actor.x, actor.y + 26);
 
     // occasional behavior emote (static under reduced motion)
     const emoteVisible = REDUCED_MOTION || (performance.now() + actor.emoteAt) % 9000 < 1400;
@@ -953,6 +973,11 @@
     } catch {
       state.sprites = {};
       state.palettes = {};
+    }
+    try {
+      state.jobLines = await (await fetch('jobs.json')).json();
+    } catch {
+      state.jobLines = null;
     }
     await refresh();
     setInterval(refresh, 10_000);

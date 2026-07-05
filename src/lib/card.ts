@@ -1,9 +1,10 @@
 // src/lib/card.ts — extracted rendering (ASCII card, hatch animation, rescue animation)
 
 import { renderSprite } from './species.js';
-import { type Companion, STAT_NAMES, RARITY_STARS } from './types.js';
+import { type Companion, STAT_NAMES, RARITY_STARS, getPeakStat } from './types.js';
 import { statBar } from './rng.js';
 import { levelProgress } from './leveling.js';
+import { jobClass } from './jobclass.js';
 import { colorFor, type TerminalCapabilities } from './color.js';
 import { RESET } from './ansi.js';
 
@@ -64,6 +65,7 @@ export function renderCard(companion: Companion, caps?: TerminalCapabilities): s
     ...coloredArt,
     emptyLine,
     ln(companion.name),
+    ln(`${jobClass(getPeakStat(companion.stats), companion.level).title} · Lv.${companion.level}`),
     ...(bioLines.length > 0 ? [emptyLine, ...bioLines] : []),
     emptyLine,
     ...statLines.map(l => ln(l)),

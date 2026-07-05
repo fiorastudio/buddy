@@ -232,6 +232,20 @@ describe('plaza smoke test (headless browser)', () => {
     expect(bubble?.emote).toContain('♥');
   }, 60_000);
 
+  it('shows RO job classes on nameplates (from jobs.json)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.jobLines');
+    const label = (await page.evaluate(`(() => {
+      const c = window.__PLAZA__.citizens.find(x => x.slug === 'buddy-7'); // high chaos, L12
+      return window.__PLAZA__ && typeof window.__PLAZA__.jobLines === 'object'
+        ? { has: !!window.__PLAZA__.jobLines.CHAOS, lines: window.__PLAZA__.jobLines.CHAOS }
+        : null;
+    })()`)) as { has: boolean; lines: string[] };
+    expect(label.has).toBe(true);
+    expect(label.lines).toContain('Assassin'); // CHAOS second job
+  }, 60_000);
+
   it('captures the RO essence: porings, stalls, sitting idlers, town name, bubbles', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
