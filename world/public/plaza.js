@@ -812,7 +812,8 @@
     ctx.font = SPRITE_FONT;
     charW = ctx.measureText('M').width;
     drawPorings();
-    drawStalls();
+    // Vending stalls parked for now — see the future "buddy marketplace /
+    // job board" idea (owners sell services or post for help).
     let sitting = 0;
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
     for (const c of sorted) {
@@ -1156,7 +1157,6 @@
       (e) => now - e.ts < CELEBRATION_WINDOW_MS && e.type !== 'observe' && e.type !== 'session'
     );
     rebuildBubbles(now);
-    rebuildStalls();
     // Newly-arrived events (not seen last poll) spawn a floating XP popup + SFX.
     // The first load only seeds the seen-set — no burst of popups for the
     // last hour of history when you open the page.
