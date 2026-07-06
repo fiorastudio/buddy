@@ -253,13 +253,15 @@
   // day/night, population-bucket) and cache; tick() just blits it.
   let envBuf = null, envSig = '';
 
-  // ?time=day|night forces the lighting (preview/testing); otherwise clock.
+  // Bright RO daytime is the default look. Night is opt-in via ?time=night
+  // (or late clock hours only if ?time=auto is set), so visitors land in
+  // sunny Prontera, matching the reference art.
   const TIME_OVERRIDE = params.get('time');
   function isNight() {
     if (TIME_OVERRIDE === 'day') return false;
     if (TIME_OVERRIDE === 'night') return true;
-    const h = new Date().getHours();
-    return h < 6 || h >= 20;
+    if (TIME_OVERRIDE === 'auto') { const h = new Date().getHours(); return h < 6 || h >= 20; }
+    return false; // default: bright daytime
   }
 
   function buildEnvironment() {
@@ -274,18 +276,51 @@
     const g = envBuf.getContext('2d');
     const b = plazaBounds();
 
-    // backdrop sky (only shows above the rooftops)
-    const sky = g.createLinearGradient(0, 0, 0, b.skyline + 40);
-    sky.addColorStop(0, night ? '#0b0820' : TOWN.sky[0]);
-    sky.addColorStop(1, night ? '#141030' : TOWN.sky[1]);
+    // backdrop sky — bright RO blue by day (with a soft sun), dark at night.
+    const sky = g.createLinearGradient(0, 0, 0, b.skyline + 60);
+    if (night) { sky.addColorStop(0, '#0b0820'); sky.addColorStop(1, '#141030'); }
+    else { sky.addColorStop(0, '#8fc9ec'); sky.addColorStop(1, '#d6ecf7'); }
     g.fillStyle = sky;
-    g.fillRect(0, 0, canvas.width, b.skyline + 40);
+    g.fillRect(0, 0, canvas.width, b.skyline + 60);
+    if (!night) {
+      // soft sun glow + a couple of clouds
+      const sun = g.createRadialGradient(canvas.width * 0.8, 30, 4, canvas.width * 0.8, 30, 60);
+      sun.addColorStop(0, 'rgba(255,250,220,0.9)'); sun.addColorStop(1, 'rgba(255,250,220,0)');
+      g.fillStyle = sun; g.beginPath(); g.arc(canvas.width * 0.8, 30, 60, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.7)';
+      for (const [cx, cy, r] of [[canvas.width * 0.2, 26, 16], [canvas.width * 0.28, 30, 20], [canvas.width * 0.5, 20, 14]]) {
+        g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+      }
+    }
 
     drawPavement(g, b, night);
     drawBuildings(g, b, night);
     drawGreenery(g, b, night);
     drawBanners(g, b, night);
     drawFountain(g, b);
+    drawStreetLamps(g, b, night);
+  }
+
+  // RO street lamps ringing the square — warm glow at night.
+  function drawStreetLamps(g, b, night) {
+    const spots = [
+      [b.cx - b.rx * 0.7, b.cy - b.ry * 0.5], [b.cx + b.rx * 0.7, b.cy - b.ry * 0.5],
+      [b.cx - b.rx * 0.7, b.cy + b.ry * 0.6], [b.cx + b.rx * 0.7, b.cy + b.ry * 0.6],
+    ];
+    for (const [lx, ly] of spots) {
+      g.strokeStyle = night ? '#4a4030' : '#5a4a3a';
+      g.lineWidth = 3;
+      g.beginPath(); g.moveTo(lx, ly); g.lineTo(lx, ly + 44); g.stroke();
+      if (night) {
+        const glow = g.createRadialGradient(lx, ly, 2, lx, ly, 34);
+        glow.addColorStop(0, 'rgba(255,214,120,0.85)');
+        glow.addColorStop(1, 'rgba(255,214,120,0)');
+        g.fillStyle = glow;
+        g.beginPath(); g.arc(lx, ly, 34, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = night ? '#ffe082' : '#c9b98a';
+      g.beginPath(); g.arc(lx, ly, 5, 0, Math.PI * 2); g.fill();
+    }
   }
 
   // Irregular cobblestone flagstones filling the whole floor (no shimmer:
@@ -294,7 +329,7 @@
     const top = b.skyline;
     // RO warm flagstone by day; a moody slate at night. Sprite AA is now
     // bidirectional, so a light floor is fine. TILE_BG matches the day base.
-    const base = night ? '#3b3550' : '#b0a696';
+    const base = night ? '#3b3550' : '#cfc4a8'; // bright warm RO flagstone by day
     g.fillStyle = base;
     g.fillRect(0, top, canvas.width, canvas.height - top);
     const tw = 46, th = 30;
@@ -486,6 +521,15 @@
     ctx.ellipse(actor.x, actor.y + 4, w * 0.38, 6, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+
+    // Peco Peco mount — transcendent (L45+) buddies ride the RO bird.
+    if (c.level >= 45) {
+      ctx.save();
+      ctx.font = '15px serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🐤', actor.x, actor.y + 2);
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.font = SPRITE_FONT;
@@ -683,8 +727,11 @@
       drawCitizen(c, actor, now);
     }
     state.sittingCount = sitting;
+    drawKafra(now);
+    drawClickMarkers(now);
     drawCelebrations(now);
     drawXpPopups(now);
+    if (state.citizens.length === 0) drawQuietTown();
     requestAnimationFrame(tick);
   }
 
@@ -779,7 +826,63 @@
       if (d < bestD) { bestD = d; best = c.slug; }
     }
     if (best) petBuddy(best);
+    else state.clickMarkers.push({ x: mx, y: my, born: performance.now() }); // RO move-marker
   });
+
+  // RO green destination ring — the classic click-to-move marker.
+  state.clickMarkers = [];
+  function drawClickMarkers() {
+    const LIFE = 700;
+    const t = performance.now();
+    state.clickMarkers = state.clickMarkers.filter((m) => t - m.born < LIFE);
+    for (const m of state.clickMarkers) {
+      const p = (t - m.born) / LIFE;
+      ctx.save();
+      ctx.strokeStyle = `rgba(90, 255, 120, ${1 - p})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(m.x, m.y, 6 + p * 16, (6 + p * 16) * 0.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Kafra — RO's save-point NPC. Stationary by the fountain, gives every
+  // town (even an empty one) a friendly landmark of life.
+  function drawKafra(now) {
+    const b = plazaBounds();
+    const kx = b.cx + 70, ky = b.cy - 6;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(kx, ky + 8, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '20px serif';
+    ctx.fillText('💁‍♀️', kx, ky + 4); // Kafra employee
+    // occasional greeting bubble
+    if ((now / 1000 | 0) % 12 < 3) drawChatBubble(kx, ky - 26, 'Welcome~');
+    ctx.font = 'bold 9px Menlo, Consolas, monospace';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText('Kafra', kx, ky + 22);
+    ctx.fillStyle = '#ffd0f0';
+    ctx.fillText('Kafra', kx, ky + 22);
+    ctx.restore();
+  }
+
+  // Friendly hint when a district has no buddies yet (post-warp empty town).
+  function drawQuietTown() {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 18px Menlo, Consolas, monospace';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    const msg = `🦗 ${TOWN.name} is quiet right now`;
+    ctx.strokeText(msg, canvas.width / 2, 120);
+    ctx.fillStyle = '#ffe082';
+    ctx.fillText(msg, canvas.width / 2, 120);
+    ctx.font = '13px Menlo, Consolas, monospace';
+    ctx.fillStyle = '#e1bee7';
+    ctx.fillText('🌀 warp to another town, or wait for buddies to arrive', canvas.width / 2, 144);
+    ctx.restore();
+  }
 
   const MAX_XP_POPUPS = 40;
   function spawnXpPopup(slug, type) {
