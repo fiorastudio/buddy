@@ -31,27 +31,27 @@
   const TOWNS = [
     { name: 'Prontera', music: 'D30M_vLMvWk', // Theme of Prontera
       daySky: ['#8fc9ec', '#d6ecf7'], floor: '#cfc4a8',
-      roofs: ['#2f8f8a', '#b8563f', '#5f6f96', '#c98a3a'], weather: null,
+      roofs: ['#2f8f8a', '#b8563f', '#5f6f96', '#c98a3a'], weather: null, flora: 'leafy',
       night: ['#2a2150', '#3a2f6b'] },
     { name: 'Payon', music: 'zwM4pDzR-6g',   // Theme of Payon (wooden village)
       daySky: ['#e6c79c', '#f5e6cc'], floor: '#c2a878',
-      roofs: ['#8a4a3a', '#6a4028', '#a0603a', '#7a5230'], weather: 'petals',
+      roofs: ['#8a4a3a', '#6a4028', '#a0603a', '#7a5230'], weather: 'petals', flora: 'autumn',
       night: ['#3a2a1a', '#4d3a24'] },
     { name: 'Geffen', music: 'yWgf7p3_z8w',   // Theme of Geffen (mage city)
       daySky: ['#b0a0e0', '#dcd2f2'], floor: '#bcb2cc',
-      roofs: ['#6a4a9a', '#4a5a9a', '#8a5aaa', '#5a4a8a'], weather: null,
+      roofs: ['#6a4a9a', '#4a5a9a', '#8a5aaa', '#5a4a8a'], weather: null, flora: 'leafy',
       night: ['#1a1040', '#2a1a5e'] },
     { name: 'Alberta', music: 'lQjoaA9QqRA',  // Theme of Alberta (port)
       daySky: ['#8fd0ec', '#cdeef6'], floor: '#c2bfa6',
-      roofs: ['#3a7ab8', '#d8d0c0', '#4a8aa8', '#c85a4a'], weather: null,
+      roofs: ['#3a7ab8', '#d8d0c0', '#4a8aa8', '#c85a4a'], weather: null, flora: 'palm',
       night: ['#1a2a3a', '#24455e'] },
     { name: 'Morroc', music: '3-mLZN830y8',   // Theme of Morroc (desert)
       daySky: ['#f0d597', '#f7edc9'], floor: '#d8c090',
-      roofs: ['#c98a3a', '#b06a2a', '#d8b060', '#a05a2a'], weather: 'sand',
+      roofs: ['#c98a3a', '#b06a2a', '#d8b060', '#a05a2a'], weather: 'sand', flora: 'cactus',
       night: ['#3a241a', '#5e3a24'] },
     { name: 'Lutie', music: '7MSwhIBnqHg',    // Theme of Lutie (snow / Christmas)
       daySky: ['#c6dbf0', '#ecf3fb'], floor: '#dde5ee',
-      roofs: ['#b83a48', '#2f7a3a', '#c0c8d8', '#a03040'], weather: 'snow',
+      roofs: ['#b83a48', '#2f7a3a', '#c0c8d8', '#a03040'], weather: 'snow', flora: 'pine',
       night: ['#1a2438', '#26375a'] },
   ];
   function townFor(districtName) {
@@ -553,16 +553,47 @@
   }
 
   function drawTree(g, x, y, night) {
-    // trunk
-    g.fillStyle = night ? '#3a2a1a' : '#7a5230';
-    g.fillRect(x - 4, y, 8, 22);
-    // layered canopy blobs
-    const canopy = night ? ['#1e3a24', '#254a2c'] : ['#4e8f4a', '#5fa858'];
+    const flora = TOWN.flora || 'leafy';
+    const trunk = night ? '#3a2a1a' : '#7a5230';
+
+    if (flora === 'pine') { // Lutie: snow-capped conifer
+      g.fillStyle = trunk; g.fillRect(x - 3, y + 6, 6, 16);
+      const green = night ? '#1f4a2e' : '#2f7a3a';
+      for (const [dy, w] of [[-2, 20], [-14, 15], [-24, 10]]) {
+        g.fillStyle = green;
+        g.beginPath(); g.moveTo(x - w, y + dy); g.lineTo(x, y + dy - 16); g.lineTo(x + w, y + dy); g.closePath(); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.85)'; // snow cap
+        g.beginPath(); g.moveTo(x - w * 0.5, y + dy - 6); g.lineTo(x, y + dy - 16); g.lineTo(x + w * 0.5, y + dy - 6); g.closePath(); g.fill();
+      }
+      g.fillStyle = '#ffd700'; g.beginPath(); g.arc(x, y - 40, 3, 0, Math.PI * 2); g.fill(); // star
+      return;
+    }
+    if (flora === 'palm') { // Alberta: seaside palm
+      g.fillStyle = trunk; g.fillRect(x - 3, y - 4, 6, 26);
+      g.strokeStyle = night ? '#1e3a24' : '#3f9a4a'; g.lineWidth = 5; g.lineCap = 'round';
+      for (const a of [-2.4, -1.9, -1.2, -0.7]) {
+        g.beginPath(); g.moveTo(x, y - 4); g.quadraticCurveTo(x + Math.cos(a) * 22, y - 20, x + Math.cos(a) * 34, y - 8 + Math.sin(a) * 6); g.stroke();
+      }
+      g.lineCap = 'butt';
+      return;
+    }
+    if (flora === 'cactus') { // Morroc: desert cactus
+      const c = night ? '#2a5a34' : '#4a8a4a';
+      g.fillStyle = c;
+      g.fillRect(x - 5, y - 24, 10, 46);
+      g.fillRect(x - 16, y - 8, 8, 6); g.fillRect(x - 16, y - 18, 6, 12);
+      g.fillRect(x + 8, y - 4, 8, 6); g.fillRect(x + 12, y - 14, 6, 12);
+      return;
+    }
+    // trunk + canopy (leafy / autumn)
+    g.fillStyle = trunk; g.fillRect(x - 4, y, 8, 22);
+    const canopy = flora === 'autumn'
+      ? (night ? ['#5a3a1a', '#6a4a1a'] : ['#c87a2a', '#d89a3a'])
+      : (night ? ['#1e3a24', '#254a2c'] : ['#4e8f4a', '#5fa858']);
     for (const [dx, dy, r, ci] of [[-10, -6, 15, 0], [10, -6, 15, 0], [0, -16, 18, 1], [0, -2, 16, 1]]) {
       g.fillStyle = canopy[ci];
       g.beginPath(); g.arc(x + dx, y + dy, r, 0, Math.PI * 2); g.fill();
     }
-    // highlight
     g.fillStyle = night ? 'rgba(120,180,120,0.15)' : 'rgba(255,255,255,0.2)';
     g.beginPath(); g.arc(x - 4, y - 20, 7, 0, Math.PI * 2); g.fill();
   }
