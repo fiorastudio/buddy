@@ -25,14 +25,34 @@
   const AVATARS = ['🧍', '🧍‍♀️', '🚶', '🧍', '🧑‍💻', '🚶‍♀️', '🧍', '🧙'];
 
   // Districts are RO towns. plaza-1 is always Prontera; the rest cycle
-  // through the classics, each with its own sky/tile mood.
+  // through the classics. Each carries its AUTHENTIC RO city BGM (verified
+  // YouTube video IDs from the supplied OST playlist) and its own day
+  // palette + weather so every city has a distinct vibe like the old game.
   const TOWNS = [
-    { name: 'Prontera', sky: ['#2a2150', '#3a2f6b'], tiles: ['#5d5180', '#564a78'] },
-    { name: 'Payon', sky: ['#3a2a1a', '#4d3a24'], tiles: ['#7a5c3a', '#6d5233'] },
-    { name: 'Geffen', sky: ['#1a1040', '#2a1a5e'], tiles: ['#4a3a7e', '#413470'] },
-    { name: 'Alberta', sky: ['#1a2a3a', '#24455e'], tiles: ['#4a6a7e', '#416070'] },
-    { name: 'Morroc', sky: ['#3a241a', '#5e3a24'], tiles: ['#8a6a4a', '#7e6042'] },
-    { name: 'Comodo', sky: ['#1a3a3a', '#245e50'], tiles: ['#4a8a6a', '#428060'] },
+    { name: 'Prontera', music: 'D30M_vLMvWk', // Theme of Prontera
+      daySky: ['#8fc9ec', '#d6ecf7'], floor: '#cfc4a8',
+      roofs: ['#2f8f8a', '#b8563f', '#5f6f96', '#c98a3a'], weather: null,
+      night: ['#2a2150', '#3a2f6b'] },
+    { name: 'Payon', music: 'zwM4pDzR-6g',   // Theme of Payon (wooden village)
+      daySky: ['#e6c79c', '#f5e6cc'], floor: '#c2a878',
+      roofs: ['#8a4a3a', '#6a4028', '#a0603a', '#7a5230'], weather: 'petals',
+      night: ['#3a2a1a', '#4d3a24'] },
+    { name: 'Geffen', music: 'yWgf7p3_z8w',   // Theme of Geffen (mage city)
+      daySky: ['#b0a0e0', '#dcd2f2'], floor: '#bcb2cc',
+      roofs: ['#6a4a9a', '#4a5a9a', '#8a5aaa', '#5a4a8a'], weather: null,
+      night: ['#1a1040', '#2a1a5e'] },
+    { name: 'Alberta', music: 'lQjoaA9QqRA',  // Theme of Alberta (port)
+      daySky: ['#8fd0ec', '#cdeef6'], floor: '#c2bfa6',
+      roofs: ['#3a7ab8', '#d8d0c0', '#4a8aa8', '#c85a4a'], weather: null,
+      night: ['#1a2a3a', '#24455e'] },
+    { name: 'Morroc', music: '3-mLZN830y8',   // Theme of Morroc (desert)
+      daySky: ['#f0d597', '#f7edc9'], floor: '#d8c090',
+      roofs: ['#c98a3a', '#b06a2a', '#d8b060', '#a05a2a'], weather: 'sand',
+      night: ['#3a241a', '#5e3a24'] },
+    { name: 'Lutie', music: '7MSwhIBnqHg',    // Theme of Lutie (snow / Christmas)
+      daySky: ['#c6dbf0', '#ecf3fb'], floor: '#dde5ee',
+      roofs: ['#b83a48', '#2f7a3a', '#c0c8d8', '#a03040'], weather: 'snow',
+      night: ['#1a2438', '#26375a'] },
   ];
   function townFor(districtName) {
     let n = parseInt(String(districtName).replace(/\D/g, ''), 10);
@@ -139,7 +159,7 @@
   // Pavement contrast baselines — must track the ACTUAL floor per lighting
   // (day = light flagstone, night = dark slate), or night sprites go
   // invisible. Chosen at draw time via activeTileBg().
-  const DAY_TILE_BG = [207, 196, 168];  // #cfc4a8 bright flagstone
+  const DAY_TILE_BG = hexToRgb(TOWN.floor); // sprite-contrast baseline tracks this town's floor
   const NIGHT_TILE_BG = [59, 53, 80];   // #3b3550
   const AA_RATIO = 4.5;
   function activeTileBg() { return isNight() ? NIGHT_TILE_BG : DAY_TILE_BG; }
@@ -283,10 +303,10 @@
     const g = envBuf.getContext('2d');
     const b = plazaBounds();
 
-    // backdrop sky — bright RO blue by day (with a soft sun), dark at night.
+    // backdrop sky — each town's own day palette (or its night mood).
     const sky = g.createLinearGradient(0, 0, 0, b.skyline + 60);
-    if (night) { sky.addColorStop(0, '#0b0820'); sky.addColorStop(1, '#141030'); }
-    else { sky.addColorStop(0, '#8fc9ec'); sky.addColorStop(1, '#d6ecf7'); }
+    if (night) { sky.addColorStop(0, TOWN.night[0]); sky.addColorStop(1, TOWN.night[1]); }
+    else { sky.addColorStop(0, TOWN.daySky[0]); sky.addColorStop(1, TOWN.daySky[1]); }
     g.fillStyle = sky;
     g.fillRect(0, 0, canvas.width, b.skyline + 60);
     if (!night) {
@@ -387,7 +407,7 @@
   function drawPavement(g, b, night) {
     const top = b.skyline;          // horizon: floor meets the buildings
     const floorH = canvas.height - top;
-    const base = night ? '#3b3550' : '#cfc4a8';
+    const base = night ? '#3b3550' : TOWN.floor;
     // a slight gradient: cooler/darker near the horizon, warmer near camera
     const grad = g.createLinearGradient(0, top, 0, canvas.height);
     grad.addColorStop(0, shadeColor(base, night ? 0.78 : 0.86));
@@ -437,8 +457,8 @@
 
   // Prontera skyline: varied buildings with the iconic RO steep roofs in
   // teal / terracotta / slate, cream walls, tidy shuttered windows.
-  const ROOF_DAY = ['#2f8f8a', '#b8563f', '#5f6f96', '#c98a3a']; // teal, terracotta, slate, ochre
   function drawBuildings(g, b, night) {
+    const ROOF_DAY = TOWN.roofs; // per-town roof palette
     const y0 = b.skyline;
     const wall = night ? '#3a3352' : '#efe6cf';
     const wallShade = night ? '#312a48' : '#ddceac';
@@ -855,6 +875,7 @@
       drawCitizen(c, actor, now);
     }
     state.sittingCount = sitting;
+    drawWeather(now);
     drawButterflies(now);
     drawKafra(now);
     drawClickMarkers(now);
@@ -974,6 +995,34 @@
       ctx.ellipse(m.x, m.y, 6 + p * 16, (6 + p * 16) * 0.5, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
+    }
+  }
+
+  // Per-town weather: Lutie snows, Morroc has blowing sand, Payon drifts
+  // cherry petals. Deterministic particles seeded by district.
+  const weatherParts = [];
+  function drawWeather(now) {
+    const kind = TOWN.weather;
+    if (!kind || REDUCED_MOTION) return;
+    if (!weatherParts.length) {
+      const seed = mulberry32(hashStr('wx' + district));
+      const count = kind === 'sand' ? 60 : 44;
+      for (let i = 0; i < count; i++) {
+        weatherParts.push({ x: seed(), y: seed(), sp: 0.2 + seed() * 0.8, drift: seed(), sz: 1.5 + seed() * 2.5 });
+      }
+    }
+    const style = {
+      snow: { color: 'rgba(255,255,255,0.9)', fall: 0.4, sway: 30, round: true },
+      sand: { color: 'rgba(210,180,120,0.5)', fall: 0.3, sway: 90, round: false },
+      petals: { color: 'rgba(255,180,200,0.8)', fall: 0.35, sway: 50, round: false },
+    }[kind];
+    const t = now / 1000;
+    for (const p of weatherParts) {
+      const y = ((p.y + t * p.sp * style.fall) % 1) * canvas.height;
+      const x = ((p.x + Math.sin(t * 0.5 + p.drift * 10) * (style.sway / canvas.width)) % 1) * canvas.width;
+      ctx.fillStyle = style.color;
+      if (style.round) { ctx.beginPath(); ctx.arc(x, y, p.sz, 0, Math.PI * 2); ctx.fill(); }
+      else { ctx.fillRect(x, y, p.sz + 1, p.sz); }
     }
   }
 
@@ -1282,12 +1331,12 @@
     requestAnimationFrame(tick);
   }
 
-  // ── plaza music (Ragnarok Online OST) ─────────────────────────────────
-  // Strictly opt-in: no YouTube iframe (and therefore no third-party
-  // request) exists until the visitor clicks. Official embed only —
-  // rights holders keep attribution/monetization. youtube-nocookie keeps
-  // tracking to the minimum YouTube offers.
-  const MUSIC_PLAYLIST = 'PLWa6qxs0LO-v6pR8B9vVmqN-asyi8Crpp';
+  // ── plaza music: THIS town's authentic RO city BGM ────────────────────
+  // Each town plays its real Ragnarok Online city theme (verified video IDs
+  // from the supplied OST playlist). Strictly opt-in: no YouTube iframe (or
+  // third-party request) until the visitor clicks. Official embed only —
+  // rights holders keep attribution/monetization; youtube-nocookie minimizes
+  // tracking.
   const musicToggle = document.getElementById('music-toggle');
   const musicPlayer = document.getElementById('music-player');
 
@@ -1297,20 +1346,20 @@
       if (playing) {
         musicPlayer.replaceChildren(); // removes iframe → stops audio + network
         musicPlayer.hidden = true;
-        musicToggle.textContent = '🎵 music';
+        musicToggle.textContent = `🎵 ${TOWN.name} theme`;
         musicToggle.setAttribute('aria-pressed', 'false');
-        musicToggle.setAttribute('aria-label', 'Play plaza music (Ragnarok Online OST via YouTube)');
+        musicToggle.setAttribute('aria-label', `Play the ${TOWN.name} theme (Ragnarok Online OST via YouTube)`);
         return;
       }
       const iframe = document.createElement('iframe');
-      // YouTube ToS requires the embedded player be >=200x200 and visible
-      // (Required Minimum Functionality). No smaller, no hiding.
+      // YouTube ToS requires the embedded player be >=200x200 and visible.
       iframe.width = '300';
       iframe.height = '200';
+      // Single-video loop needs playlist=<id> alongside loop=1.
       iframe.src =
-        `https://www.youtube-nocookie.com/embed/videoseries?list=${MUSIC_PLAYLIST}` +
-        '&autoplay=1&loop=1';
-      iframe.title = 'Plaza music — Ragnarok Online OST (YouTube)';
+        `https://www.youtube-nocookie.com/embed/${TOWN.music}` +
+        `?autoplay=1&loop=1&playlist=${TOWN.music}`;
+      iframe.title = `${TOWN.name} theme — Ragnarok Online OST (YouTube)`;
       iframe.allow = 'autoplay; encrypted-media';
       iframe.referrerPolicy = 'strict-origin-when-cross-origin';
       musicPlayer.replaceChildren(iframe);
@@ -1319,6 +1368,9 @@
       musicToggle.setAttribute('aria-pressed', 'true');
       musicToggle.setAttribute('aria-label', 'Stop plaza music');
     });
+    // Initial label names this town's theme.
+    musicToggle.textContent = `🎵 ${TOWN.name} theme`;
+    musicToggle.setAttribute('aria-label', `Play the ${TOWN.name} theme (Ragnarok Online OST via YouTube)`);
   }
 
   boot();
