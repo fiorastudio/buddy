@@ -1372,19 +1372,34 @@
   const musicPlayer = document.getElementById('music-player');
 
   if (musicToggle && musicPlayer) {
-    musicToggle.addEventListener('click', () => {
-      const playing = musicPlayer.querySelector('iframe');
-      if (playing) {
-        musicPlayer.replaceChildren(); // removes iframe → stops audio + network
-        musicPlayer.hidden = true;
-        musicToggle.textContent = `🎵 ${TOWN.name} theme`;
-        musicToggle.setAttribute('aria-pressed', 'false');
-        musicToggle.setAttribute('aria-label', `Play the ${TOWN.name} theme (Ragnarok Online OST via YouTube)`);
-        return;
-      }
+    // "Put it away": remove the iframe → stops audio + all network to YouTube.
+    // Both the 🎵 toggle and the panel's ✕ route through here.
+    const stopMusic = () => {
+      musicPlayer.replaceChildren();
+      musicPlayer.hidden = true;
+      musicToggle.textContent = `🎵 ${TOWN.name} theme`;
+      musicToggle.setAttribute('aria-pressed', 'false');
+      musicToggle.setAttribute('aria-label', `Play the ${TOWN.name} theme (Ragnarok Online OST via YouTube)`);
+    };
+
+    const startMusic = () => {
+      // RO-blue jukebox title bar: names the town + a ✕ "put it away" button.
+      const bar = document.createElement('div');
+      bar.className = 'jukebox-bar';
+      const title = document.createElement('span');
+      title.className = 'jukebox-title';
+      title.textContent = `♪ ${TOWN.name}`;
+      const close = document.createElement('button');
+      close.id = 'music-close';
+      close.type = 'button';
+      close.textContent = '✕';
+      close.setAttribute('aria-label', `Close the ${TOWN.name} jukebox and stop the music`);
+      close.addEventListener('click', stopMusic);
+      bar.append(title, close);
+
       const iframe = document.createElement('iframe');
-      // YouTube ToS requires the embedded player be >=200x200 and visible.
-      iframe.width = '300';
+      // YouTube ToS requires the embedded player stay >=200x200 and visible.
+      iframe.width = '220';
       iframe.height = '200';
       // Single-video loop needs playlist=<id> alongside loop=1.
       iframe.src =
@@ -1393,11 +1408,17 @@
       iframe.title = `${TOWN.name} theme — Ragnarok Online OST (YouTube)`;
       iframe.allow = 'autoplay; encrypted-media';
       iframe.referrerPolicy = 'strict-origin-when-cross-origin';
-      musicPlayer.replaceChildren(iframe);
+
+      musicPlayer.replaceChildren(bar, iframe);
       musicPlayer.hidden = false;
       musicToggle.textContent = '🔇 stop music';
       musicToggle.setAttribute('aria-pressed', 'true');
       musicToggle.setAttribute('aria-label', 'Stop plaza music');
+    };
+
+    musicToggle.addEventListener('click', () => {
+      if (musicPlayer.querySelector('iframe')) stopMusic();
+      else startMusic();
     });
     // Initial label names this town's theme.
     musicToggle.textContent = `🎵 ${TOWN.name} theme`;

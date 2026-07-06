@@ -336,21 +336,47 @@ describe('plaza smoke test (headless browser)', () => {
       iframes: document.querySelectorAll('iframe').length,
     }))()`)) as { hasButton: boolean; label: string; iframes: number };
     expect(before.hasButton).toBe(true);
-    expect(before.label.toLowerCase()).toContain('music');
+    // Label names this town's RO theme (per-town music); still no iframe yet.
+    expect(before.label.toLowerCase()).toContain('theme');
     expect(before.iframes).toBe(0);
 
     await page.click('#music-toggle');
     await page.waitForSelector('#music-player iframe', { timeout: 5000 });
-    const src = (await page.evaluate(
-      `document.querySelector('#music-player iframe').getAttribute('src')`
-    )) as string;
-    expect(src).toContain('youtube-nocookie.com/embed');
-    expect(src).toContain('PLWa6qxs0LO-v6pR8B9vVmqN-asyi8Crpp');
+    const opened = (await page.evaluate(`(() => {
+      const p = document.getElementById('music-player');
+      return {
+        src: p.querySelector('iframe').getAttribute('src'),
+        // ToS: the player must stay >=200x200 and visible while playing.
+        visible: !p.hidden,
+        w: p.querySelector('iframe').width,
+        h: p.querySelector('iframe').height,
+        // RO-blue jukebox chrome: a titled bar naming this town + a close (x).
+        hasBar: !!p.querySelector('.jukebox-bar'),
+        title: (p.querySelector('.jukebox-title')?.textContent || '').toLowerCase(),
+        hasClose: !!document.getElementById('music-close'),
+      };
+    })()`)) as { src: string; visible: boolean; w: string; h: string; hasBar: boolean; title: string; hasClose: boolean };
+    expect(opened.src).toContain('youtube-nocookie.com/embed');
+    // Per-town single-video loop: THIS town's verified RO city theme id.
+    expect(opened.src).toMatch(/embed\/[\w-]{6,}\?/);
+    expect(opened.visible).toBe(true);
+    expect(Number(opened.w)).toBeGreaterThanOrEqual(200);
+    expect(Number(opened.h)).toBeGreaterThanOrEqual(200);
+    expect(opened.hasBar).toBe(true);
+    expect(opened.title).toContain('prontera');
+    expect(opened.hasClose).toBe(true);
 
-    // Toggle off removes the player entirely (stops audio + network).
+    // The panel's x button is the "put it away" gesture: collapse AND stop.
+    await page.click('#music-close');
+    const afterClose = (await page.evaluate(`document.querySelectorAll('iframe').length`)) as number;
+    expect(afterClose).toBe(0);
+
+    // Re-opening then clicking the toggle again also stops it.
     await page.click('#music-toggle');
-    const after = (await page.evaluate(`document.querySelectorAll('iframe').length`)) as number;
-    expect(after).toBe(0);
+    await page.waitForSelector('#music-player iframe', { timeout: 5000 });
+    await page.click('#music-toggle');
+    const afterToggle = (await page.evaluate(`document.querySelectorAll('iframe').length`)) as number;
+    expect(afterToggle).toBe(0);
   }, 60_000);
 
   it('renders every sprite with WCAG AA contrast against the plaza tiles', async () => {
