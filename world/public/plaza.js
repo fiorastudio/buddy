@@ -81,7 +81,7 @@
     return `${line[jobTier(c.level)]} · Lv.${c.level}`;
   }
 
-  const SPRITE_FONT = '13px Menlo, Consolas, monospace';
+  const SPRITE_FONT = 'bold 14px Menlo, Consolas, monospace';
   const SPRITE_LINE_H = 13;
 
   // ── deterministic rng ──────────────────────────────────────────────────
@@ -635,18 +635,29 @@
     ctx.save();
     ctx.font = SPRITE_FONT;
     ctx.textAlign = 'left';
-    // dark halo behind glyphs for separation from the checkered tiles
-    ctx.shadowColor = active ? `rgb(${r},${g},${b2})` : 'rgba(0,0,0,0.9)';
-    ctx.shadowBlur = active ? 14 : 3;
-    ctx.fillStyle = `rgb(${r},${g},${b2})`;
-    // Horizontal: center on the stable per-species box (immune to frames
-    // that render narrower). Vertical: bottom-anchor THIS frame's lines so
-    // variable line counts can never bob the sprite. Sitting buddies drop a
-    // few px (RO seated posture) and get a little cushion.
     const sitDrop = actor.sitting ? 6 : 0;
+
+    // Frosted plate behind the sprite so the ASCII reads against a clean
+    // surface, not the busy flagstone. Tinted to the buddy's own hue.
+    const h2 = lines.length * SPRITE_LINE_H;
+    ctx.fillStyle = active
+      ? `rgba(${r},${g},${b2},0.14)`
+      : 'rgba(20,16,34,0.30)';
+    roundRect(actor.x - w / 2 - 6, actor.y - h2 + sitDrop - 4, w + 12, h2 + 8, 7);
+    ctx.fill();
+
+    // Horizontal: center on the stable per-species box. Vertical:
+    // bottom-anchor THIS frame's lines. Each glyph gets a dark outline +
+    // halo so it stays crisp on any background.
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = active ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.85)';
+    ctx.shadowColor = active ? `rgb(${r},${g},${b2})` : 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = active ? 10 : 0;
+    ctx.fillStyle = `rgb(${r},${g},${b2})`;
     let lastLineY = actor.y;
     lines.forEach((line, i) => {
       const y = actor.y + (i - lines.length) * SPRITE_LINE_H + sitDrop;
+      ctx.strokeText(line, actor.x - w / 2, y);
       ctx.fillText(line, actor.x - w / 2, y);
       lastLineY = y;
     });
