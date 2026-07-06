@@ -452,6 +452,25 @@
         g.beginPath(); g.arc(fx, fy, 2.5, 0, Math.PI * 2); g.fill();
       }
     }
+    // RO-style leafy trees around the square edges
+    const trees = [[70, b.skyline + 70], [canvas.width - 70, b.skyline + 60],
+      [110, canvas.height - 90], [canvas.width - 120, canvas.height - 80]];
+    for (const [tx, ty] of trees) drawTree(g, tx, ty, night);
+  }
+
+  function drawTree(g, x, y, night) {
+    // trunk
+    g.fillStyle = night ? '#3a2a1a' : '#7a5230';
+    g.fillRect(x - 4, y, 8, 22);
+    // layered canopy blobs
+    const canopy = night ? ['#1e3a24', '#254a2c'] : ['#4e8f4a', '#5fa858'];
+    for (const [dx, dy, r, ci] of [[-10, -6, 15, 0], [10, -6, 15, 0], [0, -16, 18, 1], [0, -2, 16, 1]]) {
+      g.fillStyle = canopy[ci];
+      g.beginPath(); g.arc(x + dx, y + dy, r, 0, Math.PI * 2); g.fill();
+    }
+    // highlight
+    g.fillStyle = night ? 'rgba(120,180,120,0.15)' : 'rgba(255,255,255,0.2)';
+    g.beginPath(); g.arc(x - 4, y - 20, 7, 0, Math.PI * 2); g.fill();
   }
 
   function drawBanners(g, b, night) {
@@ -742,11 +761,13 @@
       drawCitizen(c, actor, now);
     }
     state.sittingCount = sitting;
+    drawButterflies(now);
     drawKafra(now);
     drawClickMarkers(now);
     drawCelebrations(now);
     drawXpPopups(now);
     if (state.citizens.length === 0) drawQuietTown();
+    drawMinimap();
     requestAnimationFrame(tick);
   }
 
@@ -860,6 +881,56 @@
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  // Ambient butterflies — a few drift across the square (RO town life).
+  const butterflies = [];
+  function drawButterflies(now) {
+    if (!butterflies.length) {
+      const seed = mulberry32(hashStr('bf' + district));
+      for (let i = 0; i < 4; i++) butterflies.push({ p: seed(), sp: 0.06 + seed() * 0.06, y: 100 + seed() * 300, amp: 20 + seed() * 30, hue: ['#ffd54f', '#ff8fa3', '#b388ff', '#8fd3f0'][i % 4] });
+    }
+    if (REDUCED_MOTION) return;
+    for (const bf of butterflies) {
+      bf.p = (bf.p + bf.sp / 100) % 1;
+      const x = bf.p * (canvas.width + 40) - 20;
+      const y = bf.y + Math.sin(bf.p * Math.PI * 8) * bf.amp;
+      const flap = Math.sin(now / 90 + bf.p * 20) > 0 ? 1 : 0.4;
+      ctx.save();
+      ctx.fillStyle = bf.hue;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.ellipse(x - 3, y, 3, 3 * flap, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + 3, y, 3, 3 * flap, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // RO minimap radar — a corner panel with buddy dots.
+  function drawMinimap() {
+    const mw = 120, mh = 84, mx = canvas.width - mw - 14, my = 46;
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,12,41,0.85)';
+    ctx.strokeStyle = '#7c4dff';
+    ctx.lineWidth = 1.5;
+    roundRect(mx, my, mw, mh, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b39ddb';
+    ctx.font = 'bold 9px Menlo, Consolas, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${TOWN.name} · ${state.citizens.length}`, mx + 8, my + 13);
+    const b = plazaBounds();
+    for (const c of state.citizens) {
+      const a = actors.get(c.slug);
+      if (!a) continue;
+      const nx = mx + 8 + ((a.x - (b.cx - b.rx)) / (b.rx * 2)) * (mw - 16);
+      const ny = my + 20 + ((a.y - b.skyline) / (canvas.height - b.skyline)) * (mh - 28);
+      const active = Date.now() - c.last_seen_at < ACTIVE_WINDOW_MS;
+      ctx.fillStyle = active ? '#ffe082' : '#8f7fc0';
+      ctx.beginPath(); ctx.arc(Math.max(mx + 6, Math.min(mx + mw - 6, nx)), Math.max(my + 22, Math.min(my + mh - 6, ny)), 2, 0, Math.PI * 2); ctx.fill();
+    }
+    // Kafra dot (pink)
+    ctx.fillStyle = '#ffd0f0';
+    ctx.beginPath(); ctx.arc(mx + mw / 2 + 12, my + mh / 2 + 4, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
   // Kafra — RO's save-point NPC. Stationary by the fountain, gives every
