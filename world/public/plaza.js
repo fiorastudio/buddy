@@ -139,7 +139,7 @@
   // Pavement contrast baselines — must track the ACTUAL floor per lighting
   // (day = light flagstone, night = dark slate), or night sprites go
   // invisible. Chosen at draw time via activeTileBg().
-  const DAY_TILE_BG = [176, 166, 150];  // #b0a696
+  const DAY_TILE_BG = [207, 196, 168];  // #cfc4a8 bright flagstone
   const NIGHT_TILE_BG = [59, 53, 80];   // #3b3550
   const AA_RATIO = 4.5;
   function activeTileBg() { return isNight() ? NIGHT_TILE_BG : DAY_TILE_BG; }
@@ -356,54 +356,64 @@
     g.fillRect(0, top, canvas.width, canvas.height - top);
   }
 
-  // A skyline of RO half-timbered buildings + a couple of awning stalls.
+  // Prontera skyline: varied buildings with the iconic RO steep roofs in
+  // teal / terracotta / slate, cream walls, tidy shuttered windows.
+  const ROOF_DAY = ['#2f8f8a', '#b8563f', '#5f6f96', '#c98a3a']; // teal, terracotta, slate, ochre
   function drawBuildings(g, b, night) {
     const y0 = b.skyline;
-    const wallLit = night ? '#3a3352' : '#e8dcc0';
-    const timber = night ? '#241d38' : '#7a5230';
-    const roof = night ? '#2a2140' : '#8a4a3a';
-    let x = -20;
+    const wall = night ? '#3a3352' : '#efe6cf';
+    const wallShade = night ? '#312a48' : '#ddceac';
+    let x = -24;
     let i = 0;
-    while (x < canvas.width + 20) {
-      const bw = 90 + (hashStr('bw' + i + TOWN.name) % 70);
-      const bh = 60 + (hashStr('bh' + i + TOWN.name) % 50);
+    while (x < canvas.width + 24) {
+      const seed = hashStr('bld' + i + TOWN.name);
+      const bw = 84 + (seed % 60);
+      const bh = 54 + ((seed >> 3) % 66);
       const bx = x, by = y0 - bh;
-      // roof
+      const roof = night ? '#2a2140' : ROOF_DAY[(seed >> 5) % ROOF_DAY.length];
+
+      // wall (with a subtle right-side shade for depth)
+      g.fillStyle = wall; g.fillRect(bx, by + 10, bw, bh);
+      g.fillStyle = wallShade; g.fillRect(bx + bw - 10, by + 10, 10, bh);
+
+      // steep RO roof with an eave overhang + a lighter ridge highlight
       g.fillStyle = roof;
       g.beginPath();
-      g.moveTo(bx - 4, by + 14);
-      g.lineTo(bx + bw / 2, by - 12);
-      g.lineTo(bx + bw + 4, by + 14);
-      g.closePath();
-      g.fill();
-      // wall
-      g.fillStyle = wallLit;
-      g.fillRect(bx, by + 12, bw, bh);
-      // half-timber crossbeams
-      g.strokeStyle = timber;
-      g.lineWidth = 3;
-      g.strokeRect(bx + 1, by + 13, bw - 2, bh - 2);
-      g.beginPath();
-      g.moveTo(bx + bw / 2, by + 13); g.lineTo(bx + bw / 2, by + bh + 10);
-      g.moveTo(bx, by + 12 + bh / 2); g.lineTo(bx + bw, by + 12 + bh / 2);
-      g.stroke();
-      // arched windows (RO glow at night)
-      g.fillStyle = night ? '#ffd27a' : '#4a3a6a';
-      for (const wx of [bx + bw * 0.28, bx + bw * 0.72]) {
+      g.moveTo(bx - 6, by + 16); g.lineTo(bx + bw / 2, by - 20);
+      g.lineTo(bx + bw + 6, by + 16); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(bx + bw / 2, by - 20); g.lineTo(bx + bw + 6, by + 16); g.stroke();
+      g.fillStyle = 'rgba(0,0,0,0.15)'; g.fillRect(bx - 6, by + 14, bw + 12, 4); // eave line
+
+      // occasional spire (Prontera towers)
+      if ((seed >> 7) % 3 === 0) {
+        g.fillStyle = roof;
         g.beginPath();
-        g.moveTo(wx - 7, by + bh - 2);
-        g.lineTo(wx - 7, by + bh - 20);
-        g.arc(wx, by + bh - 20, 7, Math.PI, 0);
-        g.lineTo(wx + 7, by + bh - 2);
-        g.closePath();
-        g.fill();
+        g.moveTo(bx + bw / 2 - 6, by - 18); g.lineTo(bx + bw / 2, by - 40);
+        g.lineTo(bx + bw / 2 + 6, by - 18); g.closePath(); g.fill();
       }
-      x += bw + 6;
+
+      // tidy shuttered windows in a row
+      const winY = by + 22, winW = 11, winH = 15, cols = Math.max(2, Math.floor(bw / 34));
+      for (let c = 0; c < cols; c++) {
+        const wx = bx + 12 + c * ((bw - 24) / Math.max(1, cols - 1)) - winW / 2;
+        g.fillStyle = night ? '#ffd27a' : '#7fa8c4';
+        g.fillRect(wx, winY, winW, winH);
+        g.strokeStyle = night ? '#7a5a2a' : '#8a6a44'; g.lineWidth = 1.5;
+        g.strokeRect(wx, winY, winW, winH);
+        g.beginPath(); g.moveTo(wx + winW / 2, winY); g.lineTo(wx + winW / 2, winY + winH); g.stroke();
+      }
+      // a door
+      g.fillStyle = night ? '#241d38' : '#8a6a44';
+      g.fillRect(bx + bw / 2 - 7, by + bh - 16, 14, 16);
+
+      x += bw + 8;
       i++;
     }
-    // two striped market awnings jutting into the square (RO vending stalls)
-    drawAwning(g, 40, y0 + 30, night ? '#4a3a6a' : '#5a8fd0');
-    drawAwning(g, canvas.width - 130, y0 + 30, night ? '#5a3a4a' : '#c05a7a');
+    // striped market awnings jutting into the square (RO vending stalls)
+    drawAwning(g, 40, y0 + 34, night ? '#4a3a6a' : '#4f9bd6');
+    drawAwning(g, canvas.width - 150, y0 + 34, night ? '#5a3a4a' : '#d06a8a');
+    drawAwning(g, canvas.width / 2 - 46, y0 + 20, night ? '#3a4a5a' : '#e0a83a');
   }
 
   function drawAwning(g, x, y, color) {
