@@ -102,6 +102,9 @@ export function initDb() {
   try { db.exec(`ALTER TABLE companions ADD COLUMN stat_snark INTEGER`); } catch {}
   try { db.exec(`ALTER TABLE companions ADD COLUMN stat_points_available INTEGER DEFAULT 0`); } catch {}
 
+  // Migration: Zeny (RO currency) earned from coding events
+  try { db.exec(`ALTER TABLE companions ADD COLUMN zeny INTEGER DEFAULT 0`); } catch {}
+
   // Reasoning-layer migration (claims/edges tables + guard_mode column).
   initReasoningSchema(db);
 }

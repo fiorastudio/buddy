@@ -37,6 +37,7 @@ export type Companion = CompanionBones & CompanionSoul & {
   /** Mirrored into the status JSON so the UserPromptSubmit hook can cheaply
    *  gate guard-mode work without opening the DB. 1 = on, 0/undefined = off. */
   guardMode?: number;
+  zeny?: number;
 };
 
 export const RARITY_WEIGHTS: Record<Rarity, number> = {

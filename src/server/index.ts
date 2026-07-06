@@ -16,6 +16,8 @@ import {
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
 import { autoSyncWorld, isWorldBlessed } from "../lib/world/client.js";
 import { classifySummary, resolveEventType, shouldDampenSelfReport } from "../lib/xp-classify.js";
+import { zenyForEvent, formatZeny } from "../lib/zeny.js";
+import { jobClass } from "../lib/jobclass.js";
 import { consumePendingEvents } from "../lib/pending-events.js";
 import { checkStreakMilestone } from "../lib/streaks.js";
 import { statBar } from "../lib/rng.js";
@@ -69,24 +71,27 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
  * event still gets its own xp_events row). A hook batch of commit + tests
  * + deploy therefore costs 5 statements, not 3 SELECT/UPDATE pairs.
  */
-function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number } {
+function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number; newZeny: number } {
   // Buddy World blessing: teleported buddies earn +10% (local file check, cached).
   const blessed = isWorldBlessed();
   const insert = db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)");
   let xpGained = 0;
+  let zenyGained = 0;
   for (const eventType of eventTypes) {
     const xp = applyBlessing(XP_REWARDS[eventType] || 1, blessed);
     insert.run(randomUUID(), companionId, eventType, xp);
     xpGained += xp;
+    zenyGained += applyBlessing(zenyForEvent(eventType), blessed);
   }
 
-  const row = db.prepare("SELECT xp, level FROM companions WHERE id = ?").get(companionId) as any;
+  const row = db.prepare("SELECT xp, level, zeny FROM companions WHERE id = ?").get(companionId) as any;
   const newXp = (row?.xp || 0) + xpGained;
   const newLevel = levelFromXp(newXp);
   const leveledUp = newLevel > (row?.level || 1);
-  db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
+  const newZeny = (row?.zeny || 0) + zenyGained;
+  db.prepare("UPDATE companions SET xp = ?, level = ?, zeny = ? WHERE id = ?").run(newXp, newLevel, newZeny, companionId);
 
-  return { newXp, newLevel, leveledUp, xpGained };
+  return { newXp, newLevel, leveledUp, xpGained, newZeny };
 }
 
 /**
@@ -112,14 +117,20 @@ function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string)
     if (XP_REWARDS[ev.type] !== undefined) worldEvents.push(ev.type);
   }
 
-  const xpResult = awardXpBatch(row.id, worldEvents);
+  let xpResult = awardXpBatch(row.id, worldEvents);
 
   // Streak milestone: first award of a new day landing on a 7-day multiple.
-  if (checkStreakMilestone(db, row.id, worldEvents.length)) worldEvents.push('streak_7');
+  // Award it through the batch too so its XP AND Zeny (500z) actually land —
+  // it must go through awardXpBatch, not just get appended to worldEvents.
+  if (checkStreakMilestone(db, row.id, worldEvents.length)) {
+    worldEvents.push('streak_7');
+    const streakResult = awardXpBatch(row.id, ['streak_7']);
+    xpResult = { ...streakResult, leveledUp: xpResult.leveledUp || streakResult.leveledUp };
+  }
 
   const newMood = recalcMood(row.id, xpResult.leveledUp);
   db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
-  const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
+  const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel, zeny: xpResult.newZeny }, userIdOverride)!;
   // Buddy World: no-op unless the user ran buddy-world teleport. A level-up
   // flushes instantly — the server derives the level_up world event from
   // the snapshot delta, so the wings appear within one plaza poll.

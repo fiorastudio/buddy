@@ -6,7 +6,10 @@
   'use strict';
 
   const canvas = document.getElementById('plaza');
-  const ctx = canvas.getContext('2d');
+  // willReadFrequently keeps a CPU-readable backing store — steadier under
+  // GPU-accelerated headless (where getImageData can otherwise read empty)
+  // and fine for our draw pattern.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const tickerEl = document.getElementById('ticker');
   const srListEl = document.getElementById('sr-citizens');
 
@@ -64,6 +67,20 @@
   // Client-side mirror of XP_REWARDS for the floating damage numbers.
   const XP_VALUES = { observe: 8, session: 5, commit: 25, tests_passed: 20, bug_fix: 35, deploy: 60, level_up: 0, streak_7: 0 };
 
+  // RO job class from peak stat + level (JOB_LINES loaded from jobs.json,
+  // generated from src/lib/jobclass.ts — drift-guarded).
+  const STAT_KEYS = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'];
+  const STAT_UP = { debugging: 'DEBUGGING', patience: 'PATIENCE', chaos: 'CHAOS', wisdom: 'WISDOM', snark: 'SNARK' };
+  function jobTier(level) { return level >= 45 ? 3 : level >= 25 ? 2 : level >= 10 ? 1 : 0; }
+  function jobLabel(c) {
+    if (!state.jobLines) return `Lv.${c.level}`;
+    const stats = c.stats || {};
+    let peak = 'debugging', val = -1;
+    for (const k of STAT_KEYS) if ((stats[k] ?? 0) > val) { val = stats[k]; peak = k; }
+    const line = state.jobLines[STAT_UP[peak]] || state.jobLines.DEBUGGING;
+    return `${line[jobTier(c.level)]} · Lv.${c.level}`;
+  }
+
   const SPRITE_FONT = '13px Menlo, Consolas, monospace';
   const SPRITE_LINE_H = 13;
 
@@ -94,6 +111,12 @@
     porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
     sfxEnabled: false, spawnXpPopup: null, petBuddy: null, // bound below
   };
+  // Test instrumentation: resolve the rendered nameplate job label by slug.
+  // (Assigned after `state` exists — jobLabel is hoisted so it's safe here.)
+  state.jobLabelForSlug = (slug) => {
+    const c = state.citizens.find((x) => x.slug === slug);
+    return c ? jobLabel(c) : null;
+  };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames
   let charW = 8; // measured once per font in tick()
@@ -116,7 +139,7 @@
   // Pavement contrast baselines — must track the ACTUAL floor per lighting
   // (day = light flagstone, night = dark slate), or night sprites go
   // invisible. Chosen at draw time via activeTileBg().
-  const DAY_TILE_BG = [176, 166, 150];  // #b0a696
+  const DAY_TILE_BG = [207, 196, 168];  // #cfc4a8 bright flagstone
   const NIGHT_TILE_BG = [59, 53, 80];   // #3b3550
   const AA_RATIO = 4.5;
   function activeTileBg() { return isNight() ? NIGHT_TILE_BG : DAY_TILE_BG; }
@@ -183,7 +206,7 @@
   // bigger town (up to the viewport). Below the building line at the top.
   function plazaBounds() {
     const pop = state.citizens.length || 6;
-    const grow = Math.min(1, 0.55 + pop / 60); // 6 buddies→~0.65, 60+→full
+    const grow = Math.min(1, 0.7 + pop / 50); // spread buddies wider across the floor
     const skyline = Math.min(180, canvas.height * 0.24); // building band up top
     return {
       cx: canvas.width / 2,
@@ -230,13 +253,15 @@
   // day/night, population-bucket) and cache; tick() just blits it.
   let envBuf = null, envSig = '';
 
-  // ?time=day|night forces the lighting (preview/testing); otherwise clock.
+  // Bright RO daytime is the default look. Night is opt-in via ?time=night
+  // (or late clock hours only if ?time=auto is set), so visitors land in
+  // sunny Prontera, matching the reference art.
   const TIME_OVERRIDE = params.get('time');
   function isNight() {
     if (TIME_OVERRIDE === 'day') return false;
     if (TIME_OVERRIDE === 'night') return true;
-    const h = new Date().getHours();
-    return h < 6 || h >= 20;
+    if (TIME_OVERRIDE === 'auto') { const h = new Date().getHours(); return h < 6 || h >= 20; }
+    return false; // default: bright daytime
   }
 
   function buildEnvironment() {
@@ -251,101 +276,216 @@
     const g = envBuf.getContext('2d');
     const b = plazaBounds();
 
-    // backdrop sky (only shows above the rooftops)
-    const sky = g.createLinearGradient(0, 0, 0, b.skyline + 40);
-    sky.addColorStop(0, night ? '#0b0820' : TOWN.sky[0]);
-    sky.addColorStop(1, night ? '#141030' : TOWN.sky[1]);
+    // backdrop sky — bright RO blue by day (with a soft sun), dark at night.
+    const sky = g.createLinearGradient(0, 0, 0, b.skyline + 60);
+    if (night) { sky.addColorStop(0, '#0b0820'); sky.addColorStop(1, '#141030'); }
+    else { sky.addColorStop(0, '#8fc9ec'); sky.addColorStop(1, '#d6ecf7'); }
     g.fillStyle = sky;
-    g.fillRect(0, 0, canvas.width, b.skyline + 40);
+    g.fillRect(0, 0, canvas.width, b.skyline + 60);
+    if (!night) {
+      // soft sun glow + a couple of clouds
+      const sun = g.createRadialGradient(canvas.width * 0.8, 30, 4, canvas.width * 0.8, 30, 60);
+      sun.addColorStop(0, 'rgba(255,250,220,0.9)'); sun.addColorStop(1, 'rgba(255,250,220,0)');
+      g.fillStyle = sun; g.beginPath(); g.arc(canvas.width * 0.8, 30, 60, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.7)';
+      for (const [cx, cy, r] of [[canvas.width * 0.2, 26, 16], [canvas.width * 0.28, 30, 20], [canvas.width * 0.5, 20, 14]]) {
+        g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+      }
+    }
 
     drawPavement(g, b, night);
     drawBuildings(g, b, night);
+    drawCastle(g, b, night);
+    drawSignposts(g, b, night);
     drawGreenery(g, b, night);
     drawBanners(g, b, night);
     drawFountain(g, b);
+    drawStreetLamps(g, b, night);
   }
 
-  // Irregular cobblestone flagstones filling the whole floor (no shimmer:
-  // per-tile shade is seeded deterministically).
-  function drawPavement(g, b, night) {
-    const top = b.skyline;
-    // RO warm flagstone by day; a moody slate at night. Sprite AA is now
-    // bidirectional, so a light floor is fine. TILE_BG matches the day base.
-    const base = night ? '#3b3550' : '#b0a696';
-    g.fillStyle = base;
-    g.fillRect(0, top, canvas.width, canvas.height - top);
-    const tw = 46, th = 30;
-    for (let row = 0; row * th < canvas.height - top + th; row++) {
-      const oy = top + row * th;
-      const stagger = row % 2 ? tw / 2 : 0;
-      for (let col = -1; col * tw < canvas.width + tw; col++) {
-        const ox = col * tw + stagger;
-        const seed = hashStr(`${col}:${row}:${TOWN.name}`) / 4294967296;
-        const shade = 0.86 + seed * 0.22;
-        g.fillStyle = shadeColor(base, shade);
-        roundRectPath(g, ox + 2, oy + 2, tw - 4, th - 4, 5);
-        g.fill();
-        g.strokeStyle = night ? 'rgba(0,0,0,0.35)' : 'rgba(80,60,40,0.25)';
-        g.lineWidth = 1;
-        g.stroke();
-      }
-    }
-    // soft vignette so edges read as enclosed, not cut off
-    const vig = g.createRadialGradient(b.cx, b.cy, b.rx * 0.5, b.cx, b.cy, b.rx * 1.3);
-    vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, night ? 'rgba(0,0,0,0.5)' : 'rgba(20,10,30,0.35)');
-    g.fillStyle = vig;
-    g.fillRect(0, top, canvas.width, canvas.height - top);
-  }
-
-  // A skyline of RO half-timbered buildings + a couple of awning stalls.
-  function drawBuildings(g, b, night) {
-    const y0 = b.skyline;
-    const wallLit = night ? '#3a3352' : '#e8dcc0';
-    const timber = night ? '#241d38' : '#7a5230';
-    const roof = night ? '#2a2140' : '#8a4a3a';
-    let x = -20;
-    let i = 0;
-    while (x < canvas.width + 20) {
-      const bw = 90 + (hashStr('bw' + i + TOWN.name) % 70);
-      const bh = 60 + (hashStr('bh' + i + TOWN.name) % 50);
-      const bx = x, by = y0 - bh;
-      // roof
+  // Grand central building — the Prontera-castle silhouette at the back.
+  function drawCastle(g, b, night) {
+    const cx = b.cx, base = b.skyline - 6, w = 150, h = 96;
+    const wall = night ? '#413a5e' : '#f2ead4';
+    const roof = night ? '#2a2140' : '#2f8f8a';
+    const cxs = [cx - w / 2, cx + w / 2 - 26]; // two side towers
+    // main keep
+    g.fillStyle = wall; g.fillRect(cx - w / 2, base - h, w, h);
+    // crenellations
+    g.fillStyle = night ? '#2a2444' : '#e0d6ba';
+    for (let x = cx - w / 2; x < cx + w / 2; x += 16) g.fillRect(x, base - h - 6, 9, 8);
+    // big central roof + spire
+    g.fillStyle = roof;
+    g.beginPath(); g.moveTo(cx - 34, base - h + 4); g.lineTo(cx, base - h - 44); g.lineTo(cx + 34, base - h + 4); g.closePath(); g.fill();
+    g.strokeStyle = night ? '#5a4a2a' : '#8a6a3a'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(cx, base - h - 44); g.lineTo(cx, base - h - 60); g.stroke();
+    g.fillStyle = '#b23a48'; // pennant
+    g.beginPath(); g.moveTo(cx, base - h - 60); g.lineTo(cx + 16, base - h - 55); g.lineTo(cx, base - h - 50); g.closePath(); g.fill();
+    // side towers with conical roofs
+    for (const tx of cxs) {
+      g.fillStyle = wall; g.fillRect(tx, base - h - 14, 26, h + 14);
       g.fillStyle = roof;
-      g.beginPath();
-      g.moveTo(bx - 4, by + 14);
-      g.lineTo(bx + bw / 2, by - 12);
-      g.lineTo(bx + bw + 4, by + 14);
-      g.closePath();
-      g.fill();
-      // wall
-      g.fillStyle = wallLit;
-      g.fillRect(bx, by + 12, bw, bh);
-      // half-timber crossbeams
-      g.strokeStyle = timber;
+      g.beginPath(); g.moveTo(tx - 4, base - h - 12); g.lineTo(tx + 13, base - h - 40); g.lineTo(tx + 30, base - h - 12); g.closePath(); g.fill();
+    }
+    // arched gate + windows
+    g.fillStyle = night ? '#ffd27a' : '#6a86a8';
+    g.beginPath();
+    g.moveTo(cx - 12, base); g.lineTo(cx - 12, base - 26); g.arc(cx, base - 26, 12, Math.PI, 0); g.lineTo(cx + 12, base); g.closePath(); g.fill();
+  }
+
+  // RO NPC shop signposts around the square.
+  function drawSignposts(g, b, night) {
+    const signs = [
+      [b.cx - b.rx * 0.85, b.skyline + 54, 'Tool Shop', '#c98a3a'],
+      [b.cx + b.rx * 0.8, b.skyline + 48, 'Weapons', '#b8563f'],
+      [b.cx - b.rx * 0.35, b.skyline + 70, 'Inn', '#2f8f8a'],
+    ];
+    for (const [sx, sy, label, color] of signs) {
+      g.strokeStyle = night ? '#3a2a1a' : '#6b4a2a'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx, sy + 30); g.stroke();
+      g.fillStyle = night ? shadeColor(color, 0.5) : color;
+      const w = label.length * 6 + 10;
+      roundRectPath(g, sx - w / 2, sy - 4, w, 15, 3); g.fill();
+      g.fillStyle = '#fff8 e6'.replace(' ', ''); g.fillStyle = '#fff8e6';
+      g.font = 'bold 9px Menlo, Consolas, monospace'; g.textAlign = 'center';
+      g.fillText(label, sx, sy + 7);
+    }
+  }
+
+  // RO street lamps ringing the square — warm glow at night.
+  function drawStreetLamps(g, b, night) {
+    const spots = [
+      [b.cx - b.rx * 0.7, b.cy - b.ry * 0.5], [b.cx + b.rx * 0.7, b.cy - b.ry * 0.5],
+      [b.cx - b.rx * 0.7, b.cy + b.ry * 0.6], [b.cx + b.rx * 0.7, b.cy + b.ry * 0.6],
+    ];
+    for (const [lx, ly] of spots) {
+      g.strokeStyle = night ? '#4a4030' : '#5a4a3a';
       g.lineWidth = 3;
-      g.strokeRect(bx + 1, by + 13, bw - 2, bh - 2);
-      g.beginPath();
-      g.moveTo(bx + bw / 2, by + 13); g.lineTo(bx + bw / 2, by + bh + 10);
-      g.moveTo(bx, by + 12 + bh / 2); g.lineTo(bx + bw, by + 12 + bh / 2);
-      g.stroke();
-      // arched windows (RO glow at night)
-      g.fillStyle = night ? '#ffd27a' : '#4a3a6a';
-      for (const wx of [bx + bw * 0.28, bx + bw * 0.72]) {
+      g.beginPath(); g.moveTo(lx, ly); g.lineTo(lx, ly + 44); g.stroke();
+      if (night) {
+        const glow = g.createRadialGradient(lx, ly, 2, lx, ly, 34);
+        glow.addColorStop(0, 'rgba(255,214,120,0.85)');
+        glow.addColorStop(1, 'rgba(255,214,120,0)');
+        g.fillStyle = glow;
+        g.beginPath(); g.arc(lx, ly, 34, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = night ? '#ffe082' : '#c9b98a';
+      g.beginPath(); g.arc(lx, ly, 5, 0, Math.PI * 2); g.fill();
+    }
+  }
+
+  // Cobblestone floor drawn in 3/4 PERSPECTIVE so it reads as receding
+  // GROUND (RO tilted top-down), not a flat wall. Tiles shrink toward the
+  // horizon at the building line; the row cadence tightens as it recedes.
+  function drawPavement(g, b, night) {
+    const top = b.skyline;          // horizon: floor meets the buildings
+    const floorH = canvas.height - top;
+    const base = night ? '#3b3550' : '#cfc4a8';
+    // a slight gradient: cooler/darker near the horizon, warmer near camera
+    const grad = g.createLinearGradient(0, top, 0, canvas.height);
+    grad.addColorStop(0, shadeColor(base, night ? 0.78 : 0.86));
+    grad.addColorStop(1, shadeColor(base, night ? 1.0 : 1.08));
+    g.fillStyle = grad;
+    g.fillRect(0, top, canvas.width, floorH);
+
+    // Isometric DIAMOND flagstones (top-down tilted squares) — the RO
+    // ground look. Diamonds tile edge-to-edge; rows advance by half-height
+    // and alternate a half-width stagger. Perspective: diamonds shrink
+    // toward the horizon so the plane recedes.
+    const BASE_TW = 46, BASE_TH = 24; // finer flagstones
+    const grout = night ? 'rgba(0,0,0,0.32)' : 'rgba(92,70,44,0.28)';
+    let y = top + 4;
+    let row = 0;
+    while (y < canvas.height + 30) {
+      const f = (y - top) / floorH;
+      const scale = 0.4 + f * 1.05;
+      const tw = BASE_TW * scale, th = BASE_TH * scale;
+      const offset = row % 2 ? tw / 2 : 0;
+      for (let cx = -tw + offset; cx < canvas.width + tw; cx += tw) {
+        const seed = hashStr(`${row}:${Math.round(cx)}:${TOWN.name}`) / 4294967296;
+        const shade = 0.84 + seed * 0.26;
+        g.fillStyle = shadeColor(base, shade);
         g.beginPath();
-        g.moveTo(wx - 7, by + bh - 2);
-        g.lineTo(wx - 7, by + bh - 20);
-        g.arc(wx, by + bh - 20, 7, Math.PI, 0);
-        g.lineTo(wx + 7, by + bh - 2);
+        g.moveTo(cx, y - th / 2);
+        g.lineTo(cx + tw / 2, y);
+        g.lineTo(cx, y + th / 2);
+        g.lineTo(cx - tw / 2, y);
         g.closePath();
         g.fill();
+        g.strokeStyle = grout; g.lineWidth = 1; g.stroke();
+        // top-facet highlight sells the tilt
+        g.strokeStyle = night ? 'rgba(255,255,255,0.05)' : 'rgba(255,250,235,0.35)';
+        g.beginPath(); g.moveTo(cx - tw / 2, y); g.lineTo(cx, y - th / 2); g.lineTo(cx + tw / 2, y); g.stroke();
       }
-      x += bw + 6;
+      y += th / 2;
+      row++;
+    }
+    // soft shading at the far edge so the horizon reads as depth, not a cut
+    const haze = g.createLinearGradient(0, top, 0, top + 60);
+    haze.addColorStop(0, night ? 'rgba(20,16,40,0.5)' : 'rgba(120,110,90,0.35)');
+    haze.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = haze;
+    g.fillRect(0, top, canvas.width, 60);
+  }
+
+  // Prontera skyline: varied buildings with the iconic RO steep roofs in
+  // teal / terracotta / slate, cream walls, tidy shuttered windows.
+  const ROOF_DAY = ['#2f8f8a', '#b8563f', '#5f6f96', '#c98a3a']; // teal, terracotta, slate, ochre
+  function drawBuildings(g, b, night) {
+    const y0 = b.skyline;
+    const wall = night ? '#3a3352' : '#efe6cf';
+    const wallShade = night ? '#312a48' : '#ddceac';
+    let x = -24;
+    let i = 0;
+    while (x < canvas.width + 24) {
+      const seed = hashStr('bld' + i + TOWN.name);
+      const bw = 84 + (seed % 60);
+      const bh = 54 + ((seed >> 3) % 66);
+      const bx = x, by = y0 - bh;
+      const roof = night ? '#2a2140' : ROOF_DAY[(seed >> 5) % ROOF_DAY.length];
+
+      // wall (with a subtle right-side shade for depth)
+      g.fillStyle = wall; g.fillRect(bx, by + 10, bw, bh);
+      g.fillStyle = wallShade; g.fillRect(bx + bw - 10, by + 10, 10, bh);
+
+      // steep RO roof with an eave overhang + a lighter ridge highlight
+      g.fillStyle = roof;
+      g.beginPath();
+      g.moveTo(bx - 6, by + 16); g.lineTo(bx + bw / 2, by - 20);
+      g.lineTo(bx + bw + 6, by + 16); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(bx + bw / 2, by - 20); g.lineTo(bx + bw + 6, by + 16); g.stroke();
+      g.fillStyle = 'rgba(0,0,0,0.15)'; g.fillRect(bx - 6, by + 14, bw + 12, 4); // eave line
+
+      // occasional spire (Prontera towers)
+      if ((seed >> 7) % 3 === 0) {
+        g.fillStyle = roof;
+        g.beginPath();
+        g.moveTo(bx + bw / 2 - 6, by - 18); g.lineTo(bx + bw / 2, by - 40);
+        g.lineTo(bx + bw / 2 + 6, by - 18); g.closePath(); g.fill();
+      }
+
+      // tidy shuttered windows in a row
+      const winY = by + 22, winW = 11, winH = 15, cols = Math.max(2, Math.floor(bw / 34));
+      for (let c = 0; c < cols; c++) {
+        const wx = bx + 12 + c * ((bw - 24) / Math.max(1, cols - 1)) - winW / 2;
+        g.fillStyle = night ? '#ffd27a' : '#7fa8c4';
+        g.fillRect(wx, winY, winW, winH);
+        g.strokeStyle = night ? '#7a5a2a' : '#8a6a44'; g.lineWidth = 1.5;
+        g.strokeRect(wx, winY, winW, winH);
+        g.beginPath(); g.moveTo(wx + winW / 2, winY); g.lineTo(wx + winW / 2, winY + winH); g.stroke();
+      }
+      // a door
+      g.fillStyle = night ? '#241d38' : '#8a6a44';
+      g.fillRect(bx + bw / 2 - 7, by + bh - 16, 14, 16);
+
+      x += bw + 8;
       i++;
     }
-    // two striped market awnings jutting into the square (RO vending stalls)
-    drawAwning(g, 40, y0 + 30, night ? '#4a3a6a' : '#5a8fd0');
-    drawAwning(g, canvas.width - 130, y0 + 30, night ? '#5a3a4a' : '#c05a7a');
+    // striped market awnings jutting into the square (RO vending stalls)
+    drawAwning(g, 40, y0 + 34, night ? '#4a3a6a' : '#4f9bd6');
+    drawAwning(g, canvas.width - 150, y0 + 34, night ? '#5a3a4a' : '#d06a8a');
+    drawAwning(g, canvas.width / 2 - 46, y0 + 20, night ? '#3a4a5a' : '#e0a83a');
   }
 
   function drawAwning(g, x, y, color) {
@@ -379,6 +519,25 @@
         g.beginPath(); g.arc(fx, fy, 2.5, 0, Math.PI * 2); g.fill();
       }
     }
+    // RO-style leafy trees around the square edges
+    const trees = [[70, b.skyline + 70], [canvas.width - 70, b.skyline + 60],
+      [110, canvas.height - 90], [canvas.width - 120, canvas.height - 80]];
+    for (const [tx, ty] of trees) drawTree(g, tx, ty, night);
+  }
+
+  function drawTree(g, x, y, night) {
+    // trunk
+    g.fillStyle = night ? '#3a2a1a' : '#7a5230';
+    g.fillRect(x - 4, y, 8, 22);
+    // layered canopy blobs
+    const canopy = night ? ['#1e3a24', '#254a2c'] : ['#4e8f4a', '#5fa858'];
+    for (const [dx, dy, r, ci] of [[-10, -6, 15, 0], [10, -6, 15, 0], [0, -16, 18, 1], [0, -2, 16, 1]]) {
+      g.fillStyle = canopy[ci];
+      g.beginPath(); g.arc(x + dx, y + dy, r, 0, Math.PI * 2); g.fill();
+    }
+    // highlight
+    g.fillStyle = night ? 'rgba(120,180,120,0.15)' : 'rgba(255,255,255,0.2)';
+    g.beginPath(); g.arc(x - 4, y - 20, 7, 0, Math.PI * 2); g.fill();
   }
 
   function drawBanners(g, b, night) {
@@ -464,6 +623,15 @@
     ctx.fill();
     ctx.restore();
 
+    // Peco Peco mount — transcendent (L45+) buddies ride the RO bird.
+    if (c.level >= 45) {
+      ctx.save();
+      ctx.font = '15px serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🐤', actor.x, actor.y + 2);
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.font = SPRITE_FONT;
     ctx.textAlign = 'left';
@@ -505,14 +673,20 @@
     const avatarIdx = (parseInt(String(c.avatar || 'chibi-1').replace(/\D/g, ''), 10) || 1) - 1;
     ctx.fillText(AVATARS[avatarIdx % AVATARS.length], actor.x + w / 2 + 12, actor.y - 4);
 
-    // name tag, RO style: white with dark outline
-    const label = `${c.name} · L${c.level}${c.shiny ? ' ✨' : ''}${flameSlugs.has(c.slug) ? ' 🔥' : ''}`;
-    ctx.font = 'bold 11px Menlo, Consolas, monospace';
+    // name tag, RO style: white with dark outline. RO nameplates show the
+    // job class + level under the name.
+    const label = `${c.name}${c.shiny ? ' ✨' : ''}${flameSlugs.has(c.slug) ? ' 🔥' : ''}`;
+    const job = jobLabel(c);
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.font = 'bold 11px Menlo, Consolas, monospace';
     ctx.strokeText(label, actor.x, actor.y + 15);
     ctx.fillStyle = active ? '#ffffff' : '#cfcbe2';
     ctx.fillText(label, actor.x, actor.y + 15);
+    ctx.font = '9px Menlo, Consolas, monospace';
+    ctx.strokeText(job, actor.x, actor.y + 26);
+    ctx.fillStyle = active ? '#ffe082' : '#b0a4c8';
+    ctx.fillText(job, actor.x, actor.y + 26);
 
     // occasional behavior emote (static under reduced motion)
     const emoteVisible = REDUCED_MOTION || (performance.now() + actor.emoteAt) % 9000 < 1400;
@@ -580,6 +754,26 @@
       ctx.textAlign = 'center';
       if (cel.type === 'level_up') {
         const age = (now - cel.ts) / 1000;
+        // RO golden light pillar shooting up from the buddy
+        const pillarAge = Math.min(1, age / 1.2);
+        const pw = 26 * (1 - pillarAge * 0.3);
+        const pgrad = ctx.createLinearGradient(actor.x, actor.y, actor.x, actor.y - 130);
+        pgrad.addColorStop(0, `rgba(255,224,120,${0.55 * (1 - pillarAge)})`);
+        pgrad.addColorStop(1, 'rgba(255,224,120,0)');
+        ctx.fillStyle = pgrad;
+        ctx.fillRect(actor.x - pw / 2, actor.y - 130, pw, 130);
+        // rising sparkles
+        if (!REDUCED_MOTION) {
+          ctx.fillStyle = '#fff6c8';
+          for (let s = 0; s < 4; s++) {
+            const sp = (age * 0.6 + s * 0.25) % 1;
+            ctx.globalAlpha = 1 - sp;
+            ctx.beginPath();
+            ctx.arc(actor.x + Math.sin(sp * 10 + s) * 10, actor.y - sp * 110, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        }
         ctx.font = 'bold 13px Menlo, Consolas, monospace';
         ctx.fillStyle = '#ffd700';
         ctx.shadowColor = '#ff8c00';
@@ -618,24 +812,31 @@
     ctx.font = SPRITE_FONT;
     charW = ctx.measureText('M').width;
     drawPorings();
-    drawStalls();
+    // Vending stalls parked for now — see the future "buddy marketplace /
+    // job board" idea (owners sell services or post for help).
     let sitting = 0;
     const sorted = [...state.citizens].sort((a, b3) => (actors.get(a.slug)?.y ?? 0) - (actors.get(b3.slug)?.y ?? 0));
     for (const c of sorted) {
       const actor = ensureActor(c);
-      // RO: only long-AFK buddies sit (the vendor vibe). Everyone else
-      // wanders, so the plaza stays alive by default.
-      const idle = now - c.last_seen_at >= IDLE_SIT_MS;
-      actor.sitting = idle;
-      if (idle) sitting++;
+      // The plaza is ALWAYS alive: every buddy wanders. Long-idle owners'
+      // buddies just stroll calmer, and any buddy occasionally takes a
+      // brief RO-vendor sit-break, then gets up and moves again — so the
+      // square never freezes even when synced data is stale.
+      const calm = now - c.last_seen_at >= IDLE_SIT_MS; // owner long-AFK → calmer
       if (!REDUCED_MOTION) {
-        // Idle buddies sit (no walking) but keep their sprite's idle cadence.
-        if (!idle) {
-          const speed = BEHAVIORS[actor.behavior].speed * 0.35;
+        // Transient sit-break: start occasionally, last ~4-8s, then resume.
+        if (!actor.sitUntil && actor.rng() < (calm ? 0.004 : 0.0015)) {
+          actor.sitUntil = performance.now() + 4000 + actor.rng() * 4000;
+        }
+        actor.sitting = actor.sitUntil ? performance.now() < actor.sitUntil : false;
+        if (actor.sitting && performance.now() >= actor.sitUntil) { actor.sitUntil = 0; actor.sitting = false; }
+
+        if (!actor.sitting) {
+          const speed = BEHAVIORS[actor.behavior].speed * (calm ? 0.22 : 0.35);
           const dx = actor.tx - actor.x, dy = actor.ty - actor.y;
           const dist = Math.hypot(dx, dy);
           if (dist < 3) {
-            if (actor.rng() < 0.005) pickWaypoint(actor);
+            if (actor.rng() < 0.01) pickWaypoint(actor);
           } else {
             actor.x += (dx / dist) * speed;
             actor.y += (dy / dist) * speed;
@@ -643,12 +844,18 @@
         }
         actor.frame = Math.floor((performance.now() + actor.phaseMs) / 450);
       }
+      if (actor.sitting) sitting++;
       state.actorFrames[c.slug] = actor.frame;
       drawCitizen(c, actor, now);
     }
     state.sittingCount = sitting;
+    drawButterflies(now);
+    drawKafra(now);
+    drawClickMarkers(now);
     drawCelebrations(now);
     drawXpPopups(now);
+    if (state.citizens.length === 0) drawQuietTown();
+    drawMinimap();
     requestAnimationFrame(tick);
   }
 
@@ -743,7 +950,113 @@
       if (d < bestD) { bestD = d; best = c.slug; }
     }
     if (best) petBuddy(best);
+    else state.clickMarkers.push({ x: mx, y: my, born: performance.now() }); // RO move-marker
   });
+
+  // RO green destination ring — the classic click-to-move marker.
+  state.clickMarkers = [];
+  function drawClickMarkers() {
+    const LIFE = 700;
+    const t = performance.now();
+    state.clickMarkers = state.clickMarkers.filter((m) => t - m.born < LIFE);
+    for (const m of state.clickMarkers) {
+      const p = (t - m.born) / LIFE;
+      ctx.save();
+      ctx.strokeStyle = `rgba(90, 255, 120, ${1 - p})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(m.x, m.y, 6 + p * 16, (6 + p * 16) * 0.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Ambient butterflies — a few drift across the square (RO town life).
+  const butterflies = [];
+  function drawButterflies(now) {
+    if (!butterflies.length) {
+      const seed = mulberry32(hashStr('bf' + district));
+      for (let i = 0; i < 4; i++) butterflies.push({ p: seed(), sp: 0.06 + seed() * 0.06, y: 100 + seed() * 300, amp: 20 + seed() * 30, hue: ['#ffd54f', '#ff8fa3', '#b388ff', '#8fd3f0'][i % 4] });
+    }
+    if (REDUCED_MOTION) return;
+    for (const bf of butterflies) {
+      bf.p = (bf.p + bf.sp / 100) % 1;
+      const x = bf.p * (canvas.width + 40) - 20;
+      const y = bf.y + Math.sin(bf.p * Math.PI * 8) * bf.amp;
+      const flap = Math.sin(now / 90 + bf.p * 20) > 0 ? 1 : 0.4;
+      ctx.save();
+      ctx.fillStyle = bf.hue;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.ellipse(x - 3, y, 3, 3 * flap, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + 3, y, 3, 3 * flap, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // RO minimap radar — a corner panel with buddy dots.
+  function drawMinimap() {
+    const mw = 120, mh = 84, mx = canvas.width - mw - 14, my = 46;
+    ctx.save();
+    ctx.fillStyle = 'rgba(15,12,41,0.85)';
+    ctx.strokeStyle = '#7c4dff';
+    ctx.lineWidth = 1.5;
+    roundRect(mx, my, mw, mh, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b39ddb';
+    ctx.font = 'bold 9px Menlo, Consolas, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${TOWN.name} · ${state.citizens.length}`, mx + 8, my + 13);
+    const b = plazaBounds();
+    for (const c of state.citizens) {
+      const a = actors.get(c.slug);
+      if (!a) continue;
+      const nx = mx + 8 + ((a.x - (b.cx - b.rx)) / (b.rx * 2)) * (mw - 16);
+      const ny = my + 20 + ((a.y - b.skyline) / (canvas.height - b.skyline)) * (mh - 28);
+      const active = Date.now() - c.last_seen_at < ACTIVE_WINDOW_MS;
+      ctx.fillStyle = active ? '#ffe082' : '#8f7fc0';
+      ctx.beginPath(); ctx.arc(Math.max(mx + 6, Math.min(mx + mw - 6, nx)), Math.max(my + 22, Math.min(my + mh - 6, ny)), 2, 0, Math.PI * 2); ctx.fill();
+    }
+    // Kafra dot (pink)
+    ctx.fillStyle = '#ffd0f0';
+    ctx.beginPath(); ctx.arc(mx + mw / 2 + 12, my + mh / 2 + 4, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Kafra — RO's save-point NPC. Stationary by the fountain, gives every
+  // town (even an empty one) a friendly landmark of life.
+  function drawKafra(now) {
+    const b = plazaBounds();
+    const kx = b.cx + 70, ky = b.cy - 6;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(kx, ky + 8, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '20px serif';
+    ctx.fillText('💁‍♀️', kx, ky + 4); // Kafra employee
+    // occasional greeting bubble
+    if ((now / 1000 | 0) % 12 < 3) drawChatBubble(kx, ky - 26, 'Welcome~');
+    ctx.font = 'bold 9px Menlo, Consolas, monospace';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText('Kafra', kx, ky + 22);
+    ctx.fillStyle = '#ffd0f0';
+    ctx.fillText('Kafra', kx, ky + 22);
+    ctx.restore();
+  }
+
+  // Friendly hint when a district has no buddies yet (post-warp empty town).
+  function drawQuietTown() {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 18px Menlo, Consolas, monospace';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    const msg = `🦗 ${TOWN.name} is quiet right now`;
+    ctx.strokeText(msg, canvas.width / 2, 120);
+    ctx.fillStyle = '#ffe082';
+    ctx.fillText(msg, canvas.width / 2, 120);
+    ctx.font = '13px Menlo, Consolas, monospace';
+    ctx.fillStyle = '#e1bee7';
+    ctx.fillText('🌀 warp to another town, or wait for buddies to arrive', canvas.width / 2, 144);
+    ctx.restore();
+  }
 
   const MAX_XP_POPUPS = 40;
   function spawnXpPopup(slug, type) {
@@ -844,7 +1157,6 @@
       (e) => now - e.ts < CELEBRATION_WINDOW_MS && e.type !== 'observe' && e.type !== 'session'
     );
     rebuildBubbles(now);
-    rebuildStalls();
     // Newly-arrived events (not seen last poll) spawn a floating XP popup + SFX.
     // The first load only seeds the seen-set — no burst of popups for the
     // last hour of history when you open the page.
@@ -953,6 +1265,11 @@
     } catch {
       state.sprites = {};
       state.palettes = {};
+    }
+    try {
+      state.jobLines = await (await fetch('jobs.json')).json();
+    } catch {
+      state.jobLines = null;
     }
     await refresh();
     setInterval(refresh, 10_000);
