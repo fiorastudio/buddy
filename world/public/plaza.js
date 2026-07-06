@@ -162,7 +162,14 @@
     const t = Math.min(1, Math.max(0, (level - 1) / 49)) * (pal.length - 1);
     const i = Math.min(pal.length - 2, Math.floor(t));
     const f = t - i;
-    return ensureContrast([0, 1, 2].map((c) => Math.round(lerp(pal[i][c], pal[i + 1][c], f))));
+    const raw = [0, 1, 2].map((c) => Math.round(lerp(pal[i][c], pal[i + 1][c], f)));
+    return ensureContrast(saturate(raw, 1.55)); // punch up saturation before AA
+  }
+
+  // Boost chroma: push channels away from luminance (grey) — vivid, not neon.
+  function saturate(rgb, fac) {
+    const lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+    return rgb.map((c) => Math.max(0, Math.min(255, Math.round(lum + (c - lum) * fac))));
   }
 
   // Stable per-species sprite box: max cols/rows across ALL frames, so a
@@ -647,17 +654,14 @@
     ctx.fill();
 
     // Horizontal: center on the stable per-species box. Vertical:
-    // bottom-anchor THIS frame's lines. Each glyph gets a dark outline +
-    // halo so it stays crisp on any background.
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = active ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.85)';
-    ctx.shadowColor = active ? `rgb(${r},${g},${b2})` : 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = active ? 10 : 0;
+    // bottom-anchor THIS frame's lines. Soft halo only (no heavy outline);
+    // the plate + saturated color carry legibility.
+    ctx.shadowColor = active ? `rgb(${r},${g},${b2})` : 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = active ? 14 : 3;
     ctx.fillStyle = `rgb(${r},${g},${b2})`;
     let lastLineY = actor.y;
     lines.forEach((line, i) => {
       const y = actor.y + (i - lines.length) * SPRITE_LINE_H + sitDrop;
-      ctx.strokeText(line, actor.x - w / 2, y);
       ctx.fillText(line, actor.x - w / 2, y);
       lastLineY = y;
     });
