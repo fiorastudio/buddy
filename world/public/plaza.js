@@ -323,42 +323,58 @@
     }
   }
 
-  // Irregular cobblestone flagstones filling the whole floor (no shimmer:
-  // per-tile shade is seeded deterministically).
+  // Cobblestone floor drawn in 3/4 PERSPECTIVE so it reads as receding
+  // GROUND (RO tilted top-down), not a flat wall. Tiles shrink toward the
+  // horizon at the building line; the row cadence tightens as it recedes.
   function drawPavement(g, b, night) {
-    const top = b.skyline;
-    // RO warm flagstone by day; a moody slate at night. Sprite AA is now
-    // bidirectional, so a light floor is fine. TILE_BG matches the day base.
-    const base = night ? '#3b3550' : '#cfc4a8'; // bright warm RO flagstone by day
-    g.fillStyle = base;
-    g.fillRect(0, top, canvas.width, canvas.height - top);
-    const tw = 44, th = 28;
-    for (let row = 0; row * th < canvas.height - top + th; row++) {
-      const oy = top + row * th;
-      const stagger = row % 2 ? tw / 2 : 0;
-      for (let col = -1; col * tw < canvas.width + tw; col++) {
-        const ox = col * tw + stagger;
-        const seed = hashStr(`${col}:${row}:${TOWN.name}`) / 4294967296;
-        const shade = 0.80 + seed * 0.34; // crisper stone-to-stone variation
-        const fill = shadeColor(base, shade);
-        // grout gap (recessed mortar) shows between stones
-        roundRectPath(g, ox + 2, oy + 2, tw - 4, th - 4, 6);
-        g.fillStyle = fill;
+    const top = b.skyline;          // horizon: floor meets the buildings
+    const floorH = canvas.height - top;
+    const base = night ? '#3b3550' : '#cfc4a8';
+    // a slight gradient: cooler/darker near the horizon, warmer near camera
+    const grad = g.createLinearGradient(0, top, 0, canvas.height);
+    grad.addColorStop(0, shadeColor(base, night ? 0.78 : 0.86));
+    grad.addColorStop(1, shadeColor(base, night ? 1.0 : 1.08));
+    g.fillStyle = grad;
+    g.fillRect(0, top, canvas.width, floorH);
+
+    // Isometric DIAMOND flagstones (top-down tilted squares) — the RO
+    // ground look. Diamonds tile edge-to-edge; rows advance by half-height
+    // and alternate a half-width stagger. Perspective: diamonds shrink
+    // toward the horizon so the plane recedes.
+    const BASE_TW = 62, BASE_TH = 32;
+    const grout = night ? 'rgba(0,0,0,0.35)' : 'rgba(92,70,44,0.32)';
+    let y = top + 4;
+    let row = 0;
+    while (y < canvas.height + 30) {
+      const f = (y - top) / floorH;
+      const scale = 0.34 + f * 1.15;
+      const tw = BASE_TW * scale, th = BASE_TH * scale;
+      const offset = row % 2 ? tw / 2 : 0;
+      for (let cx = -tw + offset; cx < canvas.width + tw; cx += tw) {
+        const seed = hashStr(`${row}:${Math.round(cx)}:${TOWN.name}`) / 4294967296;
+        const shade = 0.84 + seed * 0.26;
+        g.fillStyle = shadeColor(base, shade);
+        g.beginPath();
+        g.moveTo(cx, y - th / 2);
+        g.lineTo(cx + tw / 2, y);
+        g.lineTo(cx, y + th / 2);
+        g.lineTo(cx - tw / 2, y);
+        g.closePath();
         g.fill();
-        // subtle bevel: light top edge, dark bottom edge → distinct flagstones
-        g.strokeStyle = night ? 'rgba(255,255,255,0.06)' : 'rgba(255,250,235,0.5)';
-        g.lineWidth = 1;
-        g.beginPath(); g.moveTo(ox + 5, oy + 3.5); g.lineTo(ox + tw - 5, oy + 3.5); g.stroke();
-        g.strokeStyle = night ? 'rgba(0,0,0,0.4)' : 'rgba(90,66,40,0.4)';
-        g.beginPath(); g.moveTo(ox + 4, oy + th - 3.5); g.lineTo(ox + tw - 4, oy + th - 3.5); g.stroke();
+        g.strokeStyle = grout; g.lineWidth = 1; g.stroke();
+        // top-facet highlight sells the tilt
+        g.strokeStyle = night ? 'rgba(255,255,255,0.05)' : 'rgba(255,250,235,0.35)';
+        g.beginPath(); g.moveTo(cx - tw / 2, y); g.lineTo(cx, y - th / 2); g.lineTo(cx + tw / 2, y); g.stroke();
       }
+      y += th / 2;
+      row++;
     }
-    // soft vignette so edges read as enclosed, not cut off
-    const vig = g.createRadialGradient(b.cx, b.cy, b.rx * 0.5, b.cx, b.cy, b.rx * 1.3);
-    vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, night ? 'rgba(0,0,0,0.5)' : 'rgba(20,10,30,0.35)');
-    g.fillStyle = vig;
-    g.fillRect(0, top, canvas.width, canvas.height - top);
+    // soft shading at the far edge so the horizon reads as depth, not a cut
+    const haze = g.createLinearGradient(0, top, 0, top + 60);
+    haze.addColorStop(0, night ? 'rgba(20,16,40,0.5)' : 'rgba(120,110,90,0.35)');
+    haze.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = haze;
+    g.fillRect(0, top, canvas.width, 60);
   }
 
   // Prontera skyline: varied buildings with the iconic RO steep roofs in
