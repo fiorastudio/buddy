@@ -295,10 +295,61 @@
 
     drawPavement(g, b, night);
     drawBuildings(g, b, night);
+    drawCastle(g, b, night);
+    drawSignposts(g, b, night);
     drawGreenery(g, b, night);
     drawBanners(g, b, night);
     drawFountain(g, b);
     drawStreetLamps(g, b, night);
+  }
+
+  // Grand central building — the Prontera-castle silhouette at the back.
+  function drawCastle(g, b, night) {
+    const cx = b.cx, base = b.skyline - 6, w = 150, h = 96;
+    const wall = night ? '#413a5e' : '#f2ead4';
+    const roof = night ? '#2a2140' : '#2f8f8a';
+    const cxs = [cx - w / 2, cx + w / 2 - 26]; // two side towers
+    // main keep
+    g.fillStyle = wall; g.fillRect(cx - w / 2, base - h, w, h);
+    // crenellations
+    g.fillStyle = night ? '#2a2444' : '#e0d6ba';
+    for (let x = cx - w / 2; x < cx + w / 2; x += 16) g.fillRect(x, base - h - 6, 9, 8);
+    // big central roof + spire
+    g.fillStyle = roof;
+    g.beginPath(); g.moveTo(cx - 34, base - h + 4); g.lineTo(cx, base - h - 44); g.lineTo(cx + 34, base - h + 4); g.closePath(); g.fill();
+    g.strokeStyle = night ? '#5a4a2a' : '#8a6a3a'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(cx, base - h - 44); g.lineTo(cx, base - h - 60); g.stroke();
+    g.fillStyle = '#b23a48'; // pennant
+    g.beginPath(); g.moveTo(cx, base - h - 60); g.lineTo(cx + 16, base - h - 55); g.lineTo(cx, base - h - 50); g.closePath(); g.fill();
+    // side towers with conical roofs
+    for (const tx of cxs) {
+      g.fillStyle = wall; g.fillRect(tx, base - h - 14, 26, h + 14);
+      g.fillStyle = roof;
+      g.beginPath(); g.moveTo(tx - 4, base - h - 12); g.lineTo(tx + 13, base - h - 40); g.lineTo(tx + 30, base - h - 12); g.closePath(); g.fill();
+    }
+    // arched gate + windows
+    g.fillStyle = night ? '#ffd27a' : '#6a86a8';
+    g.beginPath();
+    g.moveTo(cx - 12, base); g.lineTo(cx - 12, base - 26); g.arc(cx, base - 26, 12, Math.PI, 0); g.lineTo(cx + 12, base); g.closePath(); g.fill();
+  }
+
+  // RO NPC shop signposts around the square.
+  function drawSignposts(g, b, night) {
+    const signs = [
+      [b.cx - b.rx * 0.85, b.skyline + 54, 'Tool Shop', '#c98a3a'],
+      [b.cx + b.rx * 0.8, b.skyline + 48, 'Weapons', '#b8563f'],
+      [b.cx - b.rx * 0.35, b.skyline + 70, 'Inn', '#2f8f8a'],
+    ];
+    for (const [sx, sy, label, color] of signs) {
+      g.strokeStyle = night ? '#3a2a1a' : '#6b4a2a'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx, sy + 30); g.stroke();
+      g.fillStyle = night ? shadeColor(color, 0.5) : color;
+      const w = label.length * 6 + 10;
+      roundRectPath(g, sx - w / 2, sy - 4, w, 15, 3); g.fill();
+      g.fillStyle = '#fff8 e6'.replace(' ', ''); g.fillStyle = '#fff8e6';
+      g.font = 'bold 9px Menlo, Consolas, monospace'; g.textAlign = 'center';
+      g.fillText(label, sx, sy + 7);
+    }
   }
 
   // RO street lamps ringing the square — warm glow at night.
