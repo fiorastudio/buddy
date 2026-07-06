@@ -703,6 +703,26 @@
       ctx.textAlign = 'center';
       if (cel.type === 'level_up') {
         const age = (now - cel.ts) / 1000;
+        // RO golden light pillar shooting up from the buddy
+        const pillarAge = Math.min(1, age / 1.2);
+        const pw = 26 * (1 - pillarAge * 0.3);
+        const pgrad = ctx.createLinearGradient(actor.x, actor.y, actor.x, actor.y - 130);
+        pgrad.addColorStop(0, `rgba(255,224,120,${0.55 * (1 - pillarAge)})`);
+        pgrad.addColorStop(1, 'rgba(255,224,120,0)');
+        ctx.fillStyle = pgrad;
+        ctx.fillRect(actor.x - pw / 2, actor.y - 130, pw, 130);
+        // rising sparkles
+        if (!REDUCED_MOTION) {
+          ctx.fillStyle = '#fff6c8';
+          for (let s = 0; s < 4; s++) {
+            const sp = (age * 0.6 + s * 0.25) % 1;
+            ctx.globalAlpha = 1 - sp;
+            ctx.beginPath();
+            ctx.arc(actor.x + Math.sin(sp * 10 + s) * 10, actor.y - sp * 110, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        }
         ctx.font = 'bold 13px Menlo, Consolas, monospace';
         ctx.fillStyle = '#ffd700';
         ctx.shadowColor = '#ff8c00';
