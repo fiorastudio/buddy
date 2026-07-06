@@ -206,7 +206,7 @@
   // bigger town (up to the viewport). Below the building line at the top.
   function plazaBounds() {
     const pop = state.citizens.length || 6;
-    const grow = Math.min(1, 0.55 + pop / 60); // 6 buddies→~0.65, 60+→full
+    const grow = Math.min(1, 0.7 + pop / 50); // spread buddies wider across the floor
     const skyline = Math.min(180, canvas.height * 0.24); // building band up top
     return {
       cx: canvas.width / 2,
@@ -341,13 +341,13 @@
     // ground look. Diamonds tile edge-to-edge; rows advance by half-height
     // and alternate a half-width stagger. Perspective: diamonds shrink
     // toward the horizon so the plane recedes.
-    const BASE_TW = 62, BASE_TH = 32;
-    const grout = night ? 'rgba(0,0,0,0.35)' : 'rgba(92,70,44,0.32)';
+    const BASE_TW = 46, BASE_TH = 24; // finer flagstones
+    const grout = night ? 'rgba(0,0,0,0.32)' : 'rgba(92,70,44,0.28)';
     let y = top + 4;
     let row = 0;
     while (y < canvas.height + 30) {
       const f = (y - top) / floorH;
-      const scale = 0.34 + f * 1.15;
+      const scale = 0.4 + f * 1.05;
       const tw = BASE_TW * scale, th = BASE_TH * scale;
       const offset = row % 2 ? tw / 2 : 0;
       for (let cx = -tw + offset; cx < canvas.width + tw; cx += tw) {
