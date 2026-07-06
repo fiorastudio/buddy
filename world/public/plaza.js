@@ -644,20 +644,11 @@
     ctx.textAlign = 'left';
     const sitDrop = actor.sitting ? 6 : 0;
 
-    // Frosted plate behind the sprite so the ASCII reads against a clean
-    // surface, not the busy flagstone. Tinted to the buddy's own hue.
-    const h2 = lines.length * SPRITE_LINE_H;
-    ctx.fillStyle = active
-      ? `rgba(${r},${g},${b2},0.14)`
-      : 'rgba(20,16,34,0.30)';
-    roundRect(actor.x - w / 2 - 6, actor.y - h2 + sitDrop - 4, w + 12, h2 + 8, 7);
-    ctx.fill();
-
     // Horizontal: center on the stable per-species box. Vertical:
-    // bottom-anchor THIS frame's lines. Soft halo only (no heavy outline);
-    // the plate + saturated color carry legibility.
+    // bottom-anchor THIS frame's lines. Just a soft halo — the saturated
+    // color carries legibility, no opaque backing plate.
     ctx.shadowColor = active ? `rgb(${r},${g},${b2})` : 'rgba(0,0,0,0.85)';
-    ctx.shadowBlur = active ? 14 : 3;
+    ctx.shadowBlur = active ? 14 : 4;
     ctx.fillStyle = `rgb(${r},${g},${b2})`;
     let lastLineY = actor.y;
     lines.forEach((line, i) => {
