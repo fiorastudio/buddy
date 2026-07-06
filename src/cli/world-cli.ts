@@ -15,6 +15,7 @@ import {
   DEFAULT_API_URL,
   type WorldConfig,
 } from '../lib/world/client.js';
+import { TOWN_NAMES, TOWN_BLURB, districtForTown, townForDistrict } from '../lib/world/towns.js';
 import type { Companion } from '../lib/types.js';
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -30,11 +31,14 @@ export interface WorldCliDeps {
 const USAGE = [
   'Usage: buddy-world <command>',
   '',
-  '  teleport [--avatar chibi-1..8]  opt in and beam your buddy into the plaza',
+  '  teleport [town] [--avatar chibi-1..8]  beam your buddy into a town (default: auto)',
+  '  towns                           list the RO cities you can teleport to',
   '  status                          show your buddy\'s world link',
   '  anon <on|off>                   toggle anonymous mode ("a wild Void Cat")',
   '  recall [--purge]                leave the world (--purge deletes all server data)',
 ];
+
+const AVAILABLE_TOWNS = `Available: ${TOWN_NAMES.join(', ')}.`;
 
 const PRIVACY_NOTE = [
   'Buddy World syncs GAME STATE ONLY: name, species, level, XP, mood, stats.',
@@ -57,6 +61,20 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       const companion = deps.loadCompanion();
       if (!companion) return ['No buddy found. Hatch one first!'];
 
+      const avatarIdx = rest.indexOf('--avatar');
+      const avatar = avatarIdx >= 0 ? rest[avatarIdx + 1] : undefined;
+      // First positional that isn't a flag or the --avatar value = the town.
+      const townArg = rest.find((a, i) => !a.startsWith('--') && !(avatarIdx >= 0 && i === avatarIdx + 1));
+
+      // Resolve the chosen town up front — reject a bad name before any network
+      // call or config write.
+      let desiredDistrict: string | undefined;
+      if (townArg) {
+        const resolved = districtForTown(townArg);
+        if (!resolved) return [`Unknown town "${townArg}". ${AVAILABLE_TOWNS}`];
+        desiredDistrict = resolved;
+      }
+
       const existing = loadWorldConfig(configPath);
       if (!existing) {
         out.push(...PRIVACY_NOTE);
@@ -67,24 +85,43 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
         }
       }
 
-      const avatarIdx = rest.indexOf('--avatar');
-      const avatar = avatarIdx >= 0 ? rest[avatarIdx + 1] : existing?.avatar ?? 'chibi-1';
-
+      const avatarChoice = avatar ?? existing?.avatar ?? 'chibi-1';
       const cfg: WorldConfig = existing ?? { token: generateToken(), apiUrl };
       const sync = makeSync(cfg, deps);
-      const res = await sync.teleport(buildWorldSnapshot(companion, avatar));
-      saveWorldConfig({ ...cfg, slug: res.slug, url: res.url, district: res.district, avatar }, configPath);
+      let res;
+      try {
+        res = await sync.teleport(buildWorldSnapshot(companion, avatarChoice), { district: desiredDistrict });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('town_full') && townArg) {
+          return [`${townArg} is full right now. Pick another — buddy-world towns.`];
+        }
+        return [`Teleport failed (${msg}). Try again in a moment.`];
+      }
+      saveWorldConfig(
+        { ...cfg, slug: res.slug, url: res.url, district: res.district, avatar: avatarChoice },
+        configPath
+      );
 
-      out.push(`✨ ${companion.name} teleported into Buddy World!`);
+      const town = townForDistrict(res.district);
+      const where = town ? `${town} (${TOWN_BLURB[town]})` : 'the plaza';
+      out.push(`✨ ${companion.name} warped to ${where}!`);
       out.push(`   Watch them wander: ${res.url}`);
       out.push('   Level-ups, commits, and deploys now celebrate in the plaza.');
+      return out;
+    }
+
+    case 'towns': {
+      out.push('Towns you can teleport to (buddy-world teleport <town>):');
+      for (const name of TOWN_NAMES) out.push(`  ${name} — ${TOWN_BLURB[name]}`);
       return out;
     }
 
     case 'status': {
       const cfg = loadWorldConfig(configPath);
       if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
-      return [`Your buddy is in ${cfg.district ?? 'the plaza'}: ${cfg.url}`];
+      const town = cfg.district ? townForDistrict(cfg.district) : null;
+      return [`Your buddy is in ${town ?? cfg.district ?? 'the plaza'}: ${cfg.url}`];
     }
 
     case 'anon': {

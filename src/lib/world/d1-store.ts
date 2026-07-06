@@ -66,7 +66,12 @@ export class D1WorldStore implements WorldStore {
     return new D1WorldStore(db);
   }
 
-  async teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number): Promise<TeleportResult> {
+  async teleport(
+    tokenHash: string,
+    snap: WorldSnapshot,
+    nowMs: number,
+    desiredDistrict?: string
+  ): Promise<TeleportResult> {
     const existing = await this.db
       .prepare('SELECT * FROM citizens WHERE token_hash = ?')
       .bind(tokenHash)
@@ -74,15 +79,17 @@ export class D1WorldStore implements WorldStore {
 
     if (existing) {
       // Snapshot fields are NOT written here: re-teleport must go through
-      // the handler's clamped update path, never around it.
+      // the handler's clamped update path, never around it. The one exception
+      // is `district` when the owner explicitly asks to move towns.
+      const district = desiredDistrict ?? (existing.district as string);
       await this.db
-        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar) WHERE id = ?')
-        .bind(snap.avatar ?? null, existing.id)
+        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ? WHERE id = ?')
+        .bind(snap.avatar ?? null, district, existing.id)
         .run();
-      return { created: false, slug: existing.slug as string, district: existing.district as string };
+      return { created: false, slug: existing.slug as string, district };
     }
 
-    const district = pickDistrict(await this.districtCounts());
+    const district = desiredDistrict ?? pickDistrict(await this.districtCounts());
     const id = randomUUID();
     let slug = makeSlug(snap.name);
     while (await this.db.prepare('SELECT 1 FROM citizens WHERE slug = ?').bind(slug).first()) {
