@@ -332,20 +332,25 @@
     const base = night ? '#3b3550' : '#cfc4a8'; // bright warm RO flagstone by day
     g.fillStyle = base;
     g.fillRect(0, top, canvas.width, canvas.height - top);
-    const tw = 46, th = 30;
+    const tw = 44, th = 28;
     for (let row = 0; row * th < canvas.height - top + th; row++) {
       const oy = top + row * th;
       const stagger = row % 2 ? tw / 2 : 0;
       for (let col = -1; col * tw < canvas.width + tw; col++) {
         const ox = col * tw + stagger;
         const seed = hashStr(`${col}:${row}:${TOWN.name}`) / 4294967296;
-        const shade = 0.86 + seed * 0.22;
-        g.fillStyle = shadeColor(base, shade);
-        roundRectPath(g, ox + 2, oy + 2, tw - 4, th - 4, 5);
+        const shade = 0.80 + seed * 0.34; // crisper stone-to-stone variation
+        const fill = shadeColor(base, shade);
+        // grout gap (recessed mortar) shows between stones
+        roundRectPath(g, ox + 2, oy + 2, tw - 4, th - 4, 6);
+        g.fillStyle = fill;
         g.fill();
-        g.strokeStyle = night ? 'rgba(0,0,0,0.35)' : 'rgba(80,60,40,0.25)';
+        // subtle bevel: light top edge, dark bottom edge → distinct flagstones
+        g.strokeStyle = night ? 'rgba(255,255,255,0.06)' : 'rgba(255,250,235,0.5)';
         g.lineWidth = 1;
-        g.stroke();
+        g.beginPath(); g.moveTo(ox + 5, oy + 3.5); g.lineTo(ox + tw - 5, oy + 3.5); g.stroke();
+        g.strokeStyle = night ? 'rgba(0,0,0,0.4)' : 'rgba(90,66,40,0.4)';
+        g.beginPath(); g.moveTo(ox + 4, oy + th - 3.5); g.lineTo(ox + tw - 4, oy + th - 3.5); g.stroke();
       }
     }
     // soft vignette so edges read as enclosed, not cut off
