@@ -106,12 +106,24 @@ if ! command -v git &> /dev/null; then
   exit 1
 fi
 
-# Clone or update
-if [ -d "$INSTALL_DIR" ]; then
+# Clone or update. A prior install may have left a NON-git directory here
+# (e.g. an npm-package install): 'git pull' fails there and we would silently
+# build stale code. Detect that (and a failed pull) and re-clone. Safe to wipe:
+# the companion DB (~/.buddy/buddy.db) and world.json live in the PARENT dir,
+# not inside ~/.buddy/server.
+need_clone=1
+if [ -d "$INSTALL_DIR/.git" ]; then
   echo "  Updating existing installation..."
-  cd "$INSTALL_DIR"
-  git pull origin master --quiet
-else
+  if git -C "$INSTALL_DIR" pull origin master --quiet; then
+    need_clone=0
+  else
+    echo "  Update failed; re-cloning fresh..."
+  fi
+elif [ -d "$INSTALL_DIR" ]; then
+  echo "  Replacing a non-git install with a fresh clone..."
+fi
+if [ "$need_clone" -eq 1 ]; then
+  rm -rf "$INSTALL_DIR"
   echo "  Cloning Buddy MCP Server..."
   git clone --depth 1 "$REPO" "$INSTALL_DIR" --quiet
 fi
@@ -122,14 +134,31 @@ echo "  Installing dependencies..."
 npm install --quiet 2>/dev/null
 
 # Verify native module ABI matches current node. A stale binary from a prior
-# install with a different node version will crash at runtime. Rebuild if needed.
+# install with a different node version will crash at runtime. Rebuild if
+# needed, then re-verify — a silent half-broken install is worse than failing.
 if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
-  echo "  Rebuilding native module for $(\"$NODE_BIN\" -v)..."
-  npm rebuild better-sqlite3 --quiet 2>/dev/null
+  echo "  Rebuilding native module for $("$NODE_BIN" -v)..."
+  npm rebuild better-sqlite3
+  if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+    echo ""
+    echo -e "${YELLOW}  ✗ better-sqlite3 does not load under node $("$NODE_BIN" -v) ($NODE_BIN) and the rebuild failed.${NC}"
+    echo -e "${YELLOW}    If you use nvm, switch to the node version Buddy should run under (nvm use <version>),${NC}"
+    echo -e "${YELLOW}    then re-run this installer. See the rebuild output above for details.${NC}"
+    exit 1
+  fi
 fi
 
 echo "  Building..."
-npm run build --quiet 2>/dev/null
+npm run build --quiet
+# tsc can exit 0 without emitting (e.g. run where it finds no tsconfig), so
+# verify the build artifact exists rather than trusting the exit code — same
+# "verify, don't trust silent success" lesson as the ABI probe above.
+if [ ! -f "$INSTALL_DIR/dist/server/index.js" ]; then
+  echo ""
+  echo -e "${YELLOW}  ✗ Build produced no output (tsc emitted nothing).${NC}"
+  echo -e "${YELLOW}    Run 'npm run build' in $INSTALL_DIR to see the compiler error.${NC}"
+  exit 1
+fi
 
 # ── Symlink CLI binaries onto PATH ──
 for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js; do
@@ -724,12 +753,6 @@ fi
 
 ONBOARD_SCRIPT="$INSTALL_DIR/dist/cli/onboard.js"
 
-echo ""
-echo -e "${BLUE}  💬 Join the Buddy Community!${NC}"
-echo -e "  Connect with other rescuers on Slack:"
-echo -e "  ${DIM}👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ${NC}"
-echo ""
-
 if [ -f "$ONBOARD_SCRIPT" ] && [ "$NO_ONBOARD" -eq 0 ]; then
   # Let onboard.ts detect TTY itself — don't force /dev/tty
   # (fails in headless SSH, CI, cron where no controlling terminal exists)
@@ -753,6 +776,10 @@ if [ "$CODEX_CONFIGURED" -ne 1 ] && command -v codex &> /dev/null; then
   echo ""
   echo -e "  ${YELLOW}!${NC} Codex CLI prompt injection was skipped because Buddy MCP is not configured there yet."
 fi
+echo ""
+echo -e "${BLUE}  💬 Join the Buddy Community!${NC}"
+echo -e "  Connect with other buddy rescuers, share your companion's evolution, and get help on Slack:"
+echo -e "  ${DIM}👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ${NC}"
 echo ""
 echo -e "  💛 If you like it, star the repo:"
 echo "  github.com/fiorastudio/buddy"

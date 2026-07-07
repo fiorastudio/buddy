@@ -21,6 +21,53 @@ catch {
 }
 
 $NODE_BIN = (Get-Command node).Source
+
+# Resolve symlinks/junctions to the real versioned node binary. nvm-windows
+# exposes node at C:\Program Files\nodejs (a junction it repoints on every
+# `nvm use`), so pinning that path silently swaps the runtime later and
+# crashes better-sqlite3 with an ABI mismatch. Pin the resolved target instead.
+# Only follow reparse points that actually redirect (SymbolicLink/Junction).
+# HardLink Targets are alternate names for the same file and must not be
+# followed — Target[0] could pin an arbitrary alias. Loop to unwind chained
+# links (nvm shim -> junction -> version dir), bounded to avoid cycles.
+# 'SymLink' included defensively: LinkType string varies across PS builds.
+$REDIRECT_LINK_TYPES = @('SymbolicLink', 'SymLink', 'Junction')
+try {
+  $resolvedAny = $false
+  for ($hop = 0; $hop -lt 4; $hop++) {
+    $changed = $false
+
+    $nodeItem = Get-Item $NODE_BIN -ErrorAction Stop
+    if ($REDIRECT_LINK_TYPES -contains $nodeItem.LinkType -and $nodeItem.Target) {
+      $resolvedFile = @($nodeItem.Target)[0]
+      if (Test-Path $resolvedFile) { $NODE_BIN = $resolvedFile; $changed = $true }
+    }
+
+    $nodeDirItem = Get-Item (Split-Path $NODE_BIN) -ErrorAction Stop
+    if ($REDIRECT_LINK_TYPES -contains $nodeDirItem.LinkType -and $nodeDirItem.Target) {
+      $resolvedDir = @($nodeDirItem.Target)[0]
+      $resolvedNode = Join-Path $resolvedDir (Split-Path $NODE_BIN -Leaf)
+      if (Test-Path $resolvedNode) { $NODE_BIN = $resolvedNode; $changed = $true }
+    }
+
+    if ($changed) { $resolvedAny = $true } else { break }
+  }
+  if ($resolvedAny) {
+    Write-Host "  Pinning node to resolved path: $NODE_BIN" -ForegroundColor DarkGray
+    # Verify the hop limit actually finished the job — check both the
+    # file and its parent directory (a remaining dir junction is also unresolved).
+    $finalItem = Get-Item $NODE_BIN -ErrorAction Stop
+    $finalDirItem = Get-Item (Split-Path $NODE_BIN) -ErrorAction Stop
+    if (($REDIRECT_LINK_TYPES -contains $finalItem.LinkType) -or ($REDIRECT_LINK_TYPES -contains $finalDirItem.LinkType)) {
+      Write-Host "  ! node path is still a link after 4 hops; pinning it as-is." -ForegroundColor Yellow
+      Write-Host "    Re-run this installer if node version switches cause crashes." -ForegroundColor Yellow
+    }
+  }
+} catch {
+  Write-Host "  ! Could not resolve node's link target; pinning $NODE_BIN as-is." -ForegroundColor Yellow
+  Write-Host "    If you use nvm-windows, re-run this installer after 'nvm use' changes." -ForegroundColor Yellow
+}
+
 $nodeVersion = (& $NODE_BIN -v) -replace 'v(\d+)\..*', '$1'
 if ([int]$nodeVersion -lt 20) {
   Write-Host "  Node.js 20+ required (better-sqlite3 dropped Node 18/19 support). You have $(& $NODE_BIN -v)." -ForegroundColor Yellow
@@ -36,13 +83,25 @@ catch {
   exit 1
 }
 
-# Clone or update
-if (Test-Path "$INSTALL_DIR") {
+# Clone or update. A prior install may have left a NON-git directory here
+# (e.g. an npm-package install): 'git pull' fails there and we would silently
+# build stale code. Detect that (and a failed pull) and re-clone. Safe to wipe:
+# the companion DB (~/.buddy/buddy.db) and world.json live in the PARENT dir,
+# not inside ~/.buddy/server.
+$needClone = $true
+if (Test-Path "$INSTALL_DIR\.git") {
   Write-Host "  Updating existing installation..."
   Push-Location "$INSTALL_DIR"
-  git pull origin master --quiet
+  try { git pull origin master --quiet; $pullOk = ($LASTEXITCODE -eq 0) }
+  catch { $pullOk = $false }
   Pop-Location
-} else {
+  if ($pullOk) { $needClone = $false }
+  else { Write-Host "  Update failed; re-cloning fresh..." -ForegroundColor Yellow }
+} elseif (Test-Path "$INSTALL_DIR") {
+  Write-Host "  Replacing a non-git install with a fresh clone..." -ForegroundColor Yellow
+}
+if ($needClone) {
+  if (Test-Path "$INSTALL_DIR") { Remove-Item -Recurse -Force "$INSTALL_DIR" }
   Write-Host "  Cloning Buddy MCP Server..."
   git clone --depth 1 $REPO "$INSTALL_DIR" --quiet
 }
@@ -52,18 +111,40 @@ Push-Location "$INSTALL_DIR"
 Write-Host "  Installing dependencies..."
 npm install --quiet 2>$null
 
-# Verify native module ABI matches current node. Stale binary from a prior
-# install with a different node version will crash at runtime. Rebuild if needed.
-try {
-  & $NODE_BIN -e "require('better-sqlite3')" 2>$null
-} catch {}
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "  Rebuilding native module for $(& $NODE_BIN -v)..."
-  npm rebuild better-sqlite3 --quiet 2>$null
+# Verify native module ABI matches current node. A stale binary from a prior
+# install with a different node version will crash at runtime.
+# Probe via a stdout marker instead of $LASTEXITCODE: with EAP=Stop, PS 5.1
+# throws NativeCommandError on redirected native stderr and can leave
+# $LASTEXITCODE stale, which made the old check silently skip the rebuild.
+# The JS-side catch keeps stderr clean and the exit code 0 in both outcomes.
+$abiProbeJs = "try{require('better-sqlite3');console.log('ABI_OK')}catch(e){console.log('ABI_FAIL')}"
+$abiProbe = & $NODE_BIN -e $abiProbeJs
+if ("$abiProbe" -notmatch 'ABI_OK') {
+  Write-Host "  Rebuilding native module for node $(& $NODE_BIN -v)..."
+  npm rebuild better-sqlite3
+  $abiProbe = & $NODE_BIN -e $abiProbeJs
+  if ("$abiProbe" -notmatch 'ABI_OK') {
+    Write-Host ""
+    Write-Host "  X better-sqlite3 does not load under node $(& $NODE_BIN -v) ($NODE_BIN) and the rebuild failed." -ForegroundColor Red
+    Write-Host "    If you use nvm, switch to the node version Buddy should run under (nvm use <version>)," -ForegroundColor Yellow
+    Write-Host "    then re-run this installer. See the rebuild output above for details." -ForegroundColor Yellow
+    Pop-Location
+    exit 1
+  }
 }
 
 Write-Host "  Building..."
-npm run build --quiet 2>$null
+npm run build --quiet
+# tsc can exit 0 without emitting (e.g. run where it finds no tsconfig), so
+# verify the build artifact exists rather than trusting the exit code — same
+# "verify, don't trust silent success" lesson as the ABI probe above.
+if (-not (Test-Path "$INSTALL_DIR\dist\server\index.js")) {
+  Write-Host ""
+  Write-Host "  X Build produced no output (tsc emitted nothing)." -ForegroundColor Red
+  Write-Host "    Run 'npm run build' in $INSTALL_DIR to see the compiler error." -ForegroundColor Yellow
+  Pop-Location
+  exit 1
+}
 
 # ── Add CLI binaries to PATH ──
 $BIN_DIR = "$INSTALL_DIR\dist\cli"
@@ -608,12 +689,6 @@ if ($COPILOT_CONFIGURED) {
 
 # ── Run onboarding wizard ──
 
-Write-Host ""
-Write-Host "  💬 Join the Buddy Community!" -ForegroundColor Blue
-Write-Host "  Connect with other rescuers on Slack:"
-Write-Host "  👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ" -ForegroundColor Gray
-Write-Host ""
-
 $ONBOARD_SCRIPT = "$INSTALL_DIR\dist\cli\onboard.js"
 if (Test-Path "$ONBOARD_SCRIPT") {
   try {
@@ -638,6 +713,10 @@ if ((-not $CODEX_CONFIGURED) -and (Get-Command codex -ErrorAction SilentlyContin
   Write-Host ""
   Write-Host "  ! Codex CLI prompt injection was skipped because Buddy MCP is not configured there yet." -ForegroundColor Yellow
 }
+Write-Host ""
+Write-Host "  💬 Join the Buddy Community!" -ForegroundColor Blue
+Write-Host "  Connect with other buddy rescuers, share your companion's evolution, and get help on Slack:"
+Write-Host "  👉 https://join.slack.com/t/buddy-mcp/shared_invite/zt-3xn6v1qza-R~fgkVCov9sCLZDXh9wErQ" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  💛 If you like it, star the repo:"
 Write-Host "  github.com/fiorastudio/buddy"
