@@ -136,10 +136,13 @@ npm install --quiet 2>/dev/null
 # Verify native module ABI matches current node. A stale binary from a prior
 # install with a different node version will crash at runtime. Rebuild if
 # needed, then re-verify — a silent half-broken install is worse than failing.
-if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+# CRITICAL: `require('better-sqlite3')` only loads the JS wrapper; the native
+# .node binary (where the ABI lives) loads LAZILY inside `new Database`. Must
+# instantiate a DB to force the addon load, else a mismatched binary passes.
+if ! "$NODE_BIN" -e "const D=require('better-sqlite3');new D(':memory:').close()" 2>/dev/null; then
   echo "  Rebuilding native module for $("$NODE_BIN" -v)..."
   npm rebuild better-sqlite3
-  if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
+  if ! "$NODE_BIN" -e "const D=require('better-sqlite3');new D(':memory:').close()" 2>/dev/null; then
     echo ""
     echo -e "${YELLOW}  ✗ better-sqlite3 does not load under node $("$NODE_BIN" -v) ($NODE_BIN) and the rebuild failed.${NC}"
     echo -e "${YELLOW}    If you use nvm, switch to the node version Buddy should run under (nvm use <version>),${NC}"
