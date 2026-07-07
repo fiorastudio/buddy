@@ -106,12 +106,24 @@ if ! command -v git &> /dev/null; then
   exit 1
 fi
 
-# Clone or update
-if [ -d "$INSTALL_DIR" ]; then
+# Clone or update. A prior install may have left a NON-git directory here
+# (e.g. an npm-package install): 'git pull' fails there and we would silently
+# build stale code. Detect that (and a failed pull) and re-clone. Safe to wipe:
+# the companion DB (~/.buddy/buddy.db) and world.json live in the PARENT dir,
+# not inside ~/.buddy/server.
+need_clone=1
+if [ -d "$INSTALL_DIR/.git" ]; then
   echo "  Updating existing installation..."
-  cd "$INSTALL_DIR"
-  git pull origin master --quiet
-else
+  if git -C "$INSTALL_DIR" pull origin master --quiet; then
+    need_clone=0
+  else
+    echo "  Update failed; re-cloning fresh..."
+  fi
+elif [ -d "$INSTALL_DIR" ]; then
+  echo "  Replacing a non-git install with a fresh clone..."
+fi
+if [ "$need_clone" -eq 1 ]; then
+  rm -rf "$INSTALL_DIR"
   echo "  Cloning Buddy MCP Server..."
   git clone --depth 1 "$REPO" "$INSTALL_DIR" --quiet
 fi
@@ -137,7 +149,16 @@ if ! "$NODE_BIN" -e "require('better-sqlite3')" 2>/dev/null; then
 fi
 
 echo "  Building..."
-npm run build --quiet 2>/dev/null
+npm run build --quiet
+# tsc can exit 0 without emitting (e.g. run where it finds no tsconfig), so
+# verify the build artifact exists rather than trusting the exit code — same
+# "verify, don't trust silent success" lesson as the ABI probe above.
+if [ ! -f "$INSTALL_DIR/dist/server/index.js" ]; then
+  echo ""
+  echo -e "${YELLOW}  ✗ Build produced no output (tsc emitted nothing).${NC}"
+  echo -e "${YELLOW}    Run 'npm run build' in $INSTALL_DIR to see the compiler error.${NC}"
+  exit 1
+fi
 
 # ── Symlink CLI binaries onto PATH ──
 for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js buddy-world:world-cli.js; do

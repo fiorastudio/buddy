@@ -83,13 +83,25 @@ catch {
   exit 1
 }
 
-# Clone or update
-if (Test-Path "$INSTALL_DIR") {
+# Clone or update. A prior install may have left a NON-git directory here
+# (e.g. an npm-package install): 'git pull' fails there and we would silently
+# build stale code. Detect that (and a failed pull) and re-clone. Safe to wipe:
+# the companion DB (~/.buddy/buddy.db) and world.json live in the PARENT dir,
+# not inside ~/.buddy/server.
+$needClone = $true
+if (Test-Path "$INSTALL_DIR\.git") {
   Write-Host "  Updating existing installation..."
   Push-Location "$INSTALL_DIR"
-  git pull origin master --quiet
+  try { git pull origin master --quiet; $pullOk = ($LASTEXITCODE -eq 0) }
+  catch { $pullOk = $false }
   Pop-Location
-} else {
+  if ($pullOk) { $needClone = $false }
+  else { Write-Host "  Update failed; re-cloning fresh..." -ForegroundColor Yellow }
+} elseif (Test-Path "$INSTALL_DIR") {
+  Write-Host "  Replacing a non-git install with a fresh clone..." -ForegroundColor Yellow
+}
+if ($needClone) {
+  if (Test-Path "$INSTALL_DIR") { Remove-Item -Recurse -Force "$INSTALL_DIR" }
   Write-Host "  Cloning Buddy MCP Server..."
   git clone --depth 1 $REPO "$INSTALL_DIR" --quiet
 }
@@ -122,7 +134,17 @@ if ("$abiProbe" -notmatch 'ABI_OK') {
 }
 
 Write-Host "  Building..."
-npm run build --quiet 2>$null
+npm run build --quiet
+# tsc can exit 0 without emitting (e.g. run where it finds no tsconfig), so
+# verify the build artifact exists rather than trusting the exit code — same
+# "verify, don't trust silent success" lesson as the ABI probe above.
+if (-not (Test-Path "$INSTALL_DIR\dist\server\index.js")) {
+  Write-Host ""
+  Write-Host "  X Build produced no output (tsc emitted nothing)." -ForegroundColor Red
+  Write-Host "    Run 'npm run build' in $INSTALL_DIR to see the compiler error." -ForegroundColor Yellow
+  Pop-Location
+  exit 1
+}
 
 # ── Add CLI binaries to PATH ──
 $BIN_DIR = "$INSTALL_DIR\dist\cli"
