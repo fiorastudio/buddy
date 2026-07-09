@@ -24,6 +24,7 @@ import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
+import { applyStatAllocation } from "../lib/allocate.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
 import { captureSnapshot } from "../lib/snapshot.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
@@ -73,17 +74,27 @@ function awardXp(companionId: string, eventType: string): { newXp: number; newLe
 
   db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
 
+  if (leveledUp) {
+    const levelsGained = newLevel - (row?.level || 1);
+    db.prepare("UPDATE companions SET stat_points_available = stat_points_available + ? WHERE id = ?").run(levelsGained * 10, companionId);
+  }
+
   return { newXp, newLevel, leveledUp };
 }
 
 /**
  * Award XP, recalculate mood, update DB, and load companion — shared by observe + pet.
  */
-function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
+export function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
   const xpResult = awardXp(row.id, eventType);
   const newMood = recalcMood(row.id, xpResult.leveledUp);
   db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
-  const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel }, userIdOverride)!;
+  // Re-read the row instead of patching xp/level/mood onto the caller's
+  // snapshot: awardXp may have just granted stat points for a level-up, and
+  // the stale snapshot's stat_points_available would otherwise flow into the
+  // returned companion (and from there into the status file the caller writes).
+  const freshRow = db.prepare("SELECT * FROM companions WHERE id = ?").get(row.id);
+  const companion = loadCompanion(freshRow, userIdOverride)!;
   return { companion, xpResult };
 }
 
@@ -170,6 +181,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {},
+        },
+      },
+      {
+        name: "buddy_allocate",
+        description: "Spend an available stat point (earned from leveling up) to permanently raise one of your companion's five stats by 1, up to a cap of 100. Call buddy_status to see how many points are available.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            stat: {
+              type: "string",
+              enum: ["DEBUGGING", "PATIENCE", "CHAOS", "WISDOM", "SNARK"],
+              description: "Which stat to raise."
+            },
+            points: {
+              type: "integer",
+              minimum: 1,
+              description: "How many available points to spend on this stat (default 1)."
+            }
+          },
+          required: ["stat"],
         },
       },
       {
@@ -354,7 +385,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     writeBuddyStatus(companion);
 
-    return { content: [{ type: "text", text: "DISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n" + statusCard }] };
+    const pointsNote = companion.availablePoints > 0
+      ? `\n\n${companion.name} has ${companion.availablePoints} stat point${companion.availablePoints === 1 ? '' : 's'} available — use buddy_allocate to spend them.`
+      : '';
+
+    return { content: [{ type: "text", text: "DISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n" + statusCard + pointsNote }] };
   }
 
   if (name === "buddy_remember") {
@@ -412,6 +447,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         { type: "text", text: "Use buddy_hatch to welcome a new companion." },
       ],
     };
+  }
+
+  if (name === "buddy_allocate") {
+    const { stat, points = 1 } = args as { stat: string; points?: number };
+    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    if (!row) {
+      return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
+    }
+
+    const result = applyStatAllocation(row.id, stat as any, points);
+    if (!result.ok) {
+      switch (result.reason) {
+        case 'no_points':
+          return { content: [{ type: "text", text: `${row.name} has no stat points available. Level up to earn more!` }] };
+        case 'at_cap':
+          return { content: [{ type: "text", text: `${stat} is already at 100 — can't go higher!` }] };
+        case 'invalid_stat':
+          return { content: [{ type: "text", text: `Unknown stat "${stat}". Choose from: ${STAT_NAMES.join(', ')}.` }] };
+        case 'invalid_points':
+          return { content: [{ type: "text", text: `points must be a positive integer (got ${points}).` }] };
+        case 'no_companion':
+        default:
+          return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
+      }
+    }
+
+    const updatedRow = db.prepare("SELECT * FROM companions WHERE id = ?").get(row.id) as any;
+    const companion = loadCompanion(updatedRow)!;
+    writeBuddyStatus(companion);
+    const statusCard = renderCard(companion);
+    const { spent, remaining } = result;
+
+    const summary = remaining > 0
+      ? `Spent ${spent} point${spent === 1 ? '' : 's'} on ${stat}. ${remaining} point${remaining === 1 ? '' : 's'} remaining.`
+      : `Spent ${spent} point${spent === 1 ? '' : 's'} on ${stat}. No points remaining.`;
+
+    return { content: [{ type: "text", text: `${summary}\n\nDISPLAY VERBATIM: Show the full stat card below in a code block. Do not summarize.\n\n${statusCard}` }] };
   }
 
   if (name === "buddy_observe") {
