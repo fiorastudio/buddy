@@ -117,7 +117,11 @@ npm install --quiet 2>$null
 # throws NativeCommandError on redirected native stderr and can leave
 # $LASTEXITCODE stale, which made the old check silently skip the rebuild.
 # The JS-side catch keeps stderr clean and the exit code 0 in both outcomes.
-$abiProbeJs = "try{require('better-sqlite3');console.log('ABI_OK')}catch(e){console.log('ABI_FAIL')}"
+# CRITICAL: `require('better-sqlite3')` only loads the JS wrapper — the native
+# .node binary (where the ABI version lives) loads LAZILY inside `new Database`.
+# So we must instantiate a DB to force the addon load, else a mismatched binary
+# passes the probe and crashes later at the app's first `new Database()`.
+$abiProbeJs = "try{const D=require('better-sqlite3');new D(':memory:').close();console.log('ABI_OK')}catch(e){console.log('ABI_FAIL')}"
 $abiProbe = & $NODE_BIN -e $abiProbeJs
 if ("$abiProbe" -notmatch 'ABI_OK') {
   Write-Host "  Rebuilding native module for node $(& $NODE_BIN -v)..."
