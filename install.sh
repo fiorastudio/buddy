@@ -161,7 +161,7 @@ if [ ! -f "$INSTALL_DIR/dist/server/index.js" ]; then
 fi
 
 # ── Symlink CLI binaries onto PATH ──
-for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js; do
+for bin_entry in buddy:buddy.js buddy-doctor:doctor-cli.js buddy-share:snapshot-cli.js; do
   bin_name="${bin_entry%%:*}"
   bin_file="$INSTALL_DIR/dist/cli/${bin_entry##*:}"
   if [ -f "$bin_file" ]; then
