@@ -54,6 +54,31 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(citizen?.level).toBe(5);
   });
 
+  it('teleport into a chosen district places the citizen there', async () => {
+    const res = await store.teleport('tokenhash-1', snap(), T0, 'plaza-3');
+    expect(res.created).toBe(true);
+    expect(res.district).toBe('plaza-3');
+    const view = await store.district('plaza-3', 0);
+    expect(view.citizens.map((c) => c.slug)).toContain(res.slug);
+  });
+
+  it('re-teleport with a new district MOVES the citizen', async () => {
+    const first = await store.teleport('tokenhash-1', snap(), T0, 'plaza-1');
+    const moved = await store.teleport('tokenhash-1', snap(), T0 + 1000, 'plaza-3');
+    expect(moved.created).toBe(false);
+    expect(moved.district).toBe('plaza-3');
+    expect((await store.findByTokenHash('tokenhash-1'))?.district).toBe('plaza-3');
+    expect((await store.district('plaza-1', 0)).citizens.map((c) => c.slug)).not.toContain(first.slug);
+    expect((await store.district('plaza-3', 0)).citizens.map((c) => c.slug)).toContain(first.slug);
+  });
+
+  it('re-teleport without a district preserves the current one', async () => {
+    await store.teleport('tokenhash-1', snap(), T0, 'plaza-5');
+    const again = await store.teleport('tokenhash-1', snap(), T0 + 1000);
+    expect(again.district).toBe('plaza-5');
+    expect((await store.findByTokenHash('tokenhash-1'))?.district).toBe('plaza-5');
+  });
+
   it('records events and bumps last_seen_at', async () => {
     await store.teleport('tokenhash-1', snap(), T0);
     const citizen = (await store.findByTokenHash('tokenhash-1'))!;
