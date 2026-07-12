@@ -575,7 +575,11 @@ const PENGUIN_MOTION_KEYFRAMES: PenguinMotionKeyframe[] = [
 ];
 
 function padPenguinLine(raw: string): string {
-  return raw.padEnd(PENGUIN_FRAME_WIDTH, ' ');
+  // {E} collapses to a single eye character at render time; pad with that
+  // slack so every line is exactly PENGUIN_FRAME_WIDTH after substitution
+  // (hand-authored SPRITE_BODIES compensate the same way by hand).
+  const placeholderSlack = (raw.match(/\{E\}/g)?.length ?? 0) * 2;
+  return raw.padEnd(PENGUIN_FRAME_WIDTH + placeholderSlack, ' ');
 }
 
 function renderPenguinTemplateFrame(frame: PenguinMotionKeyframe): string[] {
