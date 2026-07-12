@@ -228,6 +228,20 @@ function checkInstallLayout(): DiagnosticCheck {
     };
   }
 
+  // Manual/from-clone installs register the MCP entry outside
+  // ~/.buddy/server. If any registered buddy entry path exists on disk,
+  // the install is healthy \u2014 report where it actually lives instead of
+  // failing on the canonical location.
+  const registered = getRegisteredBuddyMcpEntryPaths().find(r => fileExists(r.resolved));
+  if (registered) {
+    return {
+      id: 'install.server',
+      status: 'ok',
+      label: 'Server install',
+      detail: `\u2713 ${registered.resolved} (registered in ${registered.source})`,
+    };
+  }
+
   // Only fail hard when the *default* data file on disk exists (user has state but no
   // install). Custom BUDDY_DB_PATH in tests/CI should not trip this.
   const homeDefaultDb = join(homedir(), '.buddy', 'buddy.db');
