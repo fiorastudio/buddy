@@ -683,7 +683,7 @@ If Buddy made your terminal less lonely, consider starring.
 ## 📖 The Story & Coverage
 
 Learn more about the mission to rescue Buddy and the engineering behind the scenes.
-
+- **Podcast Interview**: [Discussion on AI Companion](https://open.spotify.com/episode/7ke5RZP1Td8wLuXiy178c5?si=WXGJces-QQSuVVRc26oUUA)
 - **Product Hunt**: <a href="https://www.producthunt.com/products/buddy-tamagotchi?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-buddy-tamagotchi" target="_blank" rel="noopener noreferrer"><img alt="Buddy Tamagotchi - A virtual pet buddy for your AI — hatch, level up together | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1129100&amp;theme=light&amp;t=1776788389001"></a>
 - **Hacker News**: [Discussion on the Buddy Rescue Mission](https://news.ycombinator.com/item?id=47792606)
 - **Dev.to Series**: [Field Notes from a Solo Builder: Shipping the Beloved Claude Code Buddy into the Wild (Part I)](https://dev.to/fiorastudio/field-notes-from-a-solo-builder-shipping-the-beloved-claude-code-buddy-into-the-wild-part-i-3lpa) , [Field Notes from a Solo Builder: Shipping the Beloved Claude Code Buddy into the Wild (Part II)](https://dev.to/fiorastudio/first-principles-architecture-and-the-token-tax-5g4p), [Field Notes from a Solo Builder: Shipping the Beloved Claude Code Buddy into the Wild (Part III)](https://dev.to/fiorastudio/open-source-community-and-the-art-of-listening-454k), [Field Notes from a Solo Builder — Shipping the Beloved Claude Code Buddy Into the Wild - Part IV
