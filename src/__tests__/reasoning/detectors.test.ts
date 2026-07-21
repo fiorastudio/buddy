@@ -76,13 +76,16 @@ describe('detectLoadBearingVibes', () => {
     expect(findings[0].claim_text).toBe('we need auth');
   });
 
+  // Derived from config rather than hardcoded: a literal edge count silently
+  // stops testing "below threshold" the moment the threshold is retuned, which
+  // is how #129 left this green-by-accident.
   it('does not fire below threshold', () => {
-    const g = withFiller([
-      { id: 'v1', basis: 'vibes' },
-      { id: 'd1', basis: 'deduction' },
-    ], [
-      { from: 'd1', to: 'v1', type: 'depends_on' },
-    ]);
+    const below = REASONING_CONFIG.LOAD_BEARING_MIN_DOWNSTREAM - 1;
+    const supporters = Array.from({ length: below }, (_, i) => ({ id: `d${i}`, basis: 'deduction' as const }));
+    const g = withFiller(
+      [{ id: 'v1', basis: 'vibes' }, ...supporters],
+      supporters.map(s => ({ from: s.id, to: 'v1', type: 'depends_on' as const })),
+    );
     expect(detectLoadBearingVibes(g)).toHaveLength(0);
   });
 
@@ -145,15 +148,18 @@ describe('detectUnchallengedChain', () => {
       { from: 'c3', to: 'c4', type: 'depends_on' },
       { from: 'q1', to: 'c2', type: 'questions' },
     ]);
-    // The chain-detection only flags chains where NO node in the chain has a
-    // challenge edge. But q1 is not in the chain — the challenge is FROM q1 TO c2.
-    // chainHasChallenge inspects edges where both endpoints are in the chain,
-    // so a challenge from outside doesn't count. To properly challenge, the
-    // question edge needs both endpoints in the chain.
-    // Note the detector walks a chain from EVERY node, so a sub-chain that
-    // starts below the challenged pair (here c2→c3→c4) is itself a candidate
-    // once it meets the length minimum. Challenge each link so no qualifying
-    // sub-chain is left unchallenged.
+    // chainHasChallenge only counts challenges with BOTH endpoints in the
+    // chain, so q1 (outside the chain) does not suppress `g`. That is the
+    // documented behaviour, not the case under test — keep `g` as the
+    // contrast and assert on `g2`, where the challenge is internal.
+    expect(detectUnchallengedChain(g).length).toBeGreaterThan(0);
+
+    // g2 challenges every link. #151 needed that because the detector walked
+    // from every node, so the sub-chain below the challenged pair (c2→c3→c4)
+    // qualified on its own; the detector now only starts from maximal chains,
+    // so the c1→c2 challenge alone would suffice. Kept as belt-and-braces —
+    // it pins the invariant regardless of which end the walk starts from.
+
     const g2 = withFiller([
       { id: 'c1', basis: 'assumption' },
       { id: 'c2', basis: 'deduction' },
@@ -170,12 +176,15 @@ describe('detectUnchallengedChain', () => {
   });
 
   it('does not fire below minimum length', () => {
-    const g = withFiller([
-      { id: 'c1', basis: 'assumption' },
-      { id: 'c2', basis: 'deduction' },
-    ], [
-      { from: 'c1', to: 'c2', type: 'depends_on' },
-    ]);
+    // Config-derived for the same reason as the load-bearing threshold test.
+    const nodes = REASONING_CONFIG.UNCHALLENGED_CHAIN_MIN_LENGTH - 1;
+    const chain = Array.from({ length: nodes }, (_, i) => ({
+      id: `c${i}`, basis: (i === 0 ? 'assumption' : 'deduction') as Basis,
+    }));
+    const edges = chain.slice(0, -1).map((c, i) => ({
+      from: c.id, to: chain[i + 1].id, type: 'depends_on' as const,
+    }));
+    const g = withFiller(chain, edges);
     expect(detectUnchallengedChain(g)).toHaveLength(0);
   });
 

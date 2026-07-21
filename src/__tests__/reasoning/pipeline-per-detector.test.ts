@@ -39,10 +39,15 @@ function seedAndRun(fixture: { claims: any[]; edges: any[] }): FindingType | nul
 describe('pipeline integration — all 6 detectors end-to-end', () => {
   beforeEach(() => { telemetry.reset(); resetGraphCache(); });
 
+  // The anchor is an ASSISTANT vibes claim on purpose. A *user* vibes claim
+  // with assistant supports and no pushback is an echo_chamber case, which
+  // subsumes load-bearing (see SUBSUMES in types.ts) — this fixture used to
+  // be exactly that, and only read as load_bearing_vibes because selection
+  // happened to evaluate that detector first. #150.
   it('fires load_bearing_vibes', () => {
     const t = seedAndRun({
       claims: [
-        { text: 'we need auth', basis: 'vibes', speaker: 'user', confidence: 'medium', external_id: 'v' },
+        { text: 'we need auth', basis: 'vibes', speaker: 'assistant', confidence: 'medium', external_id: 'v' },
         { text: 'a', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'a' },
         { text: 'b', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'b' },
         { text: 'c', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'c' },
@@ -81,13 +86,12 @@ describe('pipeline integration — all 6 detectors end-to-end', () => {
     expect(t).toBe('unchallenged_chain');
   });
 
-  it('echo_chamber graphs currently surface as load_bearing_vibes', () => {
-    // Since the #129 threshold tuning, any graph that qualifies for
-    // echo_chamber (user vibes claim, ≥2 assistant supports) also qualifies
-    // for load_bearing_vibes (≥2 downstream, same edges), and selection has
-    // no per-type priority — so load_bearing_vibes wins every time. This
-    // test pins the current behavior; whether echo_chamber should be able
-    // to surface at all again is an open product question.
+  // #151 pinned this as load_bearing_vibes and flagged the open question. The
+  // answer: echo_chamber is a strict specialization of load_bearing_vibes, so
+  // the two are one situation at two resolutions rather than rivals, and the
+  // specific reading is the one worth surfacing. runAllDetectors now drops the
+  // subsumed general finding, so this asserts echo_chamber again. #150.
+  it('fires echo_chamber', () => {
     const t = seedAndRun({
       claims: [
         { text: 'im sure', basis: 'vibes', speaker: 'user', confidence: 'medium', external_id: 'u' },
@@ -102,7 +106,7 @@ describe('pipeline integration — all 6 detectors end-to-end', () => {
         { from: 'a2', to: 'u', type: 'supports' },
       ],
     });
-    expect(t).toBe('load_bearing_vibes');
+    expect(t).toBe('echo_chamber');
   });
 
   it('fires well_sourced_load_bearer', () => {
