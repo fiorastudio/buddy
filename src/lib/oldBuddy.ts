@@ -262,12 +262,22 @@ function ccHashString(s: string): { hash: number; engine: 'bun' | 'fnv1a' } {
 
   if (bunAvailable) {
     try {
-      // Pass input as process.argv to avoid shell injection — no string interpolation
+      // Input goes through the environment, not argv and not string
+      // interpolation: `bun -e <script> <arg>` does NOT forward trailing
+      // arguments — process.argv is ['bun', '<cwd>/[eval]'] and nothing else,
+      // so process.argv[1] was a constant. Every userId hashed to the same
+      // value, and every rescued companion came out with identical rarity,
+      // species, eye and stats. Env keeps the no-interpolation property that
+      // made argv attractive in the first place.
       const result = spawnSync('bun', [
         '-e',
-        'console.log(Number(BigInt(Bun.hash(process.argv[1])) & 0xffffffffn))',
-        s,
-      ], { timeout: 5000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        'console.log(Number(BigInt(Bun.hash(process.env.BUDDY_CC_HASH_INPUT ?? "")) & 0xffffffffn))',
+      ], {
+        timeout: 5000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, BUDDY_CC_HASH_INPUT: s },
+      });
       const hash = parseInt((result.stdout || '').trim(), 10);
       if (!isNaN(hash)) return { hash, engine: 'bun' };
     } catch { /* fall through */ }
