@@ -96,8 +96,8 @@ function tryMatchCwd(trace: SessionTrace, cwd: string): boolean {
   return true;
 }
 
-function resolveClaudeTrace(trace: SessionTrace): boolean {
-  const candidates = [join(homedir(), '.claude', 'sessions'), join(homedir(), '.claude', 'projects')];
+function resolveClaudeTrace(trace: SessionTrace, home: string): boolean {
+  const candidates = [join(home, '.claude', 'sessions'), join(home, '.claude', 'projects')];
   for (const dir of candidates) {
     for (const file of walkFiles(dir, ['.json', '.jsonl'], 3)) {
       try {
@@ -127,8 +127,8 @@ function resolveClaudeTrace(trace: SessionTrace): boolean {
   return false;
 }
 
-function resolveCodexTrace(trace: SessionTrace): boolean {
-  const root = join(homedir(), '.codex', 'sessions');
+function resolveCodexTrace(trace: SessionTrace, home: string): boolean {
+  const root = join(home, '.codex', 'sessions');
   for (const file of walkFiles(root, ['.jsonl'], 4)) {
     try {
       const lines = headLines(file).slice(0, 12);
@@ -151,12 +151,22 @@ function resolveCodexTrace(trace: SessionTrace): boolean {
   return false;
 }
 
-export function resolveSessionTrace(sessionId: string): SessionTrace {
+export type ResolveOptions = {
+  // Root to search under, defaulting to the real home directory. Tests point
+  // this at a fixture tree: reading the developer's actual ~/.claude made the
+  // result depend on whose machine ran the suite, and made runtime scale with
+  // their transcript history — a test that took >90s here and 0s on a CI
+  // runner with no history, which is how an unbounded read went unnoticed.
+  home?: string;
+};
+
+export function resolveSessionTrace(sessionId: string, opts: ResolveOptions = {}): SessionTrace {
   const parsed = parseSessionId(sessionId);
   if (!parsed) return { sessionId, cwdHash: '', dateBucket: '' };
 
+  const home = opts.home ?? homedir();
   const trace: SessionTrace = { sessionId, cwdHash: parsed.cwdHash, dateBucket: parsed.dateBucket };
-  if (resolveClaudeTrace(trace)) return trace;
-  if (resolveCodexTrace(trace)) return trace;
+  if (resolveClaudeTrace(trace, home)) return trace;
+  if (resolveCodexTrace(trace, home)) return trace;
   return trace;
 }
