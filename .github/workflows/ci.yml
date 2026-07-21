@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch: # Allow manual trigger
+
+# Least privilege: this workflow only ever reads the tree. Declared
+# explicitly rather than inherited, so a change to the repository's default
+# token permissions cannot silently widen what a PR-triggered run can do.
+permissions:
+  contents: read
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: node ${{ matrix.node }}${{ matrix.bun && ' + bun' || '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor of the supported range (package.json engines) and current.
+        node: ['20', '24']
+        # Buddy's rescue path reproduces Claude Code's Bun.hash() by shelling
+        # out to `bun`, and falls back to FNV-1a when Bun is absent. A bare
+        # runner only ever exercises the fallback, so the Bun branch shipped
+        # untested — and shipped broken: `bun -e <script> <arg>` drops the
+        # trailing argument, so every rescued companion rolled identical
+        # bones. One leg with Bun installed executes that branch for real.
+        bun: [false, true]
+        exclude:
+          # The Bun branch does not vary with the Node version; one leg is
+          # enough to cover it.
+          - node: '20'
+            bun: true
+    # The suite runs file-serially (vitest.config.ts sets fileParallelism:
+    # false, because several files share one BUDDY_DB_PATH) and takes well
+    # under a minute. The ceiling is a hang guard, not a budget: a test that
+    # reads unbounded local state can stall indefinitely, and that should
+    # fail the job rather than occupy a runner.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - if: matrix.bun
+        uses: oven-sh/setup-bun@v2
+
+      # `npm ci` builds better-sqlite3 from source when no prebuild matches
+      # the runner's Node ABI — that is the install path users hit too.
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm test

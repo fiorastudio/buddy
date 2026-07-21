@@ -16,9 +16,13 @@ function memDb(companionIds: string[] = ['c1']): Database.Database {
 }
 
 // Build a payload that pre-primes the graph with load-bearing vibes.
+// The anchor is assistant-authored: a *user* vibes claim with assistant
+// supports and no pushback is an echo_chamber case, which subsumes
+// load-bearing (SUBSUMES in types.ts) and would change this fixture's
+// meaning. #150.
 function primingPayload() {
   const claims = [
-    { text: 'we need auth', basis: 'vibes' as const, speaker: 'user' as const, confidence: 'medium' as const, external_id: 'v1' },
+    { text: 'we need auth', basis: 'vibes' as const, speaker: 'assistant' as const, confidence: 'medium' as const, external_id: 'v1' },
     { text: 'so we need sessions', basis: 'deduction' as const, speaker: 'assistant' as const, confidence: 'medium' as const, external_id: 'd1' },
     { text: 'so we need tokens', basis: 'deduction' as const, speaker: 'assistant' as const, confidence: 'medium' as const, external_id: 'd2' },
     { text: 'so we need rate limits', basis: 'deduction' as const, speaker: 'assistant' as const, confidence: 'medium' as const, external_id: 'd3' },

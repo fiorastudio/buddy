@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'fs';
 import { basename, dirname, join } from 'path';
 import { homedir } from 'os';
 
@@ -50,6 +50,45 @@ function walkFiles(root: string, exts: string[], depth: number = 4): string[] {
   return out;
 }
 
+// Session transcripts are big and there are a lot of them — a working
+// ~/.claude/projects runs to gigabytes across hundreds of .jsonl files. We
+// only ever need the first line (Claude) or the first handful (Codex), so
+// reading each file whole made this scale with total transcript volume
+// instead of with the header we actually parse. On a machine with real
+// history it never finished.
+// 32 KiB comfortably covers a first JSONL record while keeping a full scan of
+// a few hundred transcripts in the tens of megabytes rather than the tens of
+// gigabytes. A whole .json still gets parsed as one object, so it has its own
+// (larger) ceiling.
+const HEAD_BYTES = 32 * 1024;
+const MAX_WHOLE_JSON_BYTES = 256 * 1024;
+
+// Reads at most `bytes` from the front of a file. `truncated` says whether
+// the file continued past what we read, so callers can discard a trailing
+// partial line rather than trying to parse half a JSON object.
+function readHead(file: string, bytes: number = HEAD_BYTES): { text: string; truncated: boolean } {
+  let fd: number | undefined;
+  try {
+    fd = openSync(file, 'r');
+    const buf = Buffer.allocUnsafe(bytes);
+    const got = readSync(fd, buf, 0, bytes, 0);
+    return { text: buf.toString('utf-8', 0, got), truncated: got === bytes };
+  } catch {
+    return { text: '', truncated: false };
+  } finally {
+    if (fd !== undefined) { try { closeSync(fd); } catch { /* ignore */ } }
+  }
+}
+
+// Complete lines only — a truncated read almost always ends mid-line.
+function headLines(file: string, bytes: number = HEAD_BYTES): string[] {
+  const { text, truncated } = readHead(file, bytes);
+  if (!text) return [];
+  const lines = text.split('\n');
+  if (truncated) lines.pop();
+  return lines.filter(Boolean);
+}
+
 function tryMatchCwd(trace: SessionTrace, cwd: string): boolean {
   if (hashCwd(cwd) !== trace.cwdHash) return false;
   trace.cwd = cwd;
@@ -57,13 +96,23 @@ function tryMatchCwd(trace: SessionTrace, cwd: string): boolean {
   return true;
 }
 
-function resolveClaudeTrace(trace: SessionTrace): boolean {
-  const candidates = [join(homedir(), '.claude', 'sessions'), join(homedir(), '.claude', 'projects')];
+function resolveClaudeTrace(trace: SessionTrace, home: string): boolean {
+  const candidates = [join(home, '.claude', 'sessions'), join(home, '.claude', 'projects')];
   for (const dir of candidates) {
     for (const file of walkFiles(dir, ['.json', '.jsonl'], 3)) {
       try {
-        const raw = readFileSync(file, 'utf-8');
-        const firstLine = file.endsWith('.jsonl') ? raw.split('\n').find(Boolean) ?? '' : raw;
+        // .json is parsed whole, so it is read whole — but only when it is
+        // small enough to plausibly be session metadata. .jsonl needs just
+        // the first record.
+        let firstLine: string;
+        if (file.endsWith('.jsonl')) {
+          firstLine = headLines(file)[0] ?? '';
+        } else {
+          let size = 0;
+          try { size = statSync(file).size; } catch { continue; }
+          if (size > MAX_WHOLE_JSON_BYTES) continue;
+          firstLine = readFileSync(file, 'utf-8');
+        }
         if (!firstLine) continue;
         const data = JSON.parse(firstLine) as { cwd?: string };
         if (!data.cwd || !tryMatchCwd(trace, data.cwd)) continue;
@@ -78,11 +127,11 @@ function resolveClaudeTrace(trace: SessionTrace): boolean {
   return false;
 }
 
-function resolveCodexTrace(trace: SessionTrace): boolean {
-  const root = join(homedir(), '.codex', 'sessions');
+function resolveCodexTrace(trace: SessionTrace, home: string): boolean {
+  const root = join(home, '.codex', 'sessions');
   for (const file of walkFiles(root, ['.jsonl'], 4)) {
     try {
-      const lines = readFileSync(file, 'utf-8').split('\n').filter(Boolean).slice(0, 12);
+      const lines = headLines(file).slice(0, 12);
       for (const line of lines) {
         const row = JSON.parse(line) as any;
         const payload = row?.payload;
@@ -102,12 +151,22 @@ function resolveCodexTrace(trace: SessionTrace): boolean {
   return false;
 }
 
-export function resolveSessionTrace(sessionId: string): SessionTrace {
+export type ResolveOptions = {
+  // Root to search under, defaulting to the real home directory. Tests point
+  // this at a fixture tree: reading the developer's actual ~/.claude made the
+  // result depend on whose machine ran the suite, and made runtime scale with
+  // their transcript history — a test that took >90s here and 0s on a CI
+  // runner with no history, which is how an unbounded read went unnoticed.
+  home?: string;
+};
+
+export function resolveSessionTrace(sessionId: string, opts: ResolveOptions = {}): SessionTrace {
   const parsed = parseSessionId(sessionId);
   if (!parsed) return { sessionId, cwdHash: '', dateBucket: '' };
 
+  const home = opts.home ?? homedir();
   const trace: SessionTrace = { sessionId, cwdHash: parsed.cwdHash, dateBucket: parsed.dateBucket };
-  if (resolveClaudeTrace(trace)) return trace;
-  if (resolveCodexTrace(trace)) return trace;
+  if (resolveClaudeTrace(trace, home)) return trace;
+  if (resolveCodexTrace(trace, home)) return trace;
   return trace;
 }

@@ -11,7 +11,7 @@
 // Chain-walking detectors share a single `ChainScratch` across their
 // per-node iteration so overlapping subtrees aren't re-walked.
 
-import type { Finding } from './types.js';
+import { type Finding, SUBSUMES } from './types.js';
 import { REASONING_CONFIG } from './config.js';
 import {
   type SessionGraph,
@@ -50,6 +50,13 @@ export function detectUnchallengedChain(graph: SessionGraph, scratch: ChainScrat
   const out: Finding[] = [];
   const minLen = REASONING_CONFIG.UNCHALLENGED_CHAIN_MIN_LENGTH;
   for (const node of graph.nodes.values()) {
+    // Only start from a maximal chain — a node nothing else depends on.
+    // Otherwise a challenged chain still fires via its own unchallenged
+    // suffix: challenge c1→c2, and the walk starting at c2 sees no challenge
+    // between its own endpoints. That suffix isn't a separate chain, it's the
+    // tail of one we already considered. Was masked until #129 lowered the
+    // minimum length to 3 and made short suffixes long enough to qualify.
+    if (downstreamCount(graph, node.id) > 0) continue;
     const chain = longestChainNodesFrom(graph, node.id, ['supports', 'depends_on'], scratch);
     if (chain.length < minLen) continue;
     if (chainHasChallenge(graph, chain)) continue;
@@ -198,10 +205,24 @@ export function detectGroundedPremiseAdopted(graph: SessionGraph): Finding[] {
   return out;
 }
 
+// Drop a general finding when a more specific one fired on the same anchor.
+// Both describe one situation; surfacing the general one loses information,
+// and the per-anchor cooldown in findings.ts means whichever is emitted
+// blocks the other for the next N observes anyway. Exported for testing.
+export function dropSubsumed(findings: Finding[]): Finding[] {
+  const specificByAnchor = new Set<string>();
+  for (const f of findings) {
+    const general = SUBSUMES[f.type];
+    if (general) specificByAnchor.add(`${f.anchor_claim_id}:${general}`);
+  }
+  if (specificByAnchor.size === 0) return findings;
+  return findings.filter(f => !specificByAnchor.has(`${f.anchor_claim_id}:${f.type}`));
+}
+
 export function runAllDetectors(graph: SessionGraph): Finding[] {
   if (graph.nodes.size < REASONING_CONFIG.COLD_START_MIN_CLAIMS) return [];
   const scratch = makeChainScratch();
-  return [
+  return dropSubsumed([
     ...detectLoadBearingVibes(graph),
     ...detectUnchallengedChain(graph, scratch),
     ...detectEchoChamber(graph),
@@ -209,5 +230,5 @@ export function runAllDetectors(graph: SessionGraph): Finding[] {
     ...detectWellSourcedLoadBearer(graph),
     ...detectProductiveStressTest(graph, scratch),
     ...detectGroundedPremiseAdopted(graph),
-  ];
+  ]);
 }
