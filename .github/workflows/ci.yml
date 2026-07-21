@@ -4,6 +4,13 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch: # Allow manual trigger
+
+# Least privilege: this workflow only ever reads the tree. Declared
+# explicitly rather than inherited, so a change to the repository's default
+# token permissions cannot silently widen what a PR-triggered run can do.
+permissions:
+  contents: read
 
 # A newer push to the same branch supersedes an in-flight run.
 concurrency:
