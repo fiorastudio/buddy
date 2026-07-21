@@ -12,12 +12,25 @@ concurrency:
 
 jobs:
   test:
+    name: node ${{ matrix.node }}${{ matrix.bun && ' + bun' || '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # Floor of the supported range (package.json engines) and current.
         node: ['20', '24']
+        # Buddy's rescue path reproduces Claude Code's Bun.hash() by shelling
+        # out to `bun`, and falls back to FNV-1a when Bun is absent. A bare
+        # runner only ever exercises the fallback, so the Bun branch shipped
+        # untested — and shipped broken: `bun -e <script> <arg>` drops the
+        # trailing argument, so every rescued companion rolled identical
+        # bones. One leg with Bun installed executes that branch for real.
+        bun: [false, true]
+        exclude:
+          # The Bun branch does not vary with the Node version; one leg is
+          # enough to cover it.
+          - node: '20'
+            bun: true
     # The suite runs file-serially (vitest.config.ts sets fileParallelism:
     # false, because several files share one BUDDY_DB_PATH) and takes well
     # under a minute. The ceiling is a hang guard, not a budget: a test that
@@ -31,6 +44,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+
+      - if: matrix.bun
+        uses: oven-sh/setup-bun@v2
 
       # `npm ci` builds better-sqlite3 from source when no prebuild matches
       # the runner's Node ABI — that is the install path users hit too.
