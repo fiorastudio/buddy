@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor of the supported range (package.json engines) and current.
+        node: ['20', '24']
+    # The suite runs file-serially (vitest.config.ts sets fileParallelism:
+    # false, because several files share one BUDDY_DB_PATH) and takes well
+    # under a minute. The ceiling is a hang guard, not a budget: a test that
+    # reads unbounded local state can stall indefinitely, and that should
+    # fail the job rather than occupy a runner.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `npm ci` builds better-sqlite3 from source when no prebuild matches
+      # the runner's Node ABI — that is the install path users hit too.
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm test
