@@ -96,13 +96,13 @@ describe('Penguin generated motion', () => {
     const bones = makeBones('Penguin');
     const neutral = renderSprite(bones, 0).join('\n');
     const left = renderSprite(bones, 1).join('\n');
-    const tucked = renderSprite(bones, 2).join('\n');
+    const center = renderSprite(bones, 2).join('\n');
     const right = renderSprite(bones, 3).join('\n');
 
     expect(neutral).toContain('/(   )\\');
-    expect(left).toContain('_/|   )\\');
-    expect(tucked).toContain('|(   )|');
-    expect(right).toContain('/(   |\\_');
+    expect(left).toContain('//  )/');
+    expect(center).toContain('/(   )\\');
+    expect(right).toContain('\\(  \\\\');
     expect(left).not.toEqual(right);
   });
 });
