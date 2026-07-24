@@ -23,7 +23,7 @@ import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
-import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
+import { loadCompanion, writeBuddyStatus, createCompanion, companionExists } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
 import { captureSnapshot } from "../lib/snapshot.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
@@ -319,6 +319,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: requestedName, species: requestedSpecies, user_id } = args as {
       name?: string; species?: string; user_id?: string;
     };
+
+    // Never silently replace an existing companion. Onboarding may have rescued
+    // a buddy (the installer then tells the user to hatch); overwriting it here
+    // would destroy that buddy and its history. Releasing is an explicit,
+    // separate action — the user must run buddy_respawn first.
+    const existing = companionExists();
+    if (existing) {
+      const current = loadCompanion(existing);
+      const who = current
+        ? `${current.name} the ${current.species} (Lv.${current.level})`
+        : 'a companion';
+      return {
+        content: [{
+          type: "text",
+          text: `You already have ${who}. Hatching would abandon them and erase their history.\n\n` +
+            `If you truly want a new buddy, run buddy_respawn first to release ${current?.name ?? 'the current one'}, then buddy_hatch again.`,
+        }],
+      };
+    }
 
     const { companion } = createCompanion({
       userId: user_id,
