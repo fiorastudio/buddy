@@ -19,7 +19,7 @@ let statusDirEnsured = false;
  * Returns the row if found, null otherwise.
  */
 export function companionExists(): any | null {
-  return db.prepare('SELECT * FROM companions LIMIT 1').get() || null;
+  return db.prepare('SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() || null;
 }
 
 /**
@@ -61,10 +61,28 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
     xp,
     mood: row.mood,
     availablePoints: row.stat_points_available || 0,
-    hatchedAt: new Date(row.created_at).getTime(),
+    hatchedAt: parseCreatedAt(row.created_at),
     guardMode: row.guard_mode ?? 0,
     zeny: row.zeny || 0,
   };
+}
+
+/**
+ * created_at arrives in two shapes. Rescued buddies get an explicit ISO 8601
+ * string with a 'Z', which parses correctly. Everyone else gets SQLite's
+ * DEFAULT CURRENT_TIMESTAMP — 'YYYY-MM-DD HH:MM:SS', UTC but with no zone
+ * designator, which JavaScript reads as *local* time. Left alone that makes a
+ * normally-hatched companion's age wrong by the UTC offset, and negative for
+ * the first N hours after hatching anywhere west of Greenwich.
+ */
+export function parseCreatedAt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value) return Date.now();
+
+  const raw = String(value).trim();
+  const iso = /[TZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z';
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : Date.now();
 }
 
 /**
