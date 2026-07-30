@@ -68,10 +68,30 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
 }
 
 /**
+ * Reads the mute flag straight from the DB. Cheap (single indexed row) and
+ * always current, so it cannot drift from what buddy_mute wrote.
+ */
+function isMuted(): boolean {
+  try {
+    const row = db
+      .prepare("SELECT muted FROM companions ORDER BY created_at ASC, id ASC LIMIT 1")
+      .get() as { muted?: number } | undefined;
+    return (row?.muted ?? 0) === 1;
+  } catch {
+    // Column missing (pre-migration) or DB unavailable — fail open, as before.
+    return false;
+  }
+}
+
+/**
  * Write buddy status JSON for the statusline wrapper.
  */
 export function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[]; petActiveUntil?: number }) {
   try {
+    // Muted buddies never write the statusline file. Guarding here rather than
+    // at each of the six call sites means a new caller can't silently un-mute.
+    if (isMuted()) return;
+
     if (!statusDirEnsured) {
       mkdirSync(dirname(BUDDY_STATUS_PATH), { recursive: true });
       statusDirEnsured = true;

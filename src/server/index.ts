@@ -128,8 +128,12 @@ function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string)
     xpResult = { ...streakResult, xpGained: xpResult.xpGained + streakResult.xpGained, leveledUp: xpResult.leveledUp || streakResult.leveledUp };
   }
 
-  const newMood = recalcMood(row.id, xpResult.leveledUp);
-  db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
+  // A muted buddy keeps earning XP quietly, but its mood is left alone —
+  // overwriting it here was the second path that silently un-muted.
+  const newMood = row.muted ? row.mood : recalcMood(row.id, xpResult.leveledUp);
+  if (!row.muted) {
+    db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
+  }
   const companion = loadCompanion({ ...row, mood: newMood, xp: xpResult.newXp, level: xpResult.newLevel, zeny: xpResult.newZeny }, userIdOverride)!;
   // Buddy World: no-op unless the user ran buddy-world teleport. A level-up
   // flushes instantly — the server derives the level_up world event from
@@ -398,6 +402,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     const userId = user_id || row.user_id || 'anon';
 
+    // A muted buddy stays muted. Recomputing mood and rewriting the status file
+    // here is what used to resurrect it at the start of every conversation.
+    if (row.muted) {
+      return {
+        content: [{
+          type: "text",
+          text: `${row.name} is muted. Use buddy_unmute to bring it back.`,
+        }],
+      };
+    }
+
     const newMood = recalcMood(row.id, false);
     db.prepare("UPDATE companions SET mood = ? WHERE id = ?").run(newMood, row.id);
 
@@ -637,7 +652,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: "No companion to mute! Use buddy_hatch first." }] };
     }
 
-    db.prepare("UPDATE companions SET mood = 'muted' WHERE id = ?").run(row.id);
+    // Tracked in its own column. Parking 'muted' in `mood` did not survive:
+    // calculateMood never returns 'muted', so the next mood recompute — which
+    // buddy_status does on every conversation start — silently un-muted.
+    db.prepare("UPDATE companions SET muted = 1 WHERE id = ?").run(row.id);
 
     // Remove status file so statusline goes blank
     try { unlinkSync(BUDDY_STATUS_PATH); } catch { /* already gone */ }
@@ -651,7 +669,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: "text", text: "No companion to unmute! Use buddy_hatch first." }] };
     }
 
-    db.prepare("UPDATE companions SET mood = 'happy' WHERE id = ?").run(row.id);
+    db.prepare("UPDATE companions SET muted = 0, mood = 'happy' WHERE id = ?").run(row.id);
     const companion = loadCompanion({ ...row, mood: 'happy' })!;
     writeBuddyStatus(companion);
 
