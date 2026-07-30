@@ -67,11 +67,23 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
 }
 
 /**
- * Award XP for one or more events in a single SELECT + one UPDATE (each
- * event still gets its own xp_events row). A hook batch of commit + tests
- * + deploy therefore costs 5 statements, not 3 SELECT/UPDATE pairs.
+ * Award XP for one or more events. The whole award runs in one IMMEDIATE
+ * transaction with a self-referential UPDATE (xp = xp + ?, zeny = zeny + ?)
+ * rather than a read-modify-write.
+ *
+ * Two Claude Code sessions run two server processes against the same
+ * ~/.buddy/buddy.db. A read-modify-write let both read the same old total and
+ * write their own sum, so one award vanished and companions.xp drifted
+ * permanently below sum(xp_events.xp_gained) — sometimes skipping a level-up
+ * boundary too, since leveledUp compared against the stale level. BEGIN
+ * IMMEDIATE takes the write lock up front, so the second session waits
+ * (busy_timeout) and re-reads instead of losing its award; the level is then
+ * recomputed from the value SQLite actually stored, never a stale read.
+ *
+ * Each event still gets its own append-only xp_events row, so a hook batch of
+ * commit + tests + deploy stays cheap.
  */
-function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number; newZeny: number } {
+const awardXpBatchTxn = db.transaction((companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number; newZeny: number } => {
   // Buddy World blessing: teleported buddies earn +10% (local file check, cached).
   const blessed = isWorldBlessed();
   const insert = db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)");
@@ -84,14 +96,31 @@ function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: numbe
     zenyGained += applyBlessing(zenyForEvent(eventType), blessed);
   }
 
-  const row = db.prepare("SELECT xp, level, zeny FROM companions WHERE id = ?").get(companionId) as any;
-  const newXp = (row?.xp || 0) + xpGained;
+  // Pre-award level, read inside the txn, is what leveledUp compares against.
+  const before = db.prepare("SELECT level FROM companions WHERE id = ?").get(companionId) as any;
+
+  // Self-referential: SQLite does the addition under the write lock, so two
+  // interleaved sessions can't clobber each other. companions.xp therefore
+  // stays equal to sum(xp_events.xp_gained), and zeny to its own running sum.
+  db.prepare("UPDATE companions SET xp = xp + ?, zeny = zeny + ? WHERE id = ?").run(xpGained, zenyGained, companionId);
+
+  const after = db.prepare("SELECT xp, zeny FROM companions WHERE id = ?").get(companionId) as any;
+  const newXp = after?.xp ?? xpGained;
+  const newZeny = after?.zeny ?? zenyGained;
   const newLevel = levelFromXp(newXp);
-  const leveledUp = newLevel > (row?.level || 1);
-  const newZeny = (row?.zeny || 0) + zenyGained;
-  db.prepare("UPDATE companions SET xp = ?, level = ?, zeny = ? WHERE id = ?").run(newXp, newLevel, newZeny, companionId);
+  const leveledUp = newLevel > (before?.level || 1);
+  db.prepare("UPDATE companions SET level = ? WHERE id = ?").run(newLevel, companionId);
 
   return { newXp, newLevel, leveledUp, xpGained, newZeny };
+});
+
+/**
+ * Run the award as BEGIN IMMEDIATE so concurrent server processes serialize on
+ * the write lock rather than deadlocking on a lock upgrade — the failure mode a
+ * DEFERRED read-then-write would hit under busy_timeout.
+ */
+function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number; newZeny: number } {
+  return awardXpBatchTxn.immediate(companionId, eventTypes);
 }
 
 /**
@@ -395,7 +424,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "buddy_status") {
     const { user_id } = args as { user_id?: string };
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch to start." }] };
     }
@@ -427,7 +456,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "buddy_remember") {
     const { content, importance = 1 } = args as { content: string, importance?: number };
-    const companion = db.prepare("SELECT id FROM companions LIMIT 1").get() as any;
+    const companion = db.prepare("SELECT id FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!companion) return { content: [{ type: "text", text: "Hatch a companion first!" }] };
 
     const id = randomUUID();
@@ -448,7 +477,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_respawn") {
-    const companion = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const companion = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!companion) {
       return {
         content: [{ type: "text", text: "No companion to release. Use buddy_hatch to get started!" }],
@@ -492,7 +521,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       cwd?: string;
     };
 
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
     }
@@ -590,7 +619,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_pet") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion to pet! Use buddy_hatch first." }] };
     }
@@ -647,7 +676,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_mute") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion to mute! Use buddy_hatch first." }] };
     }
@@ -664,7 +693,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_unmute") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion to unmute! Use buddy_hatch first." }] };
     }
@@ -677,7 +706,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_mode") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion yet! Use buddy_hatch first." }] };
     }
@@ -737,7 +766,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_reasoning_status") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     const totalClaims = (db.prepare("SELECT count(*) as n FROM reasoning_claims").get() as any)?.n ?? 0;
     const totalEdges = (db.prepare("SELECT count(*) as n FROM reasoning_edges").get() as any)?.n ?? 0;
     const totalFindings = (db.prepare("SELECT count(*) as n FROM reasoning_findings_log").get() as any)?.n ?? 0;
@@ -805,7 +834,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "buddy_share") {
     const { user_id } = args as { user_id?: string };
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) return { content: [{ type: "text", text: "Hatch a buddy first!" }] };
 
     const companion = loadCompanion(row, user_id || row.user_id || 'anon')!;
@@ -870,7 +899,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
 
   if (uri === "buddy://companion") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ message: "No companion hatched" }) }] };
     }
@@ -879,7 +908,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
 
   if (uri === "buddy://status") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet." }] };
     }
@@ -892,7 +921,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
 
   if (uri === "buddy://intro") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet. Use buddy_hatch to get started." }] };
     }
@@ -924,7 +953,7 @@ When the user addresses ${companion.name} by name, respond briefly in character 
 
 async function main() {
   // Write status file on startup if a companion exists
-  const existing = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+  const existing = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
   if (existing) {
     const companion = loadCompanion(existing);
     if (companion) writeBuddyStatus(companion);
