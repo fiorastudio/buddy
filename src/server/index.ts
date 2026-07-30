@@ -60,21 +60,28 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
   return calculateMood(new Array(xpCount), memCount);
 }
 
-function awardXp(companionId: string, eventType: string): { newXp: number; newLevel: number; leveledUp: boolean } {
+/**
+ * One transaction, with a self-referential UPDATE rather than a
+ * read-modify-write. Two Claude Code sessions run two server processes against
+ * the same file: both would read the same old total, both write their own sum,
+ * and one award would vanish — leaving companions.xp permanently below
+ * sum(xp_events.xp_gained) and potentially skipping a level-up boundary.
+ */
+const awardXp = db.transaction((companionId: string, eventType: string): { newXp: number; newLevel: number; leveledUp: boolean } => {
   const xp = XP_REWARDS[eventType] || 1;
-  const id = randomUUID();
-  db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)").run(id, companionId, eventType, xp);
+  const before = db.prepare("SELECT level FROM companions WHERE id = ?").get(companionId) as any;
 
-  // Get current total XP
-  const row = db.prepare("SELECT xp, level FROM companions WHERE id = ?").get(companionId) as any;
-  const newXp = (row?.xp || 0) + xp;
+  db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)")
+    .run(randomUUID(), companionId, eventType, xp);
+  db.prepare("UPDATE companions SET xp = xp + ? WHERE id = ?").run(xp, companionId);
+
+  const after = db.prepare("SELECT xp FROM companions WHERE id = ?").get(companionId) as any;
+  const newXp = after?.xp ?? xp;
   const newLevel = levelFromXp(newXp);
-  const leveledUp = newLevel > (row?.level || 1);
+  db.prepare("UPDATE companions SET level = ? WHERE id = ?").run(newLevel, companionId);
 
-  db.prepare("UPDATE companions SET xp = ?, level = ? WHERE id = ?").run(newXp, newLevel, companionId);
-
-  return { newXp, newLevel, leveledUp };
-}
+  return { newXp, newLevel, leveledUp: newLevel > (before?.level || 1) };
+});
 
 /**
  * Award XP, recalculate mood, update DB, and load companion — shared by observe + pet.
@@ -342,7 +349,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "buddy_status") {
     const { user_id } = args as { user_id?: string };
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch to start." }] };
     }
@@ -374,7 +381,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "buddy_remember") {
     const { content, importance = 1 } = args as { content: string, importance?: number };
-    const companion = db.prepare("SELECT id FROM companions LIMIT 1").get() as any;
+    const companion = db.prepare("SELECT id FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!companion) return { content: [{ type: "text", text: "Hatch a companion first!" }] };
 
     const id = randomUUID();
@@ -395,7 +402,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_respawn") {
-    const companion = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const companion = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!companion) {
       return {
         content: [{ type: "text", text: "No companion to release. Use buddy_hatch to get started!" }],
@@ -439,7 +446,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       cwd?: string;
     };
 
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion hatched yet! Use buddy_hatch first." }] };
     }
@@ -535,7 +542,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_pet") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion to pet! Use buddy_hatch first." }] };
     }
@@ -592,7 +599,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_mute") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion to mute! Use buddy_hatch first." }] };
     }
@@ -609,7 +616,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_unmute") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion to unmute! Use buddy_hatch first." }] };
     }
@@ -622,7 +629,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_mode") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { content: [{ type: "text", text: "No companion yet! Use buddy_hatch first." }] };
     }
@@ -682,7 +689,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "buddy_reasoning_status") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     const totalClaims = (db.prepare("SELECT count(*) as n FROM reasoning_claims").get() as any)?.n ?? 0;
     const totalEdges = (db.prepare("SELECT count(*) as n FROM reasoning_edges").get() as any)?.n ?? 0;
     const totalFindings = (db.prepare("SELECT count(*) as n FROM reasoning_findings_log").get() as any)?.n ?? 0;
@@ -750,7 +757,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === "buddy_share") {
     const { user_id } = args as { user_id?: string };
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) return { content: [{ type: "text", text: "Hatch a buddy first!" }] };
 
     const companion = loadCompanion(row, user_id || row.user_id || 'anon')!;
@@ -815,7 +822,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
 
   if (uri === "buddy://companion") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ message: "No companion hatched" }) }] };
     }
@@ -824,7 +831,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
 
   if (uri === "buddy://status") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet." }] };
     }
@@ -837,7 +844,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
 
   if (uri === "buddy://intro") {
-    const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+    const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
     if (!row) {
       return { contents: [{ uri, mimeType: "text/plain", text: "No companion hatched yet. Use buddy_hatch to get started." }] };
     }
@@ -869,7 +876,7 @@ When the user addresses ${companion.name} by name, respond briefly in character 
 
 async function main() {
   // Write status file on startup if a companion exists
-  const existing = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+  const existing = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
   if (existing) {
     const companion = loadCompanion(existing);
     if (companion) writeBuddyStatus(companion);

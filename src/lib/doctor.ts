@@ -319,7 +319,7 @@ function checkMcpEntryPaths(): DiagnosticCheck {
 
 function checkCompanionActive(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT * FROM companions LIMIT 1').get() as any;
+    const row = db.prepare('SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() as any;
     if (!row) {
       return { id: 'companion.active', status: 'warn', label: 'Active companion', detail: 'None', suggestion: 'Use buddy_hatch to create a companion' };
     }
@@ -340,7 +340,7 @@ function checkCompanionCount(): DiagnosticCheck {
 
 function checkCompanionDetails(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT * FROM companions LIMIT 1').get() as any;
+    const row = db.prepare('SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() as any;
     if (!row) {
       return { id: 'companion.details', status: 'skip', label: 'Companion details', detail: 'No companion' };
     }
@@ -587,7 +587,7 @@ function checkPromptInjection(): DiagnosticCheck {
 
 function checkReasoningGuardMode(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT id, guard_mode FROM companions LIMIT 1').get() as any;
+    const row = db.prepare('SELECT id, guard_mode FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() as any;
     if (!row) {
       return { id: 'reasoning.guard', status: 'skip', label: 'Guard mode', detail: 'No companion' };
     }
@@ -662,7 +662,7 @@ function checkReasoningStorage(): DiagnosticCheck {
 
 function checkReasoningRootResolution(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT guard_mode FROM companions LIMIT 1').get() as any;
+    const row = db.prepare('SELECT guard_mode FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() as any;
     if (!row || (row.guard_mode ?? 0) === 0) {
       return { id: 'reasoning.root', status: 'skip', label: 'Workspace root', detail: 'Guard mode off' };
     }
@@ -694,7 +694,7 @@ function checkReasoningRootResolution(): DiagnosticCheck {
 
 function checkReasoningBasisQuality(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT guard_mode FROM companions LIMIT 1').get() as any;
+    const row = db.prepare('SELECT guard_mode FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() as any;
     if (!row || (row.guard_mode ?? 0) === 0) {
       return { id: 'reasoning.quality', status: 'skip', label: 'Extraction quality', detail: 'Guard mode off' };
     }
@@ -719,7 +719,7 @@ function checkReasoningBasisQuality(): DiagnosticCheck {
 
 function checkReasoningEdgeQuality(): DiagnosticCheck {
   try {
-    const row = db.prepare('SELECT guard_mode FROM companions LIMIT 1').get() as any;
+    const row = db.prepare('SELECT guard_mode FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() as any;
     if (!row || (row.guard_mode ?? 0) === 0) {
       return { id: 'reasoning.edges', status: 'skip', label: 'Edge diversity', detail: 'Guard mode off' };
     }
