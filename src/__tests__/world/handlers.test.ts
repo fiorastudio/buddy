@@ -10,6 +10,7 @@ import {
   RateLimiter,
 } from '../../lib/world/handlers.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
+import { DISTRICT_CAPACITY } from '../../lib/world/districts.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
 
 const T0 = 1_800_000_000_000;
@@ -58,6 +59,49 @@ describe('world handlers', () => {
   it('teleport rejects profane names with 400', async () => {
     const res = await handleTeleport({ token: 'tttttttt', snapshot: snap({ name: 'Sh1tLord' }) }, store, OPTS);
     expect(res.status).toBe(400);
+  });
+
+  it('teleport into a named town resolves it to the right plaza', async () => {
+    const res = await handleTeleport(
+      { token: 'tok-0123456789abcdef', snapshot: snap(), district: 'geffen' },
+      store,
+      OPTS
+    );
+    expect(res.status).toBe(200);
+    expect((res.body as { district: string }).district).toBe('plaza-3');
+  });
+
+  it('teleport to an unknown town is a 400 unknown_town', async () => {
+    const res = await handleTeleport(
+      { token: 'tok-0123456789abcdef', snapshot: snap(), district: 'gondor' },
+      store,
+      OPTS
+    );
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe('unknown_town');
+  });
+
+  it('teleport to a full town is 409, but an occupant may still re-teleport there', async () => {
+    const occupant = 'occupant-0123456789';
+    for (let i = 0; i < DISTRICT_CAPACITY; i++) {
+      const token = i === 0 ? occupant : `filler-${i}-aaaaaaaa`;
+      await handleTeleport({ token, snapshot: snap({ name: `Cit${i}` }), district: 'geffen' }, store, OPTS);
+    }
+    const late = await handleTeleport(
+      { token: 'latecomer-0123456789', snapshot: snap({ name: 'Late' }), district: 'geffen' },
+      store,
+      OPTS
+    );
+    expect(late.status).toBe(409);
+    expect((late.body as { error: string }).error).toBe('town_full');
+
+    // Someone already living in the full town can still re-sync/refresh there.
+    const stay = await handleTeleport(
+      { token: occupant, snapshot: snap({ name: 'Cit0' }), district: 'geffen' },
+      store,
+      OPTS
+    );
+    expect(stay.status).toBe(200);
   });
 
   it('events with an unknown token returns 401', async () => {

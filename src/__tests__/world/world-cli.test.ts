@@ -93,4 +93,42 @@ describe('worldCommand', () => {
     const out = await worldCommand(['dance'], deps);
     expect(out.join('\n')).toMatch(/usage/i);
   });
+
+  it('teleport <town> sends the buddy to that town and names it', async () => {
+    const out = await worldCommand(['teleport', 'geffen'], deps);
+    expect(out.join('\n')).toMatch(/geffen/i);
+    expect(loadWorldConfig(configPath)?.district).toBe('plaza-3');
+  });
+
+  it('teleport <town> works alongside --avatar', async () => {
+    await worldCommand(['teleport', 'morroc', '--avatar', 'chibi-7'], deps);
+    const cfg = loadWorldConfig(configPath);
+    expect(cfg?.district).toBe('plaza-5');
+    expect(cfg?.avatar).toBe('chibi-7');
+  });
+
+  it('teleport to an unknown town lists the towns and saves nothing', async () => {
+    const out = (await worldCommand(['teleport', 'gondor'], deps)).join('\n');
+    expect(out).toMatch(/unknown town/i);
+    expect(out).toContain('Geffen');
+    expect(loadWorldConfig(configPath)).toBeNull();
+  });
+
+  it('re-teleport to a different town moves the buddy', async () => {
+    await worldCommand(['teleport', 'prontera'], deps);
+    await worldCommand(['teleport', 'lutie'], deps);
+    expect(loadWorldConfig(configPath)?.district).toBe('plaza-6');
+  });
+
+  it('status names the town after teleporting to one', async () => {
+    await worldCommand(['teleport', 'geffen'], deps);
+    expect((await worldCommand(['status'], deps)).join('\n')).toMatch(/Geffen/);
+  });
+
+  it('towns lists all six RO cities', async () => {
+    const out = (await worldCommand(['towns'], deps)).join('\n');
+    for (const t of ['Prontera', 'Payon', 'Geffen', 'Alberta', 'Morroc', 'Lutie']) {
+      expect(out).toContain(t);
+    }
+  });
 });

@@ -44,10 +44,32 @@
     font-family: inherit;
   }
   #music-toggle:hover, #music-toggle:focus-visible { border-color: var(--gold); color: var(--gold); }
+  /* RO-blue "jukebox" window — styled like a classic Ragnarok Online UI panel.
+     Stays small + visible while playing (YouTube ToS: >=200x200, not hidden). */
   #music-player {
     position: fixed; bottom: 52px; left: 14px; z-index: 10;
-    border: 1px solid #3a2f6b; border-radius: 8px; overflow: hidden;
+    border: 2px solid #23305c; border-radius: 4px; overflow: hidden;
     background: #0f0c29;
+    box-shadow: 0 0 0 1px #6d8fd0, 0 6px 18px rgba(0,0,0,0.55);
+  }
+  #music-player .jukebox-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 22px; padding: 0 4px 0 8px;
+    background: linear-gradient(#6d8fd0, #3f5f9e);
+    border-bottom: 1px solid #23305c;
+    font-size: 11px; color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,0.45);
+    user-select: none;
+  }
+  #music-player .jukebox-title { font-weight: bold; letter-spacing: 0.3px; }
+  #music-close {
+    width: 16px; height: 16px; padding: 0; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid #23305c; border-radius: 2px;
+    background: linear-gradient(#d3ddf0, #9fb2da); color: #22345e;
+    font-size: 11px; font-family: inherit; cursor: pointer;
+  }
+  #music-close:hover, #music-close:focus-visible {
+    background: linear-gradient(#efc0c0, #d38a8a); color: #5a1010; outline: none;
   }
   #music-player iframe { display: block; border: 0; }
   .visually-hidden {

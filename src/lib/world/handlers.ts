@@ -8,6 +8,8 @@ import { validateSnapshot, type WorldSnapshot } from './validate.js';
 import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
+import { districtForTown } from './towns.js';
+import { DISTRICT_CAPACITY } from './districts.js';
 import type { WorldStore, CitizenRow } from './store.js';
 
 export const MAX_EVENT_BATCH = 50;
@@ -53,7 +55,7 @@ async function applyClampedSnapshot(
 }
 
 export async function handleTeleport(
-  payload: { token?: unknown; snapshot?: unknown },
+  payload: { token?: unknown; snapshot?: unknown; district?: unknown },
   store: WorldStore,
   opts: HandlerOpts
 ): Promise<HandlerResult> {
@@ -66,13 +68,28 @@ export async function handleTeleport(
   if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
 
   const tokenHash = hashToken(payload.token);
+
+  // Optional chosen destination: an owner may pick a town by name (or plaza-N).
+  let desiredDistrict: string | undefined;
+  if (payload.district !== undefined && payload.district !== null && payload.district !== '') {
+    if (typeof payload.district !== 'string') return bad(400, 'unknown_town');
+    const resolved = districtForTown(payload.district);
+    if (!resolved) return bad(400, 'unknown_town');
+    // Capacity gate — but never bounce someone who already lives there.
+    const counts = await store.districtCounts();
+    if ((counts[resolved] ?? 0) >= DISTRICT_CAPACITY) {
+      const current = await store.findByTokenHash(tokenHash);
+      if (current?.district !== resolved) return bad(409, 'town_full');
+    }
+    desiredDistrict = resolved;
+  }
   // ACCEPTED RISK: a first teleport's claimed XP is trusted (the server
   // never saw the buddy's local history — that's inherent to opt-in sync
   // of a local-first game). Mitigations: level must match the XP curve,
   // fresh citizens start with a near-empty budget (no fast growth on top),
   // and analytics can segment by entry level. Post-creation changes all go
   // through the clamped path below.
-  const result = await store.teleport(tokenHash, snap, opts.now);
+  const result = await store.teleport(tokenHash, snap, opts.now, desiredDistrict);
   if (!result.created) {
     // Existing citizen: snapshot changes go through the clamp, never around it.
     const citizen = await store.findByTokenHash(tokenHash);

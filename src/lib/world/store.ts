@@ -52,7 +52,7 @@ export interface DistrictView {
 }
 
 export interface WorldStore {
-  teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number): Promise<TeleportResult>;
+  teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number, desiredDistrict?: string): Promise<TeleportResult>;
   findByTokenHash(tokenHash: string): Promise<CitizenRow | null>;
   updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number, xpBucket?: number): Promise<void>;
   recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number>;
@@ -96,21 +96,28 @@ export class SqliteWorldStore implements WorldStore {
     db.exec(WORLD_SCHEMA_SQL);
   }
 
-  async teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number): Promise<TeleportResult> {
+  async teleport(
+    tokenHash: string,
+    snap: WorldSnapshot,
+    nowMs: number,
+    desiredDistrict?: string
+  ): Promise<TeleportResult> {
     const existing = this.db.prepare('SELECT * FROM citizens WHERE token_hash = ?').get(tokenHash) as
       | Record<string, unknown>
       | undefined;
 
     if (existing) {
       // Snapshot fields are NOT written here: re-teleport must go through
-      // the handler's clamped update path, never around it.
+      // the handler's clamped update path, never around it. The one exception
+      // is `district` when the owner explicitly asks to move towns.
+      const district = desiredDistrict ?? (existing.district as string);
       this.db
-        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar) WHERE id = ?')
-        .run(snap.avatar ?? null, existing.id);
-      return { created: false, slug: existing.slug as string, district: existing.district as string };
+        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ? WHERE id = ?')
+        .run(snap.avatar ?? null, district, existing.id);
+      return { created: false, slug: existing.slug as string, district };
     }
 
-    const district = pickDistrict(await this.districtCounts());
+    const district = desiredDistrict ?? pickDistrict(await this.districtCounts());
     const id = randomUUID();
     let slug = makeSlug(snap.name);
     // Regenerate on the (rare) suffix collision rather than failing the insert.
