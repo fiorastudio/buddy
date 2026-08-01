@@ -39,10 +39,15 @@ function seedAndRun(fixture: { claims: any[]; edges: any[] }): FindingType | nul
 describe('pipeline integration — all 6 detectors end-to-end', () => {
   beforeEach(() => { telemetry.reset(); resetGraphCache(); });
 
+  // The anchor is an ASSISTANT vibes claim on purpose. A *user* vibes claim
+  // with assistant supports and no pushback is an echo_chamber case, which
+  // subsumes load-bearing (see SUBSUMES in types.ts) — this fixture used to
+  // be exactly that, and only read as load_bearing_vibes because selection
+  // happened to evaluate that detector first. #150.
   it('fires load_bearing_vibes', () => {
     const t = seedAndRun({
       claims: [
-        { text: 'we need auth', basis: 'vibes', speaker: 'user', confidence: 'medium', external_id: 'v' },
+        { text: 'we need auth', basis: 'vibes', speaker: 'assistant', confidence: 'medium', external_id: 'v' },
         { text: 'a', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'a' },
         { text: 'b', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'b' },
         { text: 'c', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'c' },
@@ -81,6 +86,11 @@ describe('pipeline integration — all 6 detectors end-to-end', () => {
     expect(t).toBe('unchallenged_chain');
   });
 
+  // #151 pinned this as load_bearing_vibes and flagged the open question. The
+  // answer: echo_chamber is a strict specialization of load_bearing_vibes, so
+  // the two are one situation at two resolutions rather than rivals, and the
+  // specific reading is the one worth surfacing. runAllDetectors now drops the
+  // subsumed general finding, so this asserts echo_chamber again. #150.
   it('fires echo_chamber', () => {
     const t = seedAndRun({
       claims: [
@@ -139,6 +149,9 @@ describe('pipeline integration — all 6 detectors end-to-end', () => {
   });
 
   it('fires grounded_premise_adopted', () => {
+    // Exactly one assistant support: enough for grounded_premise_adopted
+    // (min 1 since #129) while staying below well_sourced_load_bearer's
+    // downstream minimum, so the grounded finding is the one that surfaces.
     const t = seedAndRun({
       claims: [
         { text: 'OWASP XSS #3', basis: 'research', speaker: 'user', confidence: 'high', external_id: 'u' },
@@ -150,7 +163,6 @@ describe('pipeline integration — all 6 detectors end-to-end', () => {
       ],
       edges: [
         { from: 'a', to: 'u', type: 'supports' },
-        { from: 'b', to: 'u', type: 'depends_on' },
       ],
     });
     expect(t).toBe('grounded_premise_adopted');

@@ -91,6 +91,29 @@ export function isCaution(type: FindingType): boolean {
   return (CAUTION_FINDINGS as readonly FindingType[]).includes(type);
 }
 
+// Some detectors are specializations of others: their predicate is another
+// detector's predicate plus extra conjuncts, so both fire on the same anchor
+// and describe ONE situation at two resolutions. Left key = the specific
+// finding; value = the general finding it subsumes on a shared anchor.
+//
+//   echo_chamber ⊂ load_bearing_vibes
+//     load-bearing = vibes/assumption basis with N+ incoming supports.
+//     echo adds: speaker is the user, the supports are all assistant-authored,
+//     and the assistant never pushed back. Every echo case is therefore also a
+//     load-bearing case, and echo's phrasing (nobody challenged it) carries
+//     strictly more than load-bearing's (this isn't anchored).
+//
+//   grounded_premise_adopted ⊂ well_sourced_load_bearer (on a shared anchor)
+//     Not a strict subset — grounded fires at 1 support where well-sourced
+//     needs 2 — but where both fire, grounded is the more specific reading.
+//
+// Without this, selection picked whichever detector ran first (findings.ts
+// takes candidates[0]), so the specific finding was unreachable. See #150.
+export const SUBSUMES: Readonly<Partial<Record<FindingType, FindingType>>> = {
+  echo_chamber: 'load_bearing_vibes',
+  grounded_premise_adopted: 'well_sourced_load_bearer',
+} as const;
+
 export type Finding = {
   type: FindingType;
   anchor_claim_id: string;  // cooldown key; also used to source `{claim}` in phrasings

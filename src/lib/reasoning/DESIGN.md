@@ -234,6 +234,52 @@ only (confirmed by its README) and buddy's edge over slimemold is
 *symmetric* noticing — celebrating rigor is the other half of the
 sycophancy-as-tool inversion.
 
+## Overlapping detectors: subsumption, not competition
+
+Two detectors can fire on the same anchor while describing one situation at
+two resolutions. `echo_chamber`'s predicate is `load_bearing_vibes`' predicate
+plus three conjuncts — the claim is the user's, its supports are all
+assistant-authored, and the assistant never pushed back — so **every echo case
+is also a load-bearing case**. That isn't a tie to break; it's containment.
+
+Selection (`findings.ts`) picks `candidates[0]` within a category, so before
+this was modelled, the general finding won purely on the order detectors run
+in, and the specific one was unreachable. The per-anchor cooldown made it
+worse rather than self-correcting: it keys on `anchor_claim_id` without
+regard to type, so emitting the general finding also blocked the specific one
+on that same anchor for the next N observes. `echo_chamber` therefore could
+not surface at all — not rarely, *never* (#150).
+
+`SUBSUMES` in `types.ts` names the containment explicitly, and
+`runAllDetectors` drops a general finding when a more specific one fired on
+the same anchor. Two consequences worth knowing:
+
+- `load_bearing_vibes` no longer fires on *user* vibes claims that the
+  assistant backed without pushback — those now read as `echo_chamber`, which
+  is the better message for that shape. It still fires on assistant-authored
+  vibes, on user claims that did get challenged, and on user-supported claims.
+- The relationship must stay within one category. Caution/kudos balance
+  (`KUDOS_BIAS_*`, `KUDOS_TIE_BREAK_WEIGHT`) assumes the two pools are
+  independent; a subsumption that crossed them would skew the bias silently.
+  A test asserts every `SUBSUMES` pair is same-category.
+- **Telemetry shifts at the version boundary.** `pipeline.ts` feeds
+  `recordDetectedFindings` from `runAllDetectors`' output, which is now
+  post-drop, so `findings_detected_by_type` counts candidates *offered to
+  selection* rather than candidates raised. Expect `load_bearing_vibes` to
+  fall and `echo_chamber` to rise in `buddy_doctor` after this lands. That is
+  the change working, not a regression — but a metric comparison across the
+  boundary is not like-for-like.
+
+`SUBSUMES` is deliberately single-level: `dropSubsumed` resolves one hop, not
+a transitive closure. Nothing chains today. If a future detector ever makes it
+chain (A ⊂ B and B ⊂ C), the resolution becomes order-dependent and the table
+needs to grow a real closure rather than another row.
+
+Adding a detector that specializes an existing one means adding it to
+`SUBSUMES`. Adding one that merely *overlaps* — neither predicate contains
+the other — is a different problem this doesn't solve, and needs a real
+priority policy rather than a containment table.
+
 ## Schema and storage
 
 Three tables, all additive (see `schema.ts`):

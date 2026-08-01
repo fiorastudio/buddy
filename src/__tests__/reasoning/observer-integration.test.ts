@@ -46,10 +46,13 @@ const SID = 'ws-20260422';
 
 function primeClaims(db: Database.Database) {
   // Build a graph that triggers load-bearing vibes:
-  //   v1 (vibes, user)  ← supports by d1, d2, d3
+  //   v1 (vibes, assistant)  ← supports by d1, d2, d3
   // Plus filler to pass cold-start.
+  // v1 is assistant-authored deliberately: a *user* vibes claim backed by
+  // assistants with no pushback is an echo_chamber case, which subsumes
+  // load-bearing (SUBSUMES in types.ts). #150.
   const claims: any[] = [
-    { text: 'we need auth', basis: 'vibes', speaker: 'user', confidence: 'medium', external_id: 'v1' },
+    { text: 'we need auth', basis: 'vibes', speaker: 'assistant', confidence: 'medium', external_id: 'v1' },
     { text: 'so we need sessions', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'd1' },
     { text: 'so we need token rotation', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'd2' },
     { text: 'so we need a rate limiter', basis: 'deduction', speaker: 'assistant', confidence: 'medium', external_id: 'd3' },
