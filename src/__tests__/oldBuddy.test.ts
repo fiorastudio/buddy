@@ -423,8 +423,14 @@ describe('rollWithCCCompat', () => {
   // wasn't: `bun -e <script> <arg>` silently drops trailing arguments, so the
   // hash input was a constant and EVERY rescued companion rolled identical
   // bones. Sampling many ids makes that failure mode unmistakable.
+  // Sample size is a deliberate tradeoff. Each roll spawns a `bun`
+  // subprocess whose cost is ~9ms warm but seconds under load, and these
+  // tests are already timing-fragile for that reason. A dozen ids is far more
+  // than enough discrimination: the bug collapsed EVERY id to one vector, so
+  // it fails at 1-of-12 with enormous margin, while adding a third of the
+  // subprocess churn a larger sample would.
   it('spreads across many userIds rather than collapsing to one roll', () => {
-    const ids = Array.from({ length: 40 }, (_, i) => `spread-user-${i}`);
+    const ids = Array.from({ length: 12 }, (_, i) => `spread-user-${i}`);
     const vectors = new Set(ids.map(id => JSON.stringify(rollWithCCCompat(id).bones.stats)));
     expect(vectors.size).toBeGreaterThan(ids.length / 2);
   }, 30000);
