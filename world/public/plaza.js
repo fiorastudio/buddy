@@ -1278,43 +1278,42 @@
     requestAnimationFrame(tick);
   }
 
-  // ── plaza music (Ragnarok Online OST) ─────────────────────────────────
-  // Strictly opt-in: no YouTube iframe (and therefore no third-party
-  // request) exists until the visitor clicks. Official embed only —
-  // rights holders keep attribution/monetization. youtube-nocookie keeps
-  // tracking to the minimum YouTube offers.
-  const MUSIC_PLAYLIST = 'PLWa6qxs0LO-v6pR8B9vVmqN-asyi8Crpp';
+  // ── plaza music (self-hosted, original, no third-party embed) ─────────
+  // Strictly opt-in: a hidden <audio preload="none"> makes NO network request
+  // until the visitor clicks. Original royalty-free ambience (Suno-generated,
+  // world/public/music/) — no YouTube iframe, no visible player, no third
+  // party, and nothing copyrighted to embed.
   const musicToggle = document.getElementById('music-toggle');
-  const musicPlayer = document.getElementById('music-player');
+  const musicAudio = document.getElementById('music-audio');
 
-  if (musicToggle && musicPlayer) {
-    musicToggle.addEventListener('click', () => {
-      const playing = musicPlayer.querySelector('iframe');
-      if (playing) {
-        musicPlayer.replaceChildren(); // removes iframe → stops audio + network
-        musicPlayer.hidden = true;
-        musicToggle.textContent = '🎵 music';
-        musicToggle.setAttribute('aria-pressed', 'false');
-        musicToggle.setAttribute('aria-label', 'Play plaza music (Ragnarok Online OST via YouTube)');
-        return;
-      }
-      const iframe = document.createElement('iframe');
-      // YouTube ToS requires the embedded player be >=200x200 and visible
-      // (Required Minimum Functionality). No smaller, no hiding.
-      iframe.width = '300';
-      iframe.height = '200';
-      iframe.src =
-        `https://www.youtube-nocookie.com/embed/videoseries?list=${MUSIC_PLAYLIST}` +
-        '&autoplay=1&loop=1';
-      iframe.title = 'Plaza music — Ragnarok Online OST (YouTube)';
-      iframe.allow = 'autoplay; encrypted-media';
-      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
-      musicPlayer.replaceChildren(iframe);
-      musicPlayer.hidden = false;
+  if (musicToggle && musicAudio) {
+    const setIdle = () => {
+      musicToggle.textContent = '🎵 music';
+      musicToggle.setAttribute('aria-pressed', 'false');
+      musicToggle.setAttribute('aria-label', 'Play plaza music');
+    };
+    const setPlaying = () => {
       musicToggle.textContent = '🔇 stop music';
       musicToggle.setAttribute('aria-pressed', 'true');
       musicToggle.setAttribute('aria-label', 'Stop plaza music');
+    };
+    musicToggle.addEventListener('click', async () => {
+      if (!musicAudio.paused) {
+        musicAudio.pause();
+        setIdle();
+        return;
+      }
+      try {
+        await musicAudio.play();
+        setPlaying();
+      } catch {
+        // autoplay blocked or track unavailable — stay idle, never break
+        setIdle();
+      }
     });
+    // Keep the button honest if playback stops for any reason.
+    musicAudio.addEventListener('pause', setIdle);
+    musicAudio.addEventListener('ended', setIdle);
   }
 
   boot();

@@ -326,33 +326,55 @@ describe('plaza smoke test (headless browser)', () => {
     }
   }, 60_000);
 
-  it('plays the RO OST only after explicit opt-in (no YouTube request before click)', async () => {
+  it('plays plaza music only after explicit opt-in, self-hosted with no iframe', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
     await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
 
-    // Before opt-in: a labelled toggle exists, and NO YouTube iframe/request.
+    // Before opt-in: a labelled toggle + a hidden <audio preload="none">, and
+    // NO iframe / third-party request of any kind.
     const before = (await page.evaluate(`(() => ({
       hasButton: !!document.querySelector('#music-toggle'),
       label: document.querySelector('#music-toggle')?.getAttribute('aria-label') || '',
       iframes: document.querySelectorAll('iframe').length,
-    }))()`)) as { hasButton: boolean; label: string; iframes: number };
+      hasAudio: !!document.querySelector('#music-audio'),
+      preload: document.querySelector('#music-audio')?.getAttribute('preload') || '',
+      paused: document.querySelector('#music-audio')?.paused,
+    }))()`)) as {
+      hasButton: boolean; label: string; iframes: number;
+      hasAudio: boolean; preload: string; paused: boolean;
+    };
     expect(before.hasButton).toBe(true);
     expect(before.label.toLowerCase()).toContain('music');
     expect(before.iframes).toBe(0);
+    expect(before.hasAudio).toBe(true);
+    expect(before.preload).toBe('none'); // no network/audio until opt-in
+    expect(before.paused).toBe(true);
+
+    // Stub playback so the toggle is deterministic without shipping an asset.
+    await page.evaluate(`(() => {
+      const a = document.querySelector('#music-audio');
+      let playing = false;
+      Object.defineProperty(a, 'paused', { get: () => !playing, configurable: true });
+      a.play = () => { playing = true; return Promise.resolve(); };
+      a.pause = () => { playing = false; a.dispatchEvent(new Event('pause')); };
+    })()`);
 
     await page.click('#music-toggle');
-    await page.waitForSelector('#music-player iframe', { timeout: 5000 });
-    const src = (await page.evaluate(
-      `document.querySelector('#music-player iframe').getAttribute('src')`
-    )) as string;
-    expect(src).toContain('youtube-nocookie.com/embed');
-    expect(src).toContain('PLWa6qxs0LO-v6pR8B9vVmqN-asyi8Crpp');
+    const on = (await page.evaluate(`(() => ({
+      pressed: document.querySelector('#music-toggle').getAttribute('aria-pressed'),
+      iframes: document.querySelectorAll('iframe').length,
+    }))()`)) as { pressed: string; iframes: number };
+    expect(on.pressed).toBe('true'); // now playing
+    expect(on.iframes).toBe(0);      // still no third-party embed, ever
 
-    // Toggle off removes the player entirely (stops audio + network).
     await page.click('#music-toggle');
-    const after = (await page.evaluate(`document.querySelectorAll('iframe').length`)) as number;
-    expect(after).toBe(0);
+    const off = (await page.evaluate(`(() => ({
+      pressed: document.querySelector('#music-toggle').getAttribute('aria-pressed'),
+      iframes: document.querySelectorAll('iframe').length,
+    }))()`)) as { pressed: string; iframes: number };
+    expect(off.pressed).toBe('false'); // stopped
+    expect(off.iframes).toBe(0);
   }, 60_000);
 
   it('renders every sprite with WCAG AA contrast against the plaza tiles', async () => {
