@@ -8,7 +8,8 @@
     "buddy-statusline": "dist/statusline-wrapper.js",
     "buddy-onboard": "dist/cli/onboard.js",
     "buddy-doctor": "dist/cli/doctor-cli.js",
-    "buddy-share": "dist/cli/snapshot-cli.js"
+    "buddy-share": "dist/cli/snapshot-cli.js",
+    "buddy-world": "dist/cli/world-cli.js"
   },
   "files": [
     "dist",
@@ -18,6 +19,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "build:world-data": "npm run build && node scripts/build-world-sprites.mjs",
     "start": "node dist/server/index.js",
     "dev": "ts-node src/server/index.ts",
     "test": "vitest run",

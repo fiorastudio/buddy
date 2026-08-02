@@ -1,9 +1,12 @@
 // src/lib/card.ts — extracted rendering (ASCII card, hatch animation, rescue animation)
 
 import { renderSprite } from './species.js';
-import { type Companion, STAT_NAMES, RARITY_STARS } from './types.js';
+import { type Companion, STAT_NAMES, RARITY_STARS, getPeakStat } from './types.js';
 import { statBar } from './rng.js';
 import { levelProgress } from './leveling.js';
+import { jobClass } from './jobclass.js';
+import { formatZeny } from './zeny.js';
+import { earnedCards, CARD_CATALOG } from './cards.js';
 import { colorFor, type TerminalCapabilities } from './color.js';
 import { RESET } from './ansi.js';
 
@@ -64,6 +67,7 @@ export function renderCard(companion: Companion, caps?: TerminalCapabilities): s
     ...coloredArt,
     emptyLine,
     ln(companion.name),
+    ln(`${jobClass(getPeakStat(companion.stats), companion.level).title} · Lv.${companion.level}`),
     ...(bioLines.length > 0 ? [emptyLine, ...bioLines] : []),
     emptyLine,
     ...statLines.map(l => ln(l)),
@@ -72,6 +76,11 @@ export function renderCard(companion: Companion, caps?: TerminalCapabilities): s
       const { level, currentXp, neededXp } = levelProgress(companion.xp);
       const lvlLine = level >= 50 ? 'Lv.50 MAX' : `Lv.${level} \u00b7 ${currentXp}/${neededXp} XP to next`;
       return ln(lvlLine);
+    })(),
+    (() => {
+      const owned = earnedCards(companion.level, getPeakStat(companion.stats), companion.stats).length;
+      const recent = earnedCards(companion.level, getPeakStat(companion.stats), companion.stats).slice(-1)[0];
+      return ln(`\ud83d\udcb0 ${formatZeny(companion.zeny ?? 0)}   \ud83c\udccf ${owned}/${CARD_CATALOG.length} ${recent ? recent.emoji : ''}`);
     })(),
     bottomBorder,
   ].join('\n');

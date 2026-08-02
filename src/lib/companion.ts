@@ -63,6 +63,7 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
     availablePoints: row.stat_points_available || 0,
     hatchedAt: new Date(row.created_at).getTime(),
     guardMode: row.guard_mode ?? 0,
+    zeny: row.zeny || 0,
   };
 }
 
