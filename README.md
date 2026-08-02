@@ -671,7 +671,7 @@ Special thanks to [@gupta3681](https://github.com/gupta3681), [@kevinwei00](http
 - Built with the [Model Context Protocol](https://modelcontextprotocol.io/)
 - Compatible with [claude-hud](https://github.com/jarrodwatts/claude-hud) by [@jarrodwatts](https://github.com/jarrodwatts) — Buddy's statusline renders side-by-side with HUD metrics
 - [BonziClaude](https://github.com/zakarth/BonziClaude) by [@zakarth](https://github.com/zakarth) is an important technical reference point in the ecosystem, especially around reverse-engineering and documenting companion-system behavior.
-- [claude-buddy](https://github.com/1270011/claude-buddy) by [@1270011](https://github.com/1270011) diagnostic tooling (`bun run doctor`) and CLI bin pattern directly inspired our `buddy_doctor` tool. Its use of ANSI for lively animation also influenced how we implemented the animation for this project.
+
 - [openclaw](https://github.com/openclaw) inspired our seamless onboarding experience — the idea that install should "just work" with auto-detection, rescue, and zero-config setup across multiple CLIs.
 - Official [Claude Code](https://github.com/anthropics/claude-code) and [MCP](https://modelcontextprotocol.io/) documentation informed the portable integration approach: MCP server wiring, client configuration, and supported terminal integration surfaces.
 
