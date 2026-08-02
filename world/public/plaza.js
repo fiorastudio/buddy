@@ -660,8 +660,10 @@
       ctx.restore();
     }
 
-    // test instrumentation: bottom row must sit at a constant offset
-    const bottomOffset = Math.round(lastLineY - actor.y);
+    // test instrumentation: bottom row must sit at a constant offset.
+    // Exclude the intentional seated drop (sitDrop) — that's a deliberate
+    // posture change, not the variable-line-count jitter this guards against.
+    const bottomOffset = Math.round(lastLineY - actor.y - sitDrop);
     const rec = state.spriteBottoms[c.slug] || { min: bottomOffset, max: bottomOffset };
     rec.min = Math.min(rec.min, bottomOffset);
     rec.max = Math.max(rec.max, bottomOffset);

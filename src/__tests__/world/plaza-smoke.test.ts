@@ -275,8 +275,10 @@ describe('plaza smoke test (headless browser)', () => {
     }))()`)) as { porings: number; stalls: number; stallOwner: string; sitting: number; ticker: string; bubbles: number };
 
     expect(ro.porings).toBeGreaterThanOrEqual(2); // ambient jellies
-    expect(ro.stalls).toBeGreaterThanOrEqual(1); // achievement vendor
-    expect(ro.stallOwner).toBeTruthy();
+    // Vending stalls are intentionally parked (plaza.js: rebuildStalls is not
+    // called) pending the future buddy-marketplace/job-board idea, so no stall
+    // renders today. Pin the parked state so unparking re-enables this check.
+    expect(ro.stalls).toBe(0);
     // fixture: buddies 3..7 have last_seen ~2h ago -> they sit
     // Sitting is now a brief transient pose (not a permanent freeze), so
     // any count >= 0 is valid — the plaza wanders by default.
