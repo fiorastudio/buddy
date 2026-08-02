@@ -125,7 +125,7 @@ function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string)
   if (checkStreakMilestone(db, row.id, worldEvents.length)) {
     worldEvents.push('streak_7');
     const streakResult = awardXpBatch(row.id, ['streak_7']);
-    xpResult = { ...streakResult, leveledUp: xpResult.leveledUp || streakResult.leveledUp };
+    xpResult = { ...streakResult, xpGained: xpResult.xpGained + streakResult.xpGained, leveledUp: xpResult.leveledUp || streakResult.leveledUp };
   }
 
   const newMood = recalcMood(row.id, xpResult.leveledUp);
@@ -566,7 +566,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             ...(guardSessionId ? { sessionId: guardSessionId } : {}),
             ...(guardWorkspace ? { workspace: guardWorkspace, workspaceSource: guardWorkspaceSource } : {}),
             ...(xpResult.leveledUp ? { levelUp: `${companion.name} leveled up to ${xpResult.newLevel}!` } : {}),
-            xpGained: XP_REWARDS['observe'],
+            xpGained: xpResult.xpGained,
             levelInfo: levelBar(xpResult.newXp),
           }),
         },
