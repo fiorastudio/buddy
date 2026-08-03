@@ -63,6 +63,14 @@ export interface WorldStore {
   getRollups(date: string): Promise<Array<{ citizen_id: string; event_counts: Record<string, number>; xp_gained: number }>>;
   setAnon(tokenHash: string, anon: boolean): Promise<boolean>;
   markFlagged(citizenId: string): Promise<void>;
+  // Browser identity (M1): one-time link codes → scoped control tokens.
+  createLinkCode(citizenId: string, codeHash: string, expiresAt: number): Promise<void>;
+  // Single-use: returns the citizen id and deletes the row in one atomic step,
+  // or null if the code is unknown/already-used/expired at `nowMs`.
+  consumeLinkCode(codeHash: string, nowMs: number): Promise<string | null>;
+  createBrowserSession(citizenId: string, tokenHash: string, scope: string, expiresAt: number): Promise<void>;
+  // Resolves a live (unexpired at `nowMs`) control token to its owner + scope.
+  findCitizenByBrowserToken(tokenHash: string, nowMs: number): Promise<{ citizen: CitizenRow; scope: string } | null>;
 }
 
 function rowToCitizen(row: Record<string, unknown>): CitizenRow {
@@ -218,6 +226,8 @@ export class SqliteWorldStore implements WorldStore {
     if (purge) {
       this.db.prepare('DELETE FROM world_events WHERE citizen_id = ?').run(citizen.id);
       this.db.prepare('DELETE FROM daily_rollups WHERE citizen_id = ?').run(citizen.id);
+      this.db.prepare('DELETE FROM link_codes WHERE citizen_id = ?').run(citizen.id);
+      this.db.prepare('DELETE FROM browser_sessions WHERE citizen_id = ?').run(citizen.id);
       this.db.prepare('DELETE FROM citizens WHERE id = ?').run(citizen.id);
     } else {
       this.db.prepare('UPDATE citizens SET hidden = 1 WHERE id = ?').run(citizen.id);
@@ -306,5 +316,41 @@ export class SqliteWorldStore implements WorldStore {
       .prepare('UPDATE citizens SET anon = ? WHERE token_hash = ?')
       .run(anon ? 1 : 0, tokenHash);
     return res.changes > 0;
+  }
+
+  async createLinkCode(citizenId: string, codeHash: string, expiresAt: number): Promise<void> {
+    this.db
+      .prepare('INSERT INTO link_codes (code_hash, citizen_id, expires_at) VALUES (?, ?, ?)')
+      .run(codeHash, citizenId, expiresAt);
+  }
+
+  async consumeLinkCode(codeHash: string, nowMs: number): Promise<string | null> {
+    // DELETE ... RETURNING makes consume atomic and single-use: the row is gone
+    // the moment it's read, so a concurrent/replay exchange finds nothing.
+    const row = this.db
+      .prepare('DELETE FROM link_codes WHERE code_hash = ? AND expires_at > ? RETURNING citizen_id')
+      .get(codeHash, nowMs) as { citizen_id: string } | undefined;
+    return row?.citizen_id ?? null;
+  }
+
+  async createBrowserSession(citizenId: string, tokenHash: string, scope: string, expiresAt: number): Promise<void> {
+    this.db
+      .prepare('INSERT INTO browser_sessions (token_hash, citizen_id, scope, expires_at) VALUES (?, ?, ?, ?)')
+      .run(tokenHash, citizenId, scope, expiresAt);
+  }
+
+  async findCitizenByBrowserToken(
+    tokenHash: string,
+    nowMs: number
+  ): Promise<{ citizen: CitizenRow; scope: string } | null> {
+    const row = this.db
+      .prepare(
+        `SELECT c.*, s.scope AS session_scope FROM browser_sessions s
+         JOIN citizens c ON c.id = s.citizen_id
+         WHERE s.token_hash = ? AND s.expires_at > ?`
+      )
+      .get(tokenHash, nowMs) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return { citizen: rowToCitizen(row), scope: row.session_scope as string };
   }
 }

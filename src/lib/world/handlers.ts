@@ -3,7 +3,7 @@
 // Worker (and any future host) adapts HTTP to these; all logic and
 // validation lives here where it is tested against a real SQLite store.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { validateSnapshot, type WorldSnapshot } from './validate.js';
 import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
@@ -13,6 +13,14 @@ import { DISTRICT_CAPACITY } from './districts.js';
 import type { WorldStore, CitizenRow } from './store.js';
 
 export const MAX_EVENT_BATCH = 50;
+
+// Browser identity (M1). The control token is scoped to driving your own sprite;
+// it is NOT the world token and can never teleport/recall/write XP.
+export const CONTROL_TOKEN_SCOPE = 'move,portal_warp';
+// Link codes are short-lived: minted by the CLI, redeemed by the browser at once.
+export const LINK_CODE_TTL_MS = 5 * 60_000; // 5 minutes
+// Control tokens live in localStorage across sessions, so a generous window.
+export const CONTROL_TOKEN_TTL_MS = 30 * 86_400_000; // 30 days
 
 export interface HandlerResult {
   status: number;
@@ -172,6 +180,82 @@ export async function handleAnon(
   const ok = await store.setAnon(hashToken(payload.token), payload.anon === true);
   if (!ok) return bad(401, 'unknown token');
   return { status: 200, body: { anon: payload.anon === true } };
+}
+
+// browser-link: the owner proves control with the REAL world token and gets a
+// short-lived, single-use code embedded in a personal plaza URL. The world token
+// itself never reaches the browser.
+export async function handleBrowserLink(
+  payload: { token?: unknown },
+  store: WorldStore,
+  opts: HandlerOpts
+): Promise<HandlerResult> {
+  if (typeof payload.token !== 'string' || payload.token.length < 8) {
+    return bad(400, 'missing or malformed token');
+  }
+  const citizen = await store.findByTokenHash(hashToken(payload.token));
+  if (!citizen) return bad(401, 'unknown token');
+
+  const code = randomBytes(16).toString('hex');
+  await store.createLinkCode(citizen.id, hashToken(code), opts.now + LINK_CODE_TTL_MS);
+  // Code rides in the URL fragment (never sent to the server on navigation);
+  // the browser reads it, exchanges it via /v1/browser-session, then drops it.
+  return {
+    status: 200,
+    body: {
+      code,
+      district: citizen.district,
+      url: `${opts.baseUrl}/?district=${citizen.district}#code=${code}`,
+    },
+  };
+}
+
+// browser-session: exchange a one-time code for a scoped control token. The
+// consume is atomic and single-use — a replayed code fails here.
+export async function handleBrowserSession(
+  payload: { code?: unknown },
+  store: WorldStore,
+  opts: HandlerOpts
+): Promise<HandlerResult> {
+  if (typeof payload.code !== 'string' || payload.code.length < 8) {
+    return bad(400, 'missing or malformed code');
+  }
+  const citizenId = await store.consumeLinkCode(hashToken(payload.code), opts.now);
+  if (!citizenId) return bad(401, 'invalid or expired code');
+
+  const controlToken = randomBytes(24).toString('hex');
+  await store.createBrowserSession(
+    citizenId,
+    hashToken(controlToken),
+    CONTROL_TOKEN_SCOPE,
+    opts.now + CONTROL_TOKEN_TTL_MS
+  );
+  return {
+    status: 200,
+    body: { controlToken, scope: CONTROL_TOKEN_SCOPE, capabilities: CONTROL_TOKEN_SCOPE.split(',') },
+  };
+}
+
+// me: a Bearer control token → who am I. Deliberately BYPASSES anon masking so
+// the owner learns their own real slug even while anon to spectators.
+export async function handleMe(
+  controlToken: string | undefined,
+  store: WorldStore,
+  opts: HandlerOpts
+): Promise<HandlerResult> {
+  if (typeof controlToken !== 'string' || controlToken.length < 8) {
+    return bad(401, 'missing control token');
+  }
+  const found = await store.findCitizenByBrowserToken(hashToken(controlToken), opts.now);
+  if (!found) return bad(401, 'invalid control token');
+  return {
+    status: 200,
+    body: {
+      slug: found.citizen.slug,
+      district: found.citizen.district,
+      capabilities: found.scope.split(','),
+    },
+  };
 }
 
 export async function handleWorld(

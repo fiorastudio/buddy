@@ -10,6 +10,9 @@ import {
   handleRecall,
   handleWorld,
   handleAnon,
+  handleBrowserLink,
+  handleBrowserSession,
+  handleMe,
   RateLimiter,
   type HandlerResult,
 } from '../lib/world/handlers.js';
@@ -25,7 +28,8 @@ export interface WorldWorkerConfig {
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'content-type',
+  // `authorization` so the browser can send the Bearer control token to /v1/me.
+  'access-control-allow-headers': 'content-type, authorization',
 };
 
 function json(result: HandlerResult): Response {
@@ -71,7 +75,19 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
         return json(await handleWorld(worldMatch[1], await store(), opts));
       }
 
-      if (req.method === 'POST' && ['/v1/teleport', '/v1/events', '/v1/recall', '/v1/anon'].includes(url.pathname)) {
+      // Bearer control token (browser can't set headers on WS, but this is HTTP).
+      if (req.method === 'GET' && url.pathname === '/v1/me') {
+        const auth = req.headers.get('authorization') ?? '';
+        const controlToken = auth.startsWith('Bearer ') ? auth.slice(7) : undefined;
+        return json(await handleMe(controlToken, await store(), opts));
+      }
+
+      if (
+        req.method === 'POST' &&
+        ['/v1/teleport', '/v1/events', '/v1/recall', '/v1/anon', '/v1/browser-link', '/v1/browser-session'].includes(
+          url.pathname
+        )
+      ) {
         let payload: Record<string, unknown>;
         try {
           payload = (await req.json()) as Record<string, unknown>;
@@ -100,6 +116,10 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
             return json(await handleRecall(payload, s));
           case '/v1/anon':
             return json(await handleAnon(payload, s));
+          case '/v1/browser-link':
+            return json(await handleBrowserLink(payload, s, opts));
+          case '/v1/browser-session':
+            return json(await handleBrowserSession(payload, s, opts));
         }
       }
 

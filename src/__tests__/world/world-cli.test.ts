@@ -107,4 +107,14 @@ describe('worldCommand', () => {
     await worldCommand(['teleport'], deps);
     expect((await worldCommand(['warp', 'atlantis'], deps)).join('\n')).toMatch(/unknown town/i);
   });
+
+  it('link prints a personal plaza URL carrying a one-time code', async () => {
+    await worldCommand(['teleport'], deps);
+    const out = (await worldCommand(['link'], deps)).join('\n');
+    expect(out).toMatch(/world\.example\.com\/\?district=plaza-\d+#code=[0-9a-f]+/);
+  });
+
+  it('link is refused before teleporting', async () => {
+    expect((await worldCommand(['link'], deps)).join('\n')).toMatch(/not in the world/i);
+  });
 });

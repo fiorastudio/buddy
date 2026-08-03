@@ -199,6 +199,8 @@ export class D1WorldStore implements WorldStore {
     if (purge) {
       await this.db.prepare('DELETE FROM world_events WHERE citizen_id = ?').bind(citizen.id).run();
       await this.db.prepare('DELETE FROM daily_rollups WHERE citizen_id = ?').bind(citizen.id).run();
+      await this.db.prepare('DELETE FROM link_codes WHERE citizen_id = ?').bind(citizen.id).run();
+      await this.db.prepare('DELETE FROM browser_sessions WHERE citizen_id = ?').bind(citizen.id).run();
       await this.db.prepare('DELETE FROM citizens WHERE id = ?').bind(citizen.id).run();
     } else {
       await this.db.prepare('UPDATE citizens SET hidden = 1 WHERE id = ?').bind(citizen.id).run();
@@ -296,5 +298,45 @@ export class D1WorldStore implements WorldStore {
     if (!citizen) return false;
     await this.db.prepare('UPDATE citizens SET anon = ? WHERE token_hash = ?').bind(anon ? 1 : 0, tokenHash).run();
     return true;
+  }
+
+  async createLinkCode(citizenId: string, codeHash: string, expiresAt: number): Promise<void> {
+    await this.db
+      .prepare('INSERT INTO link_codes (code_hash, citizen_id, expires_at) VALUES (?, ?, ?)')
+      .bind(codeHash, citizenId, expiresAt)
+      .run();
+  }
+
+  async consumeLinkCode(codeHash: string, nowMs: number): Promise<string | null> {
+    // DELETE ... RETURNING makes consume atomic and single-use: the row is gone
+    // the moment it's read, so a concurrent/replay exchange finds nothing.
+    const row = await this.db
+      .prepare('DELETE FROM link_codes WHERE code_hash = ? AND expires_at > ? RETURNING citizen_id')
+      .bind(codeHash, nowMs)
+      .first<{ citizen_id: string }>();
+    return row?.citizen_id ?? null;
+  }
+
+  async createBrowserSession(citizenId: string, tokenHash: string, scope: string, expiresAt: number): Promise<void> {
+    await this.db
+      .prepare('INSERT INTO browser_sessions (token_hash, citizen_id, scope, expires_at) VALUES (?, ?, ?, ?)')
+      .bind(tokenHash, citizenId, scope, expiresAt)
+      .run();
+  }
+
+  async findCitizenByBrowserToken(
+    tokenHash: string,
+    nowMs: number
+  ): Promise<{ citizen: CitizenRow; scope: string } | null> {
+    const row = await this.db
+      .prepare(
+        `SELECT c.*, s.scope AS session_scope FROM browser_sessions s
+         JOIN citizens c ON c.id = s.citizen_id
+         WHERE s.token_hash = ? AND s.expires_at > ?`
+      )
+      .bind(tokenHash, nowMs)
+      .first<Record<string, unknown>>();
+    if (!row) return null;
+    return { citizen: rowToCitizen(row), scope: row.session_scope as string };
   }
 }

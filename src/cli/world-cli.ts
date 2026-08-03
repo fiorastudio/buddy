@@ -35,6 +35,7 @@ const USAGE = [
   '  warp <town>                     travel your buddy to another town',
   '  towns                           list the towns you can warp to',
   '  status                          show your buddy\'s world link',
+  '  link                            get a personal link to drive your own buddy in the plaza',
   '  anon <on|off>                   toggle anonymous mode ("a wild Void Cat")',
   '  recall [--purge]                leave the world (--purge deletes all server data)',
 ];
@@ -139,6 +140,19 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       const cfg = loadWorldConfig(configPath);
       if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
       return [`Your buddy is in ${cfg.district ?? 'the plaza'}: ${cfg.url}`];
+    }
+
+    // link: mint a personal, one-time URL that lets THIS browser drive your own
+    // buddy in the plaza. The real world token never leaves this machine — the
+    // URL carries only a short-lived, single-use code.
+    case 'link': {
+      const cfg = loadWorldConfig(configPath);
+      if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
+      const res = await makeSync(cfg, deps).mintBrowserLink();
+      if (!res) return ['Could not mint a control link (network?). Try again later.'];
+      out.push('🔗 Personal plaza link — opens YOUR buddy to drive. Keep it private; it expires soon.');
+      out.push(`   ${res.url}`);
+      return out;
     }
 
     case 'anon': {

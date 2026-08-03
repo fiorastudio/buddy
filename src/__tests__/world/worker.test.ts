@@ -111,4 +111,32 @@ describe('world worker fetch handler', () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/world/plaza-1'));
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
   });
+
+  it('browser-link → browser-session → me works end-to-end over HTTP', async () => {
+    await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
+
+    const link = await post('/v1/browser-link', { token: TOKEN });
+    expect(link.status).toBe(200);
+    const { code } = (await link.json()) as { code: string };
+
+    const session = await post('/v1/browser-session', { code });
+    expect(session.status).toBe(200);
+    const { controlToken } = (await session.json()) as { controlToken: string };
+
+    const me = await fetchHandler(
+      new Request('https://world.example.com/v1/me', {
+        headers: { authorization: `Bearer ${controlToken}` },
+      })
+    );
+    expect(me.status).toBe(200);
+    const body = (await me.json()) as { slug: string; district: string; capabilities: string[] };
+    expect(body.slug).toMatch(/^shadowpaw-/);
+    expect(body.district).toBe('plaza-1');
+    expect(body.capabilities).toEqual(['move', 'portal_warp']);
+  });
+
+  it('GET /v1/me without a Bearer control token is 401', async () => {
+    const res = await fetchHandler(new Request('https://world.example.com/v1/me'));
+    expect(res.status).toBe(401);
+  });
 });

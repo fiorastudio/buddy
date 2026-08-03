@@ -6,6 +6,9 @@ import {
   handleEvents,
   handleRecall,
   handleWorld,
+  handleBrowserLink,
+  handleBrowserSession,
+  handleMe,
   hashToken,
   RateLimiter,
 } from '../../lib/world/handlers.js';
@@ -228,5 +231,120 @@ describe('world handlers', () => {
     await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
     const citizen = await store.findByTokenHash(hashToken('tok-0123456789abcdef'));
     expect(citizen!.xp_bucket).toBeLessThanOrEqual(60);
+  });
+});
+
+describe('browser identity handlers', () => {
+  let store: SqliteWorldStore;
+  const TOKEN = 'real-world-token-abcdef';
+
+  beforeEach(async () => {
+    store = new SqliteWorldStore(new Database(':memory:'));
+    await handleTeleport({ token: TOKEN, snapshot: snap() }, store, OPTS);
+  });
+
+  // Drives the full link → session → me exchange and returns the pieces.
+  async function link(now = T0) {
+    const linkRes = await handleBrowserLink({ token: TOKEN }, store, { ...OPTS, now });
+    expect(linkRes.status).toBe(200);
+    const code = (linkRes.body as { code: string }).code;
+    const sessRes = await handleBrowserSession({ code }, store, { ...OPTS, now });
+    expect(sessRes.status).toBe(200);
+    const controlToken = (sessRes.body as { controlToken: string }).controlToken;
+    return { code, controlToken, linkRes, sessRes };
+  }
+
+  it('link → session → me returns the owner slug, district, capabilities', async () => {
+    const { controlToken } = await link();
+    const meRes = await handleMe(controlToken, store, OPTS);
+    expect(meRes.status).toBe(200);
+    const body = meRes.body as { slug: string; district: string; capabilities: string[] };
+    expect(body.slug).toMatch(/^shadowpaw-/);
+    expect(body.district).toBe('plaza-1');
+    expect(body.capabilities).toContain('move');
+    expect(body.capabilities).toContain('portal_warp');
+  });
+
+  it('browser-link with an unknown world token is rejected 401', async () => {
+    const res = await handleBrowserLink({ token: 'not-a-real-token' }, store, OPTS);
+    expect(res.status).toBe(401);
+  });
+
+  it('a one-time code is single-use: the second exchange fails', async () => {
+    const linkRes = await handleBrowserLink({ token: TOKEN }, store, OPTS);
+    const code = (linkRes.body as { code: string }).code;
+    const first = await handleBrowserSession({ code }, store, OPTS);
+    expect(first.status).toBe(200);
+    const second = await handleBrowserSession({ code }, store, OPTS);
+    expect(second.status).toBe(401);
+  });
+
+  it('an expired link code cannot be exchanged', async () => {
+    const linkRes = await handleBrowserLink({ token: TOKEN }, store, { ...OPTS, now: T0 });
+    const code = (linkRes.body as { code: string }).code;
+    // Well past any sane short TTL.
+    const res = await handleBrowserSession({ code }, store, { ...OPTS, now: T0 + 3_600_000 });
+    expect(res.status).toBe(401);
+  });
+
+  it('/v1/me on an anon buddy returns the REAL slug, not the masked one', async () => {
+    await store.setAnon(hashToken(TOKEN), true);
+    const realSlug = (await store.findByTokenHash(hashToken(TOKEN)))!.slug;
+    const { controlToken } = await link();
+    const meRes = await handleMe(controlToken, store, OPTS);
+    const body = meRes.body as { slug: string };
+    expect(body.slug).toBe(realSlug);
+    expect(body.slug).not.toMatch(/^anon-/);
+  });
+
+  it('/v1/me rejects a missing or bogus control token', async () => {
+    expect((await handleMe(undefined, store, OPTS)).status).toBe(401);
+    expect((await handleMe('garbage', store, OPTS)).status).toBe(401);
+  });
+
+  it('an expired control token is rejected by /v1/me', async () => {
+    const { controlToken } = await link(T0);
+    const res = await handleMe(controlToken, store, { ...OPTS, now: T0 + 400 * 86_400_000 });
+    expect(res.status).toBe(401);
+  });
+
+  it('the scoped control token cannot recall, write XP, or move the owner citizen', async () => {
+    const { controlToken } = await link();
+    const before = (await store.findByTokenHash(hashToken(TOKEN)))!;
+
+    // recall/events authenticate against citizens.token_hash — a control token
+    // is a different secret in a different table, so both 401 and the owner is safe.
+    expect((await handleRecall({ token: controlToken, purge: true }, store)).status).toBe(401);
+    expect(
+      (await handleEvents({ token: controlToken, events: [{ type: 'commit', ts: T0 }] }, store, OPTS)).status
+    ).toBe(401);
+
+    // Even posting it to /v1/teleport (which auto-creates for any token) cannot
+    // mutate the OWNER's real citizen — the control token isn't its world token.
+    await handleTeleport(
+      { token: controlToken, snapshot: snap({ level: 9, xp: totalXpForLevel(9) }), district: 'Geffen' },
+      store,
+      OPTS
+    );
+    const after = (await store.findByTokenHash(hashToken(TOKEN)))!;
+    expect(after.district).toBe(before.district);
+    expect(after.level).toBe(before.level);
+    expect(after.xp).toBe(before.xp);
+  });
+
+  it('recall --purge deletes the citizen link codes and browser sessions', async () => {
+    const { code, controlToken } = await link();
+    // Mint a second, still-unused code to prove codes are purged too.
+    const spare = (await handleBrowserLink({ token: TOKEN }, store, OPTS).then((r) => r.body)) as { code: string };
+
+    const recall = await handleRecall({ token: TOKEN, purge: true }, store);
+    expect(recall.status).toBe(200);
+
+    // The live control token no longer resolves to a citizen.
+    expect((await handleMe(controlToken, store, OPTS)).status).toBe(401);
+    // Neither code can be exchanged anymore.
+    expect((await handleBrowserSession({ code }, store, OPTS)).status).toBe(401);
+    expect((await handleBrowserSession({ code: spare.code }, store, OPTS)).status).toBe(401);
+    expect(await store.findCitizenByBrowserToken(hashToken(controlToken), T0)).toBeNull();
   });
 });

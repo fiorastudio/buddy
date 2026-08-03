@@ -182,6 +182,17 @@ export class WorldSync {
     const res = await this.post('/v1/anon', { token: this.cfg.token, anon });
     return res?.status === 200;
   }
+
+  /**
+   * Mint a personal, one-time browser-link URL. Auth'd by the real world token
+   * server-side; the returned URL carries a short-lived code in its fragment
+   * that the browser exchanges for a scoped control token. Never throws.
+   */
+  async mintBrowserLink(): Promise<{ code: string; url: string; district: string } | null> {
+    const res = await this.post('/v1/browser-link', { token: this.cfg.token });
+    if (!res || res.status !== 200) return null;
+    return (await res.json()) as { code: string; url: string; district: string };
+  }
 }
 
 // ── MCP server glue ──────────────────────────────────────────────────────
