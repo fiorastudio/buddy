@@ -11,8 +11,16 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "buddy-world"
-database_id = "REPLACE_AFTER_wrangler_d1_create"
+# Account-specific — set locally per deployer, don't commit a real id (avoids
+# cross-wiring forks/staging/prod). Run `wrangler d1 create buddy-world` and
+# paste the id here (or use a per-environment [env.*] block / CI secret).
+database_id = "REPLACE_WITH_YOUR_D1_ID"
 migrations_dir = "migrations"
+
+# Serve the plaza frontend (index.html, plaza.js, sprites/jobs, music) from the
+# same Worker so one URL does both static + the /v1 API (same-origin fetches).
+[assets]
+directory = "./public"
 
 [vars]
 BASE_URL = "https://world.buddy-mcp.com"

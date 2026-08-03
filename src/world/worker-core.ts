@@ -41,56 +41,69 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
   let storePromise: Promise<WorldStore> | null = null;
 
   function store(): Promise<WorldStore> {
-    // Lazy: D1 migrations may not have applied when the isolate boots.
-    storePromise ??= D1WorldStore.create(config.db);
+    // Lazy: D1 migrations may not have applied when the isolate boots. Clear the
+    // cache on failure so a transient init error doesn't poison the isolate for
+    // its whole lifetime — the next request retries instead of reusing a
+    // rejected promise.
+    storePromise ??= D1WorldStore.create(config.db).catch((err) => {
+      storePromise = null;
+      throw err;
+    });
     return storePromise;
   }
 
   return async function fetchHandler(req: Request): Promise<Response> {
-    const url = new URL(req.url);
-    const opts = { now: now(), baseUrl: config.baseUrl };
+    try {
+      const url = new URL(req.url);
+      const opts = { now: now(), baseUrl: config.baseUrl };
 
-    if (req.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      if (req.method === 'OPTIONS') {
+        return new Response(null, { status: 204, headers: CORS_HEADERS });
+      }
+
+      const worldMatch = url.pathname.match(/^\/v1\/world\/([a-z0-9-]+)$/);
+      if (req.method === 'GET' && worldMatch) {
+        return json(await handleWorld(worldMatch[1], await store(), opts));
+      }
+
+      if (req.method === 'POST' && ['/v1/teleport', '/v1/events', '/v1/recall', '/v1/anon'].includes(url.pathname)) {
+        let payload: Record<string, unknown>;
+        try {
+          payload = (await req.json()) as Record<string, unknown>;
+        } catch {
+          return json({ status: 400, body: { error: 'invalid JSON' } });
+        }
+
+        // IP limit first — attacker-chosen tokens must not mint fresh buckets
+        // (limiter-rotation finding). Token bucket is a secondary, tighter
+        // scope for legitimate multi-user NATs.
+        const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+        if (!limiter.allow(`ip:${ip}`, opts.now)) {
+          return json({ status: 429, body: { error: 'rate limited' } });
+        }
+        if (typeof payload.token === 'string' && !limiter.allow(`t:${payload.token}`, opts.now)) {
+          return json({ status: 429, body: { error: 'rate limited' } });
+        }
+
+        const s = await store();
+        switch (url.pathname) {
+          case '/v1/teleport':
+            return json(await handleTeleport(payload, s, opts));
+          case '/v1/events':
+            return json(await handleEvents(payload, s, opts));
+          case '/v1/recall':
+            return json(await handleRecall(payload, s));
+          case '/v1/anon':
+            return json(await handleAnon(payload, s));
+        }
+      }
+
+      return json({ status: 404, body: { error: 'not found' } });
+    } catch (err) {
+      // Controlled failure: never leak a raw Cloudflare 1101. Log the real
+      // exception for `wrangler tail` and return JSON (with CORS) to callers.
+      console.error('buddy-world worker error:', err);
+      return json({ status: 500, body: { error: 'internal error' } });
     }
-
-    const worldMatch = url.pathname.match(/^\/v1\/world\/([a-z0-9-]+)$/);
-    if (req.method === 'GET' && worldMatch) {
-      return json(await handleWorld(worldMatch[1], await store(), opts));
-    }
-
-    if (req.method === 'POST' && ['/v1/teleport', '/v1/events', '/v1/recall', '/v1/anon'].includes(url.pathname)) {
-      let payload: Record<string, unknown>;
-      try {
-        payload = (await req.json()) as Record<string, unknown>;
-      } catch {
-        return json({ status: 400, body: { error: 'invalid JSON' } });
-      }
-
-      // IP limit first — attacker-chosen tokens must not mint fresh buckets
-      // (limiter-rotation finding). Token bucket is a secondary, tighter
-      // scope for legitimate multi-user NATs.
-      const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
-      if (!limiter.allow(`ip:${ip}`, opts.now)) {
-        return json({ status: 429, body: { error: 'rate limited' } });
-      }
-      if (typeof payload.token === 'string' && !limiter.allow(`t:${payload.token}`, opts.now)) {
-        return json({ status: 429, body: { error: 'rate limited' } });
-      }
-
-      const s = await store();
-      switch (url.pathname) {
-        case '/v1/teleport':
-          return json(await handleTeleport(payload, s, opts));
-        case '/v1/events':
-          return json(await handleEvents(payload, s, opts));
-        case '/v1/recall':
-          return json(await handleRecall(payload, s));
-        case '/v1/anon':
-          return json(await handleAnon(payload, s));
-      }
-    }
-
-    return json({ status: 404, body: { error: 'not found' } });
   };
 }
