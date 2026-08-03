@@ -248,6 +248,77 @@ describe('plaza smoke test (headless browser)', () => {
     expect(bubble?.emote).toContain('♥');
   }, 60_000);
 
+  it('click-to-move sets the owner target and streams a move_to (RO click-to-move)', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    // __PLAYER__ hooks exist after boot; wait until buddy-0 has an actor.
+    await page.waitForFunction(
+      'window.__PLAYER__ && window.__PLAZA__ && window.__PLAZA__.actorFrames && window.__PLAZA__.actorFrames["buddy-0"] !== undefined'
+    );
+
+    // Become the owner of buddy-0's sprite, then point it at an empty spot.
+    await page.evaluate(`window.__PLAZA__.meSlug = 'buddy-0'`);
+    await page.evaluate(`window.__PLAYER__.moveOwnerTo(320, 300)`);
+
+    const pos = (await page.evaluate(`window.__PLAZA__.actorPos('buddy-0')`)) as {
+      tx: number; ty: number; owned: boolean;
+    };
+    expect(pos.owned).toBe(true);
+    expect(Math.round(pos.tx)).toBe(320); // target set to the click point
+    expect(Math.round(pos.ty)).toBe(300);
+
+    // tick() streams a monotonic move_to (fractional, in-range) while walking.
+    await page.waitForFunction('window.__PLAYER__.lastMoveTo && window.__PLAYER__.lastMoveTo.seq >= 1', {
+      timeout: 5_000,
+    });
+    const mv = (await page.evaluate('window.__PLAYER__.lastMoveTo')) as { x: number; y: number; seq: number };
+    expect(mv.seq).toBeGreaterThanOrEqual(1);
+    expect(mv.x).toBeGreaterThanOrEqual(0);
+    expect(mv.x).toBeLessThanOrEqual(1);
+    expect(mv.y).toBeGreaterThanOrEqual(0);
+    expect(mv.y).toBeLessThanOrEqual(1);
+  }, 60_000);
+
+  it('room snapshots drive non-owner sprites toward the server position (and never my own)', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.actorFrames && window.__PLAZA__.actorFrames["buddy-1"] !== undefined'
+    );
+
+    await page.evaluate(`window.__PLAZA__.meSlug = 'buddy-0'`); // I'm buddy-0; buddy-1 is a peer
+    const expected = (await page.evaluate(`(() => {
+      const p = window.__PLAZA__.rtToPixel(0.75, 0.25);
+      window.__PLAYER__.applySnapshot({ actors: [
+        { slug: 'buddy-1', x: 0.75, y: 0.25, seq: 1 },
+        { slug: 'buddy-0', x: 0.9, y: 0.9, seq: 1 }
+      ]});
+      return p;
+    })()`)) as { x: number; y: number };
+
+    const peer = (await page.evaluate(`window.__PLAZA__.actorPos('buddy-1')`)) as {
+      tx: number; ty: number; remote: boolean;
+    };
+    const me = (await page.evaluate(`window.__PLAZA__.actorPos('buddy-0')`)) as { owned: boolean; remote: boolean };
+
+    expect(peer.remote).toBe(true);
+    expect(Math.round(peer.tx)).toBe(Math.round(expected.x));
+    expect(Math.round(peer.ty)).toBe(Math.round(expected.y));
+    // A snapshot that includes my own slug must never move my sprite.
+    expect(me.remote).toBe(false);
+    expect(me.owned).toBe(false);
+
+    // Hardening: a malformed/hostile coord must be ignored, never NaN-poison the
+    // sprite (leaves the last-good target intact).
+    const goodTx = peer.tx;
+    await page.evaluate(`window.__PLAYER__.applySnapshot({ actors: [{ slug: 'buddy-1', x: 'bad', y: 0.5 }] })`);
+    const after = (await page.evaluate(`window.__PLAZA__.actorPos('buddy-1')`)) as { tx: number };
+    expect(Number.isFinite(after.tx)).toBe(true);
+    expect(Math.round(after.tx)).toBe(Math.round(goodTx)); // unchanged, not NaN
+  }, 60_000);
+
   it('renders RO job classes on nameplates via jobLabel', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });

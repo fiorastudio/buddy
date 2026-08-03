@@ -860,14 +860,29 @@
         if (actor.sitting && performance.now() >= actor.sitUntil) { actor.sitUntil = 0; actor.sitting = false; }
 
         if (!actor.sitting) {
+          const owner = c.slug === state.meSlug && actor.owned;
           const speed = BEHAVIORS[actor.behavior].speed * (calm ? 0.22 : 0.35);
           const dx = actor.tx - actor.x, dy = actor.ty - actor.y;
           const dist = Math.hypot(dx, dy);
           if (dist < 3) {
-            if (actor.rng() < 0.01) pickWaypoint(actor);
+            // Owner sprites hold where you clicked; room-driven peers hold where
+            // the server put them. Only autonomous NPCs pick a new waypoint.
+            if (!actor.owned && !actor.remote && actor.rng() < 0.01) pickWaypoint(actor);
           } else {
             actor.x += (dx / dist) * speed;
             actor.y += (dy / dist) * speed;
+          }
+          // Stream my own position to the room at ~8 Hz while walking (not per
+          // frame), plus one final frame when I stop, so peers see me arrive.
+          if (owner) {
+            const moving = dist >= 3;
+            const nowMs = performance.now();
+            if ((moving || actor.wasMoving) && nowMs - (actor.lastMoveSentAt || 0) >= 120) {
+              const f = RT.toFraction(actor.x, actor.y);
+              RT.sendMoveTo(f.x, f.y);
+              actor.lastMoveSentAt = nowMs;
+              actor.wasMoving = moving;
+            }
           }
         }
         actor.frame = Math.floor((performance.now() + actor.phaseMs) / 450);
@@ -967,6 +982,176 @@
   }
   state.petBuddy = petBuddy;
 
+  // ── real-time control (M3): drive your own sprite; see peers move live ──
+  // The browser holds only a SCOPED control token (minted in M1), never the
+  // world token. With one, we connect a live socket to the town's Durable
+  // Object room, stream our own move_to intents, and drive peer sprites from
+  // the room's snapshots. Spectators (no token) keep the old poll-only plaza.
+  const RT = (() => {
+    const LS_KEY = 'buddyControlToken';
+    let socket = null;
+    let seq = 0;
+    let backoff = 1000;
+    let stopped = false; // a fatal auth close (1008) parks reconnection
+
+    function storedToken() {
+      try { return localStorage.getItem(LS_KEY); } catch { return null; }
+    }
+    // A personal plaza link carries a one-time #code=… ; exchange it once for a
+    // control token, persist it, then scrub the fragment so the single-use code
+    // never lingers in the URL or history.
+    async function redeemCodeFromFragment() {
+      const m = location.hash.match(/(?:^#|&)code=([0-9a-fA-F]+)/);
+      if (!m) return;
+      let redeemed = false;
+      try {
+        const res = await fetch(`${API_BASE}/v1/browser-session`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code: m[1] }),
+        });
+        if (res.ok) {
+          const { controlToken } = await res.json();
+          if (controlToken) { try { localStorage.setItem(LS_KEY, controlToken); } catch {} redeemed = true; }
+        }
+      } catch { /* offline: leave the code so a reload can retry */ }
+      // Only scrub the one-time code once it's actually been consumed — a
+      // failed/offline attempt keeps it so reopening the tab can retry.
+      if (redeemed) history.replaceState(null, '', location.pathname + location.search);
+    }
+
+    async function fetchMe(token) {
+      try {
+        const res = await fetch(`${API_BASE}/v1/me`, { headers: { authorization: `Bearer ${token}` } });
+        return res.ok ? await res.json() : null;
+      } catch { return null; }
+    }
+
+    // Map fractional [0,1] room coords ↔ plaza pixels within the courtyard, so
+    // the shared server truth renders consistently across differently-sized
+    // viewers. The room only ever speaks fractions.
+    function toPixel(fx, fy) {
+      const b = plazaBounds();
+      return { x: b.cx + (fx - 0.5) * 2 * b.rx, y: b.cy + (fy - 0.5) * 2 * b.ry };
+    }
+    function toFraction(px, py) {
+      const b = plazaBounds();
+      const clamp = (n) => Math.min(1, Math.max(0, n));
+      return { x: clamp((px - b.cx) / (2 * b.rx) + 0.5), y: clamp((py - b.cy) / (2 * b.ry) + 0.5) };
+    }
+
+    // Drive peers from a snapshot. Never touch my own sprite (I drive it
+    // locally). Under reduced motion, SNAP to the server position rather than
+    // animate — this runs OUTSIDE tick()'s reduced-motion freeze on purpose.
+    function applySnapshot(list) {
+      for (const a of list || []) {
+        if (!a || a.slug === state.meSlug) continue;
+        // Harden the render against a malformed/hostile frame: reject non-finite
+        // coords (never NaN-poison a sprite's position/minimap) and clamp to the
+        // unit square before mapping to pixels.
+        if (!Number.isFinite(a.x) || !Number.isFinite(a.y)) continue;
+        const actor = actors.get(a.slug);
+        if (!actor) continue; // not rendered yet — arrives via the /v1/world poll
+        const p = toPixel(Math.min(1, Math.max(0, a.x)), Math.min(1, Math.max(0, a.y)));
+        actor.tx = p.x; actor.ty = p.y;
+        actor.remote = true; // a room-driven peer: suppress autonomous wander
+        if (REDUCED_MOTION) { actor.x = p.x; actor.y = p.y; }
+      }
+    }
+
+    function handleServerMsg(msg) {
+      switch (msg && msg.type) {
+        case 'welcome':
+          // The room's public id for me (anon-masked, matching the plaza's own
+          // key) is the sprite I control — not necessarily /v1/me's real slug.
+          if (msg.self) state.meSlug = msg.self;
+          applySnapshot(msg.actors);
+          break;
+        case 'join': applySnapshot([msg.actor]); break;
+        case 'snapshot': applySnapshot(msg.actors); break;
+        case 'leave': { const a = actors.get(msg.slug); if (a) a.remote = false; break; }
+      }
+    }
+
+    function wsUrl() {
+      const base = API_BASE
+        ? API_BASE.replace(/^http/i, 'ws')
+        : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+      return `${base}/v1/live/${district}`;
+    }
+
+    function connect(token) {
+      if (stopped) return;
+      let ws;
+      try { ws = new WebSocket(wsUrl()); } catch { scheduleReconnect(token); return; }
+      socket = ws;
+      ws.addEventListener('open', () => {
+        backoff = 1000;
+        ws.send(JSON.stringify({ type: 'hello', controlToken: token, slug: state.meSlug || undefined, lastSeq: seq }));
+      });
+      ws.addEventListener('message', (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+        handleServerMsg(msg);
+      });
+      ws.addEventListener('close', (ev) => {
+        socket = null;
+        // 1008 = policy/auth violation (bad/expired token, wrong room): the
+        // token won't get better on retry, so stop hammering the room.
+        if (ev && ev.code === 1008) { stopped = true; return; }
+        scheduleReconnect(token);
+      });
+      ws.addEventListener('error', () => { try { ws.close(); } catch {} });
+    }
+    function scheduleReconnect(token) {
+      if (stopped) return;
+      setTimeout(() => connect(token), backoff);
+      backoff = Math.min(backoff * 2, 30_000); // capped exponential backoff
+    }
+
+    // Emit an owner move intent. seq is monotonic so the room drops stale/out-of
+    // -order frames. Fire-and-forget: if the socket is down, the local sprite
+    // still walks; peers catch up on the next connected frame.
+    function sendMoveTo(fx, fy) {
+      seq += 1;
+      const msg = { type: 'move_to', seq, x: fx, y: fy, clientTs: Date.now() };
+      state.lastMoveTo = msg; // test hook
+      if (socket && socket.readyState === 1) { try { socket.send(JSON.stringify(msg)); } catch {} }
+    }
+
+    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo };
+  })();
+
+  // The sprite I control, if any (keyed by the plaza's public slug).
+  function ownerActor() {
+    return state.meSlug ? actors.get(state.meSlug) : null;
+  }
+  // Click-to-move: point my sprite at a spot in the courtyard. tick() walks it
+  // there and streams move_to while moving; under reduced motion we snap.
+  function moveOwnerTo(px, py) {
+    const actor = ownerActor();
+    if (!actor) return false;
+    const b = plazaBounds();
+    const tx = Math.max(b.cx - b.rx, Math.min(b.cx + b.rx, px));
+    const ty = Math.max(b.cy - b.ry, Math.min(b.cy + b.ry, py));
+    actor.tx = tx; actor.ty = ty; actor.owned = true;
+    state.clickMarkers.push({ x: tx, y: ty, born: performance.now() }); // RO destination ring
+    if (REDUCED_MOTION) {
+      actor.x = tx; actor.y = ty;
+      const f = RT.toFraction(tx, ty);
+      RT.sendMoveTo(f.x, f.y);
+    }
+    return true;
+  }
+  // Test/instrumentation hooks (read by plaza-smoke.test.ts).
+  state.moveOwnerTo = moveOwnerTo;
+  state.applySnapshot = (msg) => RT.applySnapshot(msg && msg.actors);
+  state.rtToPixel = RT.toPixel;
+  state.rtToFraction = RT.toFraction;
+  state.actorPos = (slug) => {
+    const a = actors.get(slug);
+    return a ? { x: a.x, y: a.y, tx: a.tx, ty: a.ty, owned: !!a.owned, remote: !!a.remote } : null;
+  };
+
   canvas.addEventListener('click', (ev) => {
     const rect = canvas.getBoundingClientRect();
     const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
@@ -978,7 +1163,8 @@
       if (d < bestD) { bestD = d; best = c.slug; }
     }
     if (best) petBuddy(best);
-    else state.clickMarkers.push({ x: mx, y: my, born: performance.now() }); // RO move-marker
+    else if (ownerActor()) moveOwnerTo(mx, my); // I drive my own sprite
+    else state.clickMarkers.push({ x: mx, y: my, born: performance.now() }); // spectator RO move-marker
   });
 
   // RO green destination ring — the classic click-to-move marker.
@@ -1302,6 +1488,31 @@
     await refresh();
     setInterval(refresh, 10_000);
     requestAnimationFrame(tick);
+
+    // Real-time control bootstrap (M3). Best-effort and fully optional: any
+    // failure just leaves you as a spectator on the /v1/world poll.
+    try {
+      await RT.redeemCodeFromFragment();
+      const token = RT.storedToken();
+      if (token) {
+        const me = await RT.fetchMe(token);
+        if (me && me.slug) {
+          state.me = me;
+          state.meSlug = me.slug; // welcome.self refines this (anon-safe) once connected
+          // Only join the room whose town this page is showing; a buddy in
+          // another town can't be driven from here (the room would reject it).
+          if (!me.district || me.district === district) RT.connect(token);
+        }
+      }
+    } catch { /* never let control setup break the plaza */ }
+    // Expose the player hooks whether or not we have a token (tests drive them).
+    window.__PLAYER__ = {
+      get meSlug() { return state.meSlug; },
+      get lastMoveTo() { return state.lastMoveTo; },
+      get me() { return state.me; },
+      moveOwnerTo,
+      applySnapshot: state.applySnapshot,
+    };
   }
 
   // ── plaza music (self-hosted, original, no third-party embed) ─────────

@@ -147,6 +147,39 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     a.close();
   });
 
+  it('an owner move_to reaches a peer as a batched snapshot', async () => {
+    const ctA = await mintControlToken('ws-move-token-aaa');
+    const ctB = await mintControlToken('ws-move-token-bbb');
+
+    const a = await connect('plaza-1');
+    a.send({ type: 'hello', controlToken: ctA });
+    const welcomeA = await a.next();
+    const selfA = welcomeA.self as string;
+
+    const b = await connect('plaza-1');
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next(); // B welcome
+    await a.next(); // A hears B join
+
+    // A drives its sprite; B should see a coalesced snapshot with A's new spot.
+    a.send({ type: 'move_to', seq: 1, x: 0.42, y: 0.66, clientTs: 1 });
+
+    let snap: any;
+    for (let i = 0; i < 5; i++) {
+      const m = await b.next();
+      if (m.type === 'snapshot') {
+        snap = m;
+        break;
+      }
+    }
+    expect(snap).toBeTruthy();
+    const moved = snap.actors.find((x: any) => x.slug === selfA);
+    expect(moved).toMatchObject({ x: 0.42, y: 0.66, seq: 1 });
+
+    a.close();
+    b.close();
+  });
+
   it('rebuilds presence from socket attachments after eviction (hibernation)', async () => {
     const ctA = await mintControlToken('ws-hib-token-aaa');
     const ctB = await mintControlToken('ws-hib-token-bbb');

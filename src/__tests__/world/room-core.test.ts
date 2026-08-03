@@ -3,6 +3,7 @@ import {
   RoomCore,
   isFreshSeq,
   diffActors,
+  planSnapshot,
   type RoomPort,
   type ServerMsg,
   type ActorState,
@@ -129,6 +130,83 @@ describe('room-core presence and liveness', () => {
     const res = await core.onMessage('me', actor('shadowpaw-ab12'), JSON.stringify({ type: 'hello', controlToken: 'good-control-token' }), []);
     expect(res.attach).toBeUndefined();
     expect(rec.broadcasts).toHaveLength(0);
+  });
+});
+
+describe('room-core movement (move_to)', () => {
+  it('an authenticated move_to updates the position and requests a batched flush', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('shadowpaw-ab12', { seq: 0 }),
+      JSON.stringify({ type: 'move_to', seq: 1, x: 0.3, y: 0.7, clientTs: 111 }),
+      []
+    );
+    expect(res.attach).toEqual({ slug: 'shadowpaw-ab12', x: 0.3, y: 0.7, seq: 1 });
+    expect(res.flush).toBe(true);
+    // move_to is coalesced into the batched snapshot, never broadcast inline.
+    expect(rec.broadcasts).toHaveLength(0);
+  });
+
+  it('drops a stale / non-increasing move_to seq', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('x', { seq: 5, x: 0.1, y: 0.1 }),
+      JSON.stringify({ type: 'move_to', seq: 5, x: 0.9, y: 0.9 }),
+      []
+    );
+    expect(res.attach).toBeUndefined();
+    expect(res.flush).toBeFalsy();
+  });
+
+  it('ignores out-of-range or non-finite coordinates', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    for (const bad of [
+      { x: 1.5, y: 0.5 },
+      { x: 0.5, y: -0.1 },
+      { x: Number.NaN, y: 0.5 },
+      { x: 0.5, y: 'nope' as unknown as number },
+    ]) {
+      const res = await core.onMessage(
+        'me',
+        actor('x', { seq: 0 }),
+        JSON.stringify({ type: 'move_to', seq: 1, ...bad }),
+        []
+      );
+      expect(res.attach).toBeUndefined();
+    }
+  });
+
+  it('a move_to before authentication is refused (hello still required first)', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, JSON.stringify({ type: 'move_to', seq: 1, x: 0.2, y: 0.2 }), []);
+    expect(res.close?.code).toBe(1008);
+  });
+});
+
+describe('room-core snapshot planning (dirty-only, masked)', () => {
+  it('includes only actors that changed, preserving (already-masked) slugs', () => {
+    const prev = new Map<string, ActorState>([['a', actor('a', { x: 0.1, y: 0.1, seq: 1 })]]);
+    const next = new Map<string, ActorState>([
+      ['a', actor('a', { x: 0.1, y: 0.1, seq: 1 })], // unchanged
+      ['anon-abc123', actor('anon-abc123', { x: 0.5, y: 0.5, seq: 2 })], // moved; masked slug
+    ]);
+    const snap = planSnapshot(DISTRICT, 999, prev, next);
+    expect(snap).not.toBeNull();
+    expect(snap!.type).toBe('snapshot');
+    expect(snap!.district).toBe(DISTRICT);
+    expect(snap!.serverTs).toBe(999);
+    expect(snap!.actors.map((a) => a.slug)).toEqual(['anon-abc123']); // real anon slug never appears
+  });
+
+  it('returns null when nothing is dirty (no idle snapshot spam)', () => {
+    const m = new Map<string, ActorState>([['a', actor('a')]]);
+    expect(planSnapshot(DISTRICT, 1, m, m)).toBeNull();
   });
 });
 

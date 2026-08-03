@@ -41,6 +41,7 @@ export type ServerMsg =
   | { type: 'welcome'; district: string; self: string; actors: PublicActor[] }
   | { type: 'join'; actor: PublicActor }
   | { type: 'leave'; slug: string }
+  | { type: 'snapshot'; district: string; serverTs: number; actors: PublicActor[] }
   | { type: 'pong'; serverTs: number }
   | { type: 'error'; error: string };
 
@@ -58,6 +59,27 @@ export interface HandleResult {
   attach?: ActorState;
   // Ask the adapter to close the socket (protocol/auth violation).
   close?: { code: number; reason: string };
+  // A position changed — ask the adapter to schedule a batched snapshot flush
+  // (the 50–100 ms coalescing + timer is host-specific, so it lives there).
+  flush?: boolean;
+}
+
+// Fractional map coordinate: finite and within the unit square.
+function inUnit(n: unknown): n is number {
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
+}
+
+// Build a dirty-only snapshot: only actors that are new or moved since the last
+// broadcast. Returns null when nothing changed, so an idle room emits nothing.
+export function planSnapshot(
+  district: string,
+  serverTs: number,
+  prev: Map<string, ActorState>,
+  next: Map<string, ActorState>
+): Extract<ServerMsg, { type: 'snapshot' }> | null {
+  const dirty = diffActors(prev, next);
+  if (dirty.length === 0) return null;
+  return { type: 'snapshot', district, serverTs, actors: dirty };
 }
 
 // Monotonic seq: accept a client intent only if it strictly advances the last
@@ -138,6 +160,16 @@ export class RoomCore<S> {
     // Authenticated frames. M2 is presence-only; movement (move_to, using
     // isFreshSeq) and portal_enter land in M3/M4.
     switch (msg.type) {
+      case 'move_to': {
+        // Owner drives their own sprite. Drop stale/out-of-order intents (seq
+        // must strictly advance) and reject coordinates outside the unit square.
+        // The new position is coalesced into the next batched snapshot, never
+        // broadcast inline.
+        const { seq, x, y } = msg as { seq?: unknown; x?: unknown; y?: unknown };
+        if (typeof seq !== 'number' || !isFreshSeq(attachment.seq, seq)) return {};
+        if (!inUnit(x) || !inUnit(y)) return {};
+        return { attach: { slug: attachment.slug, x, y, seq }, flush: true };
+      }
       case 'ping':
         this.port.send(socket, { type: 'pong', serverTs: this.port.now() });
         return {};

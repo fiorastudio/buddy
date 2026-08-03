@@ -10,9 +10,11 @@
 
 import {
   RoomCore,
+  planSnapshot,
   type RoomPort,
   type ActorState,
   type AuthResult,
+  type ServerMsg,
 } from '../lib/world/room-core.js';
 import { D1WorldStore, type D1Like } from '../lib/world/d1-store.js';
 import { hashToken } from '../lib/world/handlers.js';
@@ -38,8 +40,17 @@ const WebSocketPairCtor = (globalThis as unknown as {
   WebSocketPair: new () => WebSocketPairLike;
 }).WebSocketPair;
 
+// Coalesce move_to bursts (owner sends 5–10 Hz) into one snapshot per window.
+const SNAPSHOT_FLUSH_MS = 60;
+
 export class WorldRoom {
   private storePromise: Promise<D1WorldStore> | null = null;
+  // Ephemeral batching state. Safe to lose on hibernation: positions live on the
+  // sockets (attachments), so a woken room re-derives everything; at worst it
+  // emits one extra full snapshot after wake. A pending timer only exists while
+  // actively moving, so it never blocks an IDLE room from hibernating.
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastBroadcast = new Map<string, ActorState>();
 
   constructor(private state: DurableObjectStateLike, private env: RoomEnv) {}
 
@@ -62,28 +73,56 @@ export class WorldRoom {
     return { slug, district: c.district };
   }
 
+  // Presence/snapshots reach only sockets that completed the hello handshake —
+  // a socket that connected but never authenticated must not receive (even
+  // masked) peer identities. Idle unauth sockets simply hear nothing; we don't
+  // time them out (a timer would block hibernation).
+  private broadcastToAuthed(msg: ServerMsg, except?: CfWebSocket): void {
+    const frame = JSON.stringify(msg);
+    for (const ws of this.state.getWebSockets()) {
+      if (ws === except) continue;
+      if (!this.attachmentOf(ws)?.actor) continue;
+      try {
+        ws.send(frame);
+      } catch {
+        // a racing close; the socket will surface via webSocketClose
+      }
+    }
+  }
+
   private port(): RoomPort<CfWebSocket> {
     return {
       now: () => Date.now(),
       send: (ws, msg) => ws.send(JSON.stringify(msg)),
-      broadcast: (msg, except) => {
-        const frame = JSON.stringify(msg);
-        for (const ws of this.state.getWebSockets()) {
-          if (ws === except) continue;
-          // Presence reaches only sockets that completed the hello handshake —
-          // a socket that connected but never authenticated must not receive
-          // (even masked) peer identities. Idle unauth sockets simply hear
-          // nothing; we don't time them out (a timer would block hibernation).
-          if (!this.attachmentOf(ws)?.actor) continue;
-          try {
-            ws.send(frame);
-          } catch {
-            // a racing close; the socket will surface via webSocketClose
-          }
-        }
-      },
+      broadcast: (msg, except) => this.broadcastToAuthed(msg, except),
       verify: (token) => this.verify(token),
     };
+  }
+
+  // Schedule a single coalesced snapshot for this window. A no-op if one is
+  // already pending — that's the batching.
+  private scheduleFlush(): void {
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flushSnapshot();
+    }, SNAPSHOT_FLUSH_MS);
+  }
+
+  // Emit a dirty-only snapshot of everyone currently present, rebuilt from
+  // socket attachments (hibernation-safe). Nothing dirty → nothing sent.
+  private flushSnapshot(): void {
+    const current = new Map<string, ActorState>();
+    let district = '';
+    for (const ws of this.state.getWebSockets()) {
+      const att = this.attachmentOf(ws);
+      if (!att?.actor) continue;
+      district = att.district;
+      current.set(att.actor.slug, att.actor);
+    }
+    const snap = planSnapshot(district, Date.now(), this.lastBroadcast, current);
+    this.lastBroadcast = current;
+    if (snap) this.broadcastToAuthed(snap);
   }
 
   private attachmentOf(ws: CfWebSocket): SocketAttachment | null {
@@ -131,6 +170,7 @@ export class WorldRoom {
     if (res.attach) {
       ws.serializeAttachment({ district: att.district, actor: res.attach } satisfies SocketAttachment);
     }
+    if (res.flush) this.scheduleFlush();
     if (res.close) ws.close(res.close.code, res.close.reason);
   }
 
