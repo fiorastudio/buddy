@@ -92,8 +92,11 @@ async function main() {
 
     // 5. Recall + purge (also verifies recall works)
     const rRes = await post('/v1/recall', { token, purge: true });
-    ok('recall --purge returns 200', rRes.status === 200, `status=${rRes.status}`);
-    teleported = false; // purged cleanly
+    const recalled = rRes.status === 200;
+    ok('recall --purge returns 200', recalled, `status=${rRes.status}`);
+    // Only mark clean if the purge actually happened — otherwise leave
+    // `teleported` set so the finally block retries the cleanup.
+    if (recalled) teleported = false;
 
     // 6. Gone after purge
     const w3 = await getWorld(district);
