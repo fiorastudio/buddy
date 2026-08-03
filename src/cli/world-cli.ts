@@ -50,6 +50,35 @@ function makeSync(cfg: WorldConfig, deps: WorldCliDeps): WorldSync {
   return new WorldSync(cfg, deps.fetchFn ? { fetchFn: deps.fetchFn } : {});
 }
 
+// Levenshtein distance, for "did you mean" suggestions on a typo'd town.
+function editDistance(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) d[i][0] = i;
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+/**
+ * Forgiving CLI-side town resolution so owners don't have to spell it exactly:
+ * exact name / plaza-N (via districtForTown), then a unique case-insensitive
+ * prefix ("gef" → Geffen), else the closest name as a "did you mean" hint.
+ * The SERVER stays strict — the CLI always resolves to a canonical plaza-N first.
+ */
+export function matchTown(input: string): { district: string } | { suggestion: string } {
+  const strict = districtForTown(input);
+  if (strict) return { district: strict };
+  const s = input.trim().toLowerCase();
+  const prefix = TOWN_NAMES.filter((t) => t.toLowerCase().startsWith(s));
+  if (s.length >= 2 && prefix.length === 1) return { district: districtForTown(prefix[0])! };
+  const closest = [...TOWN_NAMES].sort(
+    (a, b) => editDistance(s, a.toLowerCase()) - editDistance(s, b.toLowerCase())
+  )[0];
+  return { suggestion: closest };
+}
+
 export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<string[]> {
   const configPath = deps.configPath ?? DEFAULT_WORLD_CONFIG_PATH;
   const apiUrl = deps.apiUrl ?? DEFAULT_API_URL;
@@ -70,9 +99,9 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       // call or config write.
       let desiredDistrict: string | undefined;
       if (townArg) {
-        const resolved = districtForTown(townArg);
-        if (!resolved) return [`Unknown town "${townArg}". ${AVAILABLE_TOWNS}`];
-        desiredDistrict = resolved;
+        const m = matchTown(townArg);
+        if ('suggestion' in m) return [`Unknown town "${townArg}". Did you mean ${m.suggestion}? ${AVAILABLE_TOWNS}`];
+        desiredDistrict = m.district;
       }
 
       const existing = loadWorldConfig(configPath);
