@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { worldCommand, matchTown, type WorldCliDeps } from '../../cli/world-cli.js';
+import { worldCommand, type WorldCliDeps } from '../../cli/world-cli.js';
 import { createWorldFetchHandler } from '../../world/worker-core.js';
 import { sqliteAsD1 } from './d1-shim.js';
 import { loadWorldConfig } from '../../lib/world/client.js';
@@ -93,21 +93,18 @@ describe('worldCommand', () => {
     const out = await worldCommand(['dance'], deps);
     expect(out.join('\n')).toMatch(/usage/i);
   });
-});
 
-describe('matchTown (forgiving town resolution)', () => {
-  it('resolves exact names case-insensitively', () => {
-    expect(matchTown('Payon')).toEqual({ district: 'plaza-2' });
-    expect(matchTown('geffen')).toEqual({ district: 'plaza-3' });
-    expect(matchTown('plaza-5')).toEqual({ district: 'plaza-5' });
+  it('teleport lands in Prontera; warp moves the buddy to a chosen town', async () => {
+    await worldCommand(['teleport'], deps); // everyone lands in Prontera
+    expect(loadWorldConfig(configPath)?.district).toBe('plaza-1');
+    const out = await worldCommand(['warp', 'payon'], deps);
+    expect(out.join('\n')).toMatch(/warped to Payon/i);
+    expect(loadWorldConfig(configPath)?.district).toBe('plaza-2');
   });
-  it('resolves a unique case-insensitive prefix', () => {
-    expect(matchTown('pay')).toEqual({ district: 'plaza-2' });
-    expect(matchTown('gef')).toEqual({ district: 'plaza-3' });
-    expect(matchTown('como')).toEqual({ district: 'plaza-6' });
-  });
-  it('suggests the closest town on a typo', () => {
-    expect(matchTown('morrocc')).toEqual({ suggestion: 'Morroc' });
-    expect(matchTown('gefen')).toEqual({ suggestion: 'Geffen' });
+
+  it('warp is refused before teleporting, and rejects an unknown town', async () => {
+    expect((await worldCommand(['warp', 'payon'], deps)).join('\n')).toMatch(/not in the world/i);
+    await worldCommand(['teleport'], deps);
+    expect((await worldCommand(['warp', 'atlantis'], deps)).join('\n')).toMatch(/unknown town/i);
   });
 });

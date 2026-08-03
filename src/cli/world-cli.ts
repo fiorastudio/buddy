@@ -31,8 +31,9 @@ export interface WorldCliDeps {
 const USAGE = [
   'Usage: buddy-world <command>',
   '',
-  '  teleport [town] [--avatar chibi-1..8]  beam your buddy into a town (default: auto)',
-  '  towns                           list the RO cities you can teleport to',
+  '  teleport [--avatar chibi-1..8]  teleport your buddy into Buddy World (lands in Prontera)',
+  '  warp <town>                     travel your buddy to another town',
+  '  towns                           list the towns you can warp to',
   '  status                          show your buddy\'s world link',
   '  anon <on|off>                   toggle anonymous mode ("a wild Void Cat")',
   '  recall [--purge]                leave the world (--purge deletes all server data)',
@@ -50,35 +51,6 @@ function makeSync(cfg: WorldConfig, deps: WorldCliDeps): WorldSync {
   return new WorldSync(cfg, deps.fetchFn ? { fetchFn: deps.fetchFn } : {});
 }
 
-// Levenshtein distance, for "did you mean" suggestions on a typo'd town.
-function editDistance(a: string, b: string): number {
-  const d: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = 0; i <= a.length; i++) d[i][0] = i;
-  for (let j = 0; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++)
-    for (let j = 1; j <= b.length; j++)
-      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-  return d[a.length][b.length];
-}
-
-/**
- * Forgiving CLI-side town resolution so owners don't have to spell it exactly:
- * exact name / plaza-N (via districtForTown), then a unique case-insensitive
- * prefix ("gef" → Geffen), else the closest name as a "did you mean" hint.
- * The SERVER stays strict — the CLI always resolves to a canonical plaza-N first.
- */
-export function matchTown(input: string): { district: string } | { suggestion: string } {
-  const strict = districtForTown(input);
-  if (strict) return { district: strict };
-  const s = input.trim().toLowerCase();
-  const prefix = TOWN_NAMES.filter((t) => t.toLowerCase().startsWith(s));
-  if (s.length >= 2 && prefix.length === 1) return { district: districtForTown(prefix[0])! };
-  const closest = [...TOWN_NAMES].sort(
-    (a, b) => editDistance(s, a.toLowerCase()) - editDistance(s, b.toLowerCase())
-  )[0];
-  return { suggestion: closest };
-}
-
 export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<string[]> {
   const configPath = deps.configPath ?? DEFAULT_WORLD_CONFIG_PATH;
   const apiUrl = deps.apiUrl ?? DEFAULT_API_URL;
@@ -86,23 +58,14 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
   const out: string[] = [];
 
   switch (cmd) {
+    // teleport: bring your buddy from this machine INTO Buddy World. Everyone
+    // lands in the same place (Prontera); use `warp` to travel from there.
     case 'teleport': {
       const companion = deps.loadCompanion();
       if (!companion) return ['No buddy found. Hatch one first!'];
 
       const avatarIdx = rest.indexOf('--avatar');
       const avatar = avatarIdx >= 0 ? rest[avatarIdx + 1] : undefined;
-      // First positional that isn't a flag or the --avatar value = the town.
-      const townArg = rest.find((a, i) => !a.startsWith('--') && !(avatarIdx >= 0 && i === avatarIdx + 1));
-
-      // Resolve the chosen town up front — reject a bad name before any network
-      // call or config write.
-      let desiredDistrict: string | undefined;
-      if (townArg) {
-        const m = matchTown(townArg);
-        if ('suggestion' in m) return [`Unknown town "${townArg}". Did you mean ${m.suggestion}? ${AVAILABLE_TOWNS}`];
-        desiredDistrict = m.district;
-      }
 
       const existing = loadWorldConfig(configPath);
       if (!existing) {
@@ -119,29 +82,54 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       const sync = makeSync(cfg, deps);
       let res;
       try {
-        res = await sync.teleport(buildWorldSnapshot(companion, avatarChoice), { district: desiredDistrict });
+        res = await sync.teleport(buildWorldSnapshot(companion, avatarChoice));
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('town_full') && townArg) {
-          return [`${townArg} is full right now. Pick another — buddy-world towns.`];
-        }
-        return [`Teleport failed (${msg}). Try again in a moment.`];
+        return [`Teleport failed (${err instanceof Error ? err.message : String(err)}). Try again in a moment.`];
       }
       saveWorldConfig(
         { ...cfg, slug: res.slug, url: res.url, district: res.district, avatar: avatarChoice },
         configPath
       );
 
-      const town = townForDistrict(res.district);
-      const where = town ? `${town} (${TOWN_BLURB[town]})` : 'the plaza';
-      out.push(`✨ ${companion.name} warped to ${where}!`);
+      out.push(`✨ ${companion.name} teleported into Buddy World!`);
       out.push(`   Watch them wander: ${res.url}`);
       out.push('   Level-ups, commits, and deploys now celebrate in the plaza.');
+      out.push('   Travel the world with: buddy-world warp <town>');
+      return out;
+    }
+
+    // warp: move your buddy from its current town to another. Shared world
+    // state — the server records the new town, and the buddy shows up there.
+    case 'warp': {
+      const cfg = loadWorldConfig(configPath);
+      if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
+      const companion = deps.loadCompanion();
+      if (!companion) return ['No buddy found. Hatch one first!'];
+
+      const townArg = rest.find((a) => !a.startsWith('--'));
+      if (!townArg) return [`Warp where? ${AVAILABLE_TOWNS}`, 'Usage: buddy-world warp <town>'];
+      const district = districtForTown(townArg);
+      if (!district) return [`Unknown town "${townArg}". ${AVAILABLE_TOWNS}`];
+
+      const sync = makeSync(cfg, deps);
+      let res;
+      try {
+        res = await sync.teleport(buildWorldSnapshot(companion, cfg.avatar), { district });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('town_full')) return [`${townArg} is full right now. Try another — buddy-world towns.`];
+        return [`Warp failed (${msg}). Try again in a moment.`];
+      }
+      saveWorldConfig({ ...cfg, slug: res.slug, url: res.url, district: res.district }, configPath);
+
+      const town = townForDistrict(res.district);
+      out.push(`🌀 ${companion.name} warped to ${town ? `${town} (${TOWN_BLURB[town]})` : res.district}!`);
+      out.push(`   ${res.url}`);
       return out;
     }
 
     case 'towns': {
-      out.push('Towns you can teleport to (buddy-world teleport <town>):');
+      out.push('Towns you can warp to (buddy-world warp <town>):');
       for (const name of TOWN_NAMES) out.push(`  ${name} — ${TOWN_BLURB[name]}`);
       return out;
     }

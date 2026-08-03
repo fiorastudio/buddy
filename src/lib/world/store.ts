@@ -7,7 +7,6 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from 'better-sqlite3';
 import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
 import { makeSlug } from './identity.js';
-import { pickDistrict } from './districts.js';
 import type { WorldSnapshot } from './validate.js';
 
 export interface CitizenRow {
@@ -112,7 +111,8 @@ export class SqliteWorldStore implements WorldStore {
       return { created: false, slug: existing.slug as string, district };
     }
 
-    const district = desiredDistrict ?? pickDistrict(await this.districtCounts());
+    // Everyone lands in the same place (Prontera) — from there they can `warp`.
+    const district = desiredDistrict ?? 'plaza-1';
     const id = randomUUID();
     let slug = makeSlug(snap.name);
     // Regenerate on the (rare) suffix collision rather than failing the insert.

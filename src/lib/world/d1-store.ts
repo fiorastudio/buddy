@@ -6,7 +6,6 @@
 import { randomUUID } from 'node:crypto';
 import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
 import { makeSlug } from './identity.js';
-import { pickDistrict } from './districts.js';
 import type { WorldSnapshot } from './validate.js';
 import type {
   WorldStore,
@@ -87,7 +86,8 @@ export class D1WorldStore implements WorldStore {
       return { created: false, slug: existing.slug as string, district };
     }
 
-    const district = desiredDistrict ?? pickDistrict(await this.districtCounts());
+    // Everyone lands in the same place (Prontera) — from there they can `warp`.
+    const district = desiredDistrict ?? 'plaza-1';
     const id = randomUUID();
     let slug = makeSlug(snap.name);
     while (await this.db.prepare('SELECT 1 FROM citizens WHERE slug = ?').bind(slug).first()) {

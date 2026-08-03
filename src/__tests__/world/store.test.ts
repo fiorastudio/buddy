@@ -99,12 +99,14 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(JSON.stringify(world)).not.toContain('tokenhash');
   });
 
-  it('districtCounts feeds sharding: 81st citizen lands in plaza-2', async () => {
+  it('everyone lands in the same place (Prontera) — no capacity sharding', async () => {
+    // Districts are named towns now, not overflow shards, so all teleports land
+    // together in plaza-1 (Prontera); moving elsewhere is an explicit `warp`.
     for (let i = 0; i < 80; i++) {
       await store.teleport(`tok-${i}`, snap({ name: `Buddy${i}` }), T0);
     }
-    const res = await store.teleport('tok-last', snap({ name: 'Overflow' }), T0);
-    expect(res.district).toBe('plaza-2');
+    const res = await store.teleport('tok-last', snap({ name: 'Latecomer' }), T0);
+    expect(res.district).toBe('plaza-1');
   });
 
   it('rollup aggregates a day of events per citizen', async () => {
