@@ -615,11 +615,13 @@
     const w = m.cols * charW;
     const h = m.rows * SPRITE_LINE_H;
 
-    // soft ground shadow anchors the sprite to the plaza
+    // soft ground shadow anchors the sprite to the plaza. Sit halfway between
+    // the sprite's bottom line (actor.y - SPRITE_LINE_H) and the old drop
+    // (actor.y + 4) so the gap under the feet is ~50% smaller.
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
-    ctx.ellipse(actor.x, actor.y + 4, w * 0.38, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(actor.x, actor.y - 4.5, w * 0.38, 6, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
@@ -1287,6 +1289,30 @@
   // still toggles it off/on.
   const musicToggle = document.getElementById('music-toggle');
   const musicAudio = document.getElementById('music-audio');
+
+  // Per-town music: each town has its own Suno-generated theme in
+  // world/public/music/. Point the <audio> at the CURRENT town's track
+  // (derived from the district) before playing; fall back to plaza-theme.
+  const TOWN_TRACK = {
+    Prontera: 'plaza-theme', Payon: 'payon', Geffen: 'geffen',
+    Alberta: 'alberta', Morroc: 'morroc', Comodo: 'comodo',
+  };
+  if (musicAudio) {
+    const track = TOWN_TRACK[TOWN.name] || 'plaza-theme';
+    // Prontera keeps the static <source>s already in index.html (plaza-theme);
+    // only rebuild + load() for other towns. Calling load() unconditionally
+    // kicks off a media fetch that stalls headless networkidle0 on the landing.
+    if (track !== 'plaza-theme') {
+      musicAudio.replaceChildren();
+      for (const [ext, type] of [['ogg', 'audio/ogg'], ['mp3', 'audio/mpeg']]) {
+        const s = document.createElement('source');
+        s.src = `music/${track}.${ext}`;
+        s.type = type;
+        musicAudio.appendChild(s);
+      }
+      musicAudio.load();
+    }
+  }
 
   if (musicToggle && musicAudio) {
     const setIdle = () => {
