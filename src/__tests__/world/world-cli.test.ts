@@ -49,7 +49,7 @@ describe('worldCommand', () => {
 
   it('teleport opts in, saves config, and prints the share url', async () => {
     const out = await worldCommand(['teleport', '--avatar', 'chibi-4'], deps);
-    expect(out.join('\n')).toMatch(/world\.example\.com\/b\/shadowpaw-/);
+    expect(out.join('\n')).toMatch(/world\.example\.com\/\?district=plaza-\d+/);
     const cfg = loadWorldConfig(configPath);
     expect(cfg?.slug).toMatch(/^shadowpaw-/);
     expect(cfg?.avatar).toBe('chibi-4');
@@ -65,7 +65,7 @@ describe('worldCommand', () => {
   it('status reports not-teleported before opt-in and the url after', async () => {
     expect((await worldCommand(['status'], deps)).join('\n')).toMatch(/not in the world/i);
     await worldCommand(['teleport'], deps);
-    expect((await worldCommand(['status'], deps)).join('\n')).toMatch(/world\.example\.com\/b\//);
+    expect((await worldCommand(['status'], deps)).join('\n')).toMatch(/world\.example\.com\/\?district=plaza-/);
   });
 
   it('recall --purge removes config and citizen', async () => {

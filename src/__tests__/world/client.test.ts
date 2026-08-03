@@ -90,7 +90,7 @@ describe('WorldSync against a real handler (end to end)', () => {
 
   it('teleport registers the citizen and returns the share url', async () => {
     const res = await sync.teleport(buildWorldSnapshot(companion(), 'chibi-1'));
-    expect(res.url).toMatch(/^https:\/\/world\.example\.com\/b\/shadowpaw-/);
+    expect(res.url).toMatch(/^https:\/\/world\.example\.com\/\?district=plaza-\d+/);
 
     const world = await fetchHandler(new Request(`https://world.example.com/v1/world/${res.district}`));
     const body = (await world.json()) as { citizens: unknown[] };

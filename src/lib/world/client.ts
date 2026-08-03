@@ -129,8 +129,15 @@ export class WorldSync {
     }
   }
 
-  async teleport(snapshot: WorldSnapshot): Promise<{ slug: string; url: string; district: string }> {
-    const res = await this.post('/v1/teleport', { token: this.cfg.token, snapshot });
+  async teleport(
+    snapshot: WorldSnapshot,
+    opts: { district?: string } = {}
+  ): Promise<{ slug: string; url: string; district: string }> {
+    const res = await this.post('/v1/teleport', {
+      token: this.cfg.token,
+      snapshot,
+      ...(opts.district ? { district: opts.district } : {}),
+    });
     if (!res || res.status !== 200) {
       const detail = res ? ((await res.json()) as { error?: string }).error : 'network unreachable';
       throw new Error(`teleport failed: ${detail}`);

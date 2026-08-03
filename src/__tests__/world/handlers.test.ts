@@ -50,6 +50,26 @@ describe('world handlers', () => {
     expect(await store.findByTokenHash(hashToken('secret-token'))).not.toBeNull();
   });
 
+  it('teleport to a named town lands there, and re-teleporting moves the buddy', async () => {
+    // Choose a town by name on first teleport → its district.
+    const first = await handleTeleport({ token: 'secret-token', snapshot: snap(), district: 'Payon' }, store, OPTS);
+    expect(first.status).toBe(200);
+    expect((first.body as { district: string }).district).toBe('plaza-2');
+
+    // Re-teleport to a different town → same buddy MOVES (not a duplicate).
+    const move = await handleTeleport({ token: 'secret-token', snapshot: snap(), district: 'Geffen' }, store, OPTS);
+    expect(move.status).toBe(200);
+    const body = move.body as { district: string; created: boolean };
+    expect(body.created).toBe(false); // existing citizen, moved
+    expect(body.district).toBe('plaza-3');
+    const citizen = await store.findByTokenHash(hashToken('secret-token'));
+    expect(citizen?.district).toBe('plaza-3');
+
+    // Unknown town → 400.
+    const bad = await handleTeleport({ token: 'secret-token', snapshot: snap(), district: 'Atlantis' }, store, OPTS);
+    expect(bad.status).toBe(400);
+  });
+
   it('teleport rejects an invalid snapshot with 400', async () => {
     const res = await handleTeleport({ token: 'tttttttt', snapshot: snap({ level: 50, xp: 10 }) }, store, OPTS);
     expect(res.status).toBe(400);
