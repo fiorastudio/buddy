@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS citizens (
   anon INTEGER NOT NULL DEFAULT 0,
   skin TEXT NOT NULL DEFAULT 'ascii',
   avatar TEXT,
+  country TEXT,
   district TEXT NOT NULL,
   hidden INTEGER NOT NULL DEFAULT 0,
   flagged INTEGER NOT NULL DEFAULT 0,

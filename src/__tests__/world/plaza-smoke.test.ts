@@ -32,6 +32,8 @@ function fixtureDistrict() {
       anon: false,
       skin: 'ascii',
       avatar: `chibi-${(i % 8) + 1}`,
+      // buddy-1 → Japan, buddy-2 → USA; the rest have no known origin (no flag).
+      country: i === 1 ? 'JP' : i === 2 ? 'US' : null,
       district: 'plaza-1',
       hidden: false,
       flagged: false,
@@ -257,6 +259,20 @@ describe('plaza smoke test (headless browser)', () => {
     // buddy-0 fixture: level 5 -> Novice tier; peak stat drives the line.
     const novice = (await page.evaluate(`window.__PLAZA__.jobLabelForSlug('buddy-0')`)) as string;
     expect(novice).toMatch(/^Novice · Lv\.5$/);
+  }, 60_000);
+
+  it('renders the country flag on the nameplate (and none when origin unknown)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
+    // buddy-1 → JP flag, buddy-2 → US flag (regional-indicator pairs).
+    const jp = (await page.evaluate(`window.__PLAZA__.flagForSlug('buddy-1')`)) as string;
+    const us = (await page.evaluate(`window.__PLAZA__.flagForSlug('buddy-2')`)) as string;
+    expect(jp).toBe('\u{1F1EF}\u{1F1F5}');
+    expect(us).toBe('\u{1F1FA}\u{1F1F8}');
+    // buddy-0 has no country → no flag.
+    const none = (await page.evaluate(`window.__PLAZA__.flagForSlug('buddy-0')`)) as string;
+    expect(none).toBe('');
   }, 60_000);
 
   it('captures the RO essence: porings, stalls, sitting idlers, town name, bubbles', async () => {

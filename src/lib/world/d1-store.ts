@@ -43,6 +43,7 @@ function rowToCitizen(row: Record<string, unknown>): CitizenRow {
     anon: !!row.anon,
     skin: row.skin as string,
     avatar: (row.avatar as string) ?? null,
+    country: (row.country as string) ?? null,
     district: row.district as string,
     hidden: !!row.hidden,
     flagged: !!row.flagged,
@@ -68,7 +69,7 @@ export class D1WorldStore implements WorldStore {
     return new D1WorldStore(db);
   }
 
-  async teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number, desiredDistrict?: string): Promise<TeleportResult> {
+  async teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number, desiredDistrict?: string, country?: string | null): Promise<TeleportResult> {
     const existing = await this.db
       .prepare('SELECT * FROM citizens WHERE token_hash = ?')
       .bind(tokenHash)
@@ -76,12 +77,14 @@ export class D1WorldStore implements WorldStore {
 
     if (existing) {
       // Snapshot fields are NOT written here: re-teleport must go through
-      // the handler's clamped update path, never around it. The one movable
-      // field is `district` when the owner explicitly asks to move towns.
+      // the handler's clamped update path, never around it. The movable
+      // fields are `district` (owner asks to move towns) and `country`
+      // (refreshed from the request origin; COALESCE keeps the old flag if
+      // this request had no country).
       const district = desiredDistrict ?? (existing.district as string);
       await this.db
-        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ? WHERE id = ?')
-        .bind(snap.avatar ?? null, district, existing.id)
+        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ?, country = COALESCE(?, country) WHERE id = ?')
+        .bind(snap.avatar ?? null, district, country ?? null, existing.id)
         .run();
       return { created: false, slug: existing.slug as string, district };
     }
@@ -96,8 +99,8 @@ export class D1WorldStore implements WorldStore {
     await this.db
       .prepare(
         `INSERT INTO citizens (id, slug, token_hash, name, species, level, xp, mood, stats, rarity,
-          shiny, hat, eye, avatar, district, created_at, last_seen_at, xp_bucket)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 60)`
+          shiny, hat, eye, avatar, country, district, created_at, last_seen_at, xp_bucket)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 60)`
       )
       .bind(
         id,
@@ -114,6 +117,7 @@ export class D1WorldStore implements WorldStore {
         snap.hat,
         snap.eye,
         snap.avatar ?? null,
+        country ?? null,
         district,
         nowMs,
         nowMs

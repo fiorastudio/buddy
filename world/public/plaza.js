@@ -72,6 +72,8 @@
   const STAT_KEYS = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'];
   const STAT_UP = { debugging: 'DEBUGGING', patience: 'PATIENCE', chaos: 'CHAOS', wisdom: 'WISDOM', snark: 'SNARK' };
   function jobTier(level) { return level >= 45 ? 3 : level >= 25 ? 2 : level >= 10 ? 1 : 0; }
+  // Kept but no longer rendered on the nameplate (superseded by the country
+  // flag). Still exercised by test instrumentation + ready to revive.
   function jobLabel(c) {
     if (!state.jobLines) return `Lv.${c.level}`;
     const stats = c.stats || {};
@@ -79,6 +81,22 @@
     for (const k of STAT_KEYS) if ((stats[k] ?? 0) > val) { val = stats[k]; peak = k; }
     const line = state.jobLines[STAT_UP[peak]] || state.jobLines.DEBUGGING;
     return `${line[jobTier(c.level)]} · Lv.${c.level}`;
+  }
+
+  // ISO 3166-1 alpha-2 → flag emoji via regional-indicator codepoints.
+  // Returns '' for anything that isn't two ASCII letters (missing/unknown).
+  function flagEmoji(cc) {
+    if (typeof cc !== 'string' || !/^[A-Za-z]{2}$/.test(cc)) return '';
+    const A = 0x1f1e6, base = 65; // 'A'
+    const up = cc.toUpperCase();
+    return String.fromCodePoint(A + up.charCodeAt(0) - base, A + up.charCodeAt(1) - base);
+  }
+  // The nameplate's second line: country flag (if known) + level. The flag is
+  // hidden in anon mode (server already nulls country for anon, belt-and-braces
+  // here too). Job class is retired to jobLabel() above, dormant.
+  function nameplateSub(c) {
+    const flag = !c.anon && c.country ? flagEmoji(c.country) : '';
+    return `${flag ? flag + ' ' : ''}Lv.${c.level}`;
   }
 
   const SPRITE_FONT = '13px Menlo, Consolas, monospace';
@@ -116,6 +134,12 @@
   state.jobLabelForSlug = (slug) => {
     const c = state.citizens.find((x) => x.slug === slug);
     return c ? jobLabel(c) : null;
+  };
+  // Test instrumentation: the flag emoji rendered on a slug's nameplate ('' if
+  // none / anon). Mirrors nameplateSub's flag logic.
+  state.flagForSlug = (slug) => {
+    const c = state.citizens.find((x) => x.slug === slug);
+    return c && !c.anon && c.country ? flagEmoji(c.country) : '';
   };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames
@@ -677,20 +701,20 @@
     const avatarIdx = (parseInt(String(c.avatar || 'chibi-1').replace(/\D/g, ''), 10) || 1) - 1;
     ctx.fillText(AVATARS[avatarIdx % AVATARS.length], actor.x + w / 2 + 12, actor.y - 4);
 
-    // name tag, RO style: white with dark outline. RO nameplates show the
-    // job class + level under the name.
+    // name tag, RO style: white with dark outline. Second line shows the
+    // owner's country flag (from the teleport origin) + level.
     const label = `${c.name}${c.shiny ? ' ✨' : ''}${flameSlugs.has(c.slug) ? ' 🔥' : ''}`;
-    const job = jobLabel(c);
+    const sub = nameplateSub(c);
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
     ctx.font = 'bold 11px Menlo, Consolas, monospace';
     ctx.strokeText(label, actor.x, actor.y + 15);
     ctx.fillStyle = active ? '#ffffff' : '#cfcbe2';
     ctx.fillText(label, actor.x, actor.y + 15);
-    ctx.font = '9px Menlo, Consolas, monospace';
-    ctx.strokeText(job, actor.x, actor.y + 26);
+    ctx.font = '10px Menlo, Consolas, monospace';
+    ctx.strokeText(sub, actor.x, actor.y + 26);
     ctx.fillStyle = active ? '#ffe082' : '#b0a4c8';
-    ctx.fillText(job, actor.x, actor.y + 26);
+    ctx.fillText(sub, actor.x, actor.y + 26);
 
     // occasional behavior emote (static under reduced motion)
     const emoteVisible = REDUCED_MOTION || (performance.now() + actor.emoteAt) % 9000 < 1400;

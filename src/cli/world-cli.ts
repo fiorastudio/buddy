@@ -43,6 +43,7 @@ const AVAILABLE_TOWNS = `Available: ${TOWN_NAMES.join(', ')}.`;
 
 const PRIVACY_NOTE = [
   'Buddy World syncs GAME STATE ONLY: name, species, level, XP, mood, stats.',
+  'Your teleport shows a country flag (country-level origin only — no city/IP).',
   'Never your code, prompts, or messages. Anonymous mode: buddy-world anon on.',
   'Leave anytime: buddy-world recall --purge removes everything server-side.',
 ];

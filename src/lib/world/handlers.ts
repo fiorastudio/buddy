@@ -22,10 +22,25 @@ export interface HandlerResult {
 export interface HandlerOpts {
   now: number;
   baseUrl: string;
+  // ISO 3166-1 alpha-2 origin of the request (Cloudflare `request.cf.country`
+  // or the `cf-ipcountry` header). Server-derived from the IP, so it's not
+  // client-spoofable. Absent off-Cloudflare (tests, self-host).
+  country?: string;
 }
 
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+// Sanitize an origin country to a bare ISO 3166-1 alpha-2 code, or null.
+// Cloudflare uses `XX`/`T1` sentinels for unknown/Tor — those normalize away
+// (not `[A-Z]{2}` real countries, or explicitly filtered) so they show no flag.
+export function normalizeCountry(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const cc = raw.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return null;
+  if (cc === 'XX' || cc === 'T1') return null; // CF sentinels: unknown / Tor
+  return cc;
 }
 
 function bad(status: number, error: string): HandlerResult {
@@ -90,7 +105,8 @@ export async function handleTeleport(
   // fresh citizens start with a near-empty budget (no fast growth on top),
   // and analytics can segment by entry level. Post-creation changes all go
   // through the clamped path below.
-  const result = await store.teleport(tokenHash, snap, opts.now, desiredDistrict);
+  const country = normalizeCountry(opts.country);
+  const result = await store.teleport(tokenHash, snap, opts.now, desiredDistrict, country);
   if (!result.created) {
     // Existing citizen: snapshot changes go through the clamp, never around it.
     const citizen = await store.findByTokenHash(tokenHash);
@@ -172,7 +188,8 @@ export async function handleWorld(
     if (!pub.anon) return pub;
     const masked = `anon-${hashToken(pub.slug).slice(0, 6)}`;
     anonSlugByReal.set(pub.slug, masked);
-    return { ...pub, name: `a wild ${pub.species}`, slug: masked };
+    // Anon = minimal identity: no real name, no country flag.
+    return { ...pub, name: `a wild ${pub.species}`, slug: masked, country: null };
   });
 
   const events = view.events.map((e) =>

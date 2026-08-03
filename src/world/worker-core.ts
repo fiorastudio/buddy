@@ -55,7 +55,12 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
   return async function fetchHandler(req: Request): Promise<Response> {
     try {
       const url = new URL(req.url);
-      const opts = { now: now(), baseUrl: config.baseUrl };
+      // Cloudflare fills `request.cf.country` (ISO 3166-1 alpha-2) for free,
+      // derived server-side from the IP; the `cf-ipcountry` header is the
+      // fallback. Absent off-Cloudflare — handlers treat undefined as "no flag".
+      const cf = (req as { cf?: { country?: string } }).cf;
+      const country = cf?.country ?? req.headers.get('cf-ipcountry') ?? undefined;
+      const opts = { now: now(), baseUrl: config.baseUrl, country };
 
       if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS_HEADERS });

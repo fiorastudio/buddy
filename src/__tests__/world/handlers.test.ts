@@ -169,6 +169,44 @@ describe('world handlers', () => {
     expect(body.citizens[0].slug).not.toMatch(/shadowpaw/);
   });
 
+  it('teleport stores the request-origin country and the world view returns it', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, { ...OPTS, country: 'JP' });
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const body = res.body as { citizens: Array<{ country: string | null }> };
+    expect(body.citizens[0].country).toBe('JP');
+  });
+
+  it('normalizes the origin country (lowercase → upper; junk/sentinels → no flag)', async () => {
+    // lowercase from the header path is accepted and upper-cased
+    await handleTeleport({ token: 'tok-lower-000000', snapshot: snap({ name: 'Lower' }) }, store, { ...OPTS, country: 'us' });
+    // CF unknown sentinel is dropped (no bogus "XX" flag)
+    await handleTeleport({ token: 'tok-xx-0000000000', snapshot: snap({ name: 'Sentinel' }) }, store, { ...OPTS, country: 'XX' });
+    // malformed is dropped
+    await handleTeleport({ token: 'tok-junk-0000000', snapshot: snap({ name: 'Junk' }) }, store, { ...OPTS, country: 'U1!' });
+    const body = (await handleWorld('plaza-1', store, OPTS)).body as { citizens: Array<{ name: string; country: string | null }> };
+    const by = (n: string) => body.citizens.find((c) => c.name === n)!;
+    expect(by('Lower').country).toBe('US');
+    expect(by('Sentinel').country).toBeNull();
+    expect(by('Junk').country).toBeNull();
+  });
+
+  it('re-teleport without a country keeps the previously stored flag', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, { ...OPTS, country: 'DE' });
+    // A later sync/teleport with no country (e.g. off-Cloudflare) must not wipe it.
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const body = (await handleWorld('plaza-1', store, OPTS)).body as { citizens: Array<{ country: string | null }> };
+    expect(body.citizens[0].country).toBe('DE');
+  });
+
+  it('anon mode hides the country flag in the world view', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, { ...OPTS, country: 'FR' });
+    await store.setAnon(hashToken('tok-0123456789abcdef'), true);
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const body = res.body as { citizens: Array<{ name: string; country: string | null }> };
+    expect(body.citizens[0].name).toBe('a wild Void Cat');
+    expect(body.citizens[0].country).toBeNull();
+  });
+
   it('rate limiter rejects after the per-minute budget', () => {
     const limiter = new RateLimiter(3, 60_000);
     expect(limiter.allow('k', T0)).toBe(true);

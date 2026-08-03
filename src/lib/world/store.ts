@@ -25,6 +25,7 @@ export interface CitizenRow {
   anon: boolean;
   skin: string;
   avatar: string | null;
+  country: string | null;
   district: string;
   hidden: boolean;
   flagged: boolean;
@@ -51,7 +52,7 @@ export interface DistrictView {
 }
 
 export interface WorldStore {
-  teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number, desiredDistrict?: string): Promise<TeleportResult>;
+  teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number, desiredDistrict?: string, country?: string | null): Promise<TeleportResult>;
   findByTokenHash(tokenHash: string): Promise<CitizenRow | null>;
   updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number, xpBucket?: number): Promise<void>;
   recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number>;
@@ -81,6 +82,7 @@ function rowToCitizen(row: Record<string, unknown>): CitizenRow {
     anon: !!row.anon,
     skin: row.skin as string,
     avatar: (row.avatar as string) ?? null,
+    country: (row.country as string) ?? null,
     district: row.district as string,
     hidden: !!row.hidden,
     flagged: !!row.flagged,
@@ -95,19 +97,21 @@ export class SqliteWorldStore implements WorldStore {
     db.exec(WORLD_SCHEMA_SQL);
   }
 
-  async teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number, desiredDistrict?: string): Promise<TeleportResult> {
+  async teleport(tokenHash: string, snap: WorldSnapshot, nowMs: number, desiredDistrict?: string, country?: string | null): Promise<TeleportResult> {
     const existing = this.db.prepare('SELECT * FROM citizens WHERE token_hash = ?').get(tokenHash) as
       | Record<string, unknown>
       | undefined;
 
     if (existing) {
       // Snapshot fields are NOT written here: re-teleport must go through
-      // the handler's clamped update path, never around it. The one movable
-      // field is `district` when the owner explicitly asks to move towns.
+      // the handler's clamped update path, never around it. The movable
+      // fields are `district` (owner asks to move towns) and `country`
+      // (refreshed from the request origin; COALESCE keeps the old flag if
+      // this request had no country).
       const district = desiredDistrict ?? (existing.district as string);
       this.db
-        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ? WHERE id = ?')
-        .run(snap.avatar ?? null, district, existing.id);
+        .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ?, country = COALESCE(?, country) WHERE id = ?')
+        .run(snap.avatar ?? null, district, country ?? null, existing.id);
       return { created: false, slug: existing.slug as string, district };
     }
 
@@ -122,8 +126,8 @@ export class SqliteWorldStore implements WorldStore {
     this.db
       .prepare(
         `INSERT INTO citizens (id, slug, token_hash, name, species, level, xp, mood, stats, rarity,
-          shiny, hat, eye, avatar, district, created_at, last_seen_at, xp_bucket)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 60)`
+          shiny, hat, eye, avatar, country, district, created_at, last_seen_at, xp_bucket)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 60)`
       )
       .run(
         id,
@@ -140,6 +144,7 @@ export class SqliteWorldStore implements WorldStore {
         snap.hat,
         snap.eye,
         snap.avatar ?? null,
+        country ?? null,
         district,
         nowMs,
         nowMs
