@@ -1,13 +1,7 @@
 // src/lib/world/districts.ts
-// District sharding: plazas cap at 80 citizens (RO channel style).
+// Per-town population cap (RO channel style). Used by the teleport/warp handler
+// to reject moving into a full town (409 town_full). Capacity SHARDING is
+// intentionally gone — everyone lands together in Prontera and moves by `warp`;
+// see towns.ts / src/lib/world/handlers.ts.
 
 export const DISTRICT_CAPACITY = 80;
-
-export function pickDistrict(counts: Record<string, number>): string {
-  for (let i = 1; i <= Object.keys(counts).length + 1; i++) {
-    const name = `plaza-${i}`;
-    if ((counts[name] ?? 0) < DISTRICT_CAPACITY) return name;
-  }
-  // Unreachable: the loop always finds a district within counts.length + 1.
-  return `plaza-${Object.keys(counts).length + 1}`;
-}

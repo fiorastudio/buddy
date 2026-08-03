@@ -25,7 +25,12 @@ export const TOWN_BLURB: Record<TownName, string> = {
 export function districtForTown(input: string): string | null {
   const s = input.trim();
   const plaza = s.match(/^plaza-(\d+)$/i);
-  if (plaza && Number(plaza[1]) >= 1) return `plaza-${Number(plaza[1])}`;
+  if (plaza) {
+    const n = Number(plaza[1]);
+    // Only the six real towns — reject unofficial overflow districts (plaza-7+),
+    // so no one can create a town outside the map.
+    return n >= 1 && n <= TOWN_NAMES.length ? `plaza-${n}` : null;
+  }
   const idx = TOWN_NAMES.findIndex((t) => t.toLowerCase() === s.toLowerCase());
   return idx >= 0 ? `plaza-${idx + 1}` : null;
 }

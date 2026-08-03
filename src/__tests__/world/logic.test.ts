@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spendXpBudget, XP_PER_HOUR_CAP, XP_BURST_CAP } from '../../lib/world/antiabuse.js';
 import { makeSlug, isNameClean } from '../../lib/world/identity.js';
-import { pickDistrict, DISTRICT_CAPACITY } from '../../lib/world/districts.js';
 
 describe('spendXpBudget (persisted token bucket)', () => {
   it('grants a legitimate steady gain in full', () => {
@@ -79,17 +78,3 @@ describe('isNameClean', () => {
   });
 });
 
-describe('pickDistrict', () => {
-  it('places citizens in plaza-1 when empty', () => {
-    expect(pickDistrict({})).toBe('plaza-1');
-  });
-
-  it('fills a district to capacity before opening the next', () => {
-    expect(pickDistrict({ 'plaza-1': DISTRICT_CAPACITY - 1 })).toBe('plaza-1');
-    expect(pickDistrict({ 'plaza-1': DISTRICT_CAPACITY })).toBe('plaza-2');
-  });
-
-  it('reuses earlier districts when residents recall', () => {
-    expect(pickDistrict({ 'plaza-1': 40, 'plaza-2': 80 })).toBe('plaza-1');
-  });
-});
