@@ -43,7 +43,7 @@ describe('world handlers', () => {
     const res = await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
     expect(res.status).toBe(200);
     const body = res.body as { slug: string; url: string; district: string };
-    expect(body.url).toBe(`https://world.example.com/b/${body.slug}`);
+    expect(body.url).toBe(`https://world.example.com/?district=${body.district}`);
     expect(body.district).toBe('plaza-1');
 
     expect(await store.findByTokenHash('secret-token')).toBeNull();

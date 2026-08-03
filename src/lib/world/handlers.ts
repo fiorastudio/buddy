@@ -83,7 +83,10 @@ export async function handleTeleport(
     body: {
       slug: result.slug,
       district: result.district,
-      url: `${opts.baseUrl}/b/${result.slug}`,
+      // Link to the plaza the buddy is actually in. (A per-buddy /b/<slug> deep
+      // link would need a slug→district lookup API + a focus route — not built
+      // yet; this URL is guaranteed reachable and shows them wandering.)
+      url: `${opts.baseUrl}/?district=${result.district}`,
       created: result.created,
     },
   };
