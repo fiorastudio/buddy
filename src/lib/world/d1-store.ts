@@ -59,9 +59,12 @@ export class D1WorldStore implements WorldStore {
   // D1 migrations normally apply the schema at deploy time; exec here makes
   // the store self-sufficient for tests and fresh databases (IF NOT EXISTS).
   static async create(db: D1Like): Promise<D1WorldStore> {
+    // Use prepare().run(), NOT exec(): D1's exec() splits input on newlines and
+    // treats each line as its own statement, so a multi-line CREATE TABLE fails
+    // with "incomplete input". prepare() runs the whole statement as one unit.
     for (const stmt of WORLD_SCHEMA_SQL.split(';')) {
       const sql = stmt.trim();
-      if (sql) await db.exec(sql);
+      if (sql) await db.prepare(sql).bind().run();
     }
     return new D1WorldStore(db);
   }

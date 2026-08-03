@@ -1279,10 +1279,12 @@
   }
 
   // ── plaza music (self-hosted, original, no third-party embed) ─────────
-  // Strictly opt-in: a hidden <audio preload="none"> makes NO network request
-  // until the visitor clicks. Original royalty-free ambience (Suno-generated,
-  // world/public/music/) — no YouTube iframe, no visible player, no third
-  // party, and nothing copyrighted to embed.
+  // ON BY DEFAULT: a hidden <audio> plays original royalty-free ambience
+  // (Suno-generated, world/public/music/) — no YouTube iframe, no visible
+  // player, no third party, nothing copyrighted. Browsers block audible
+  // autoplay until a user gesture, so we attempt to start immediately and,
+  // if blocked, kick off on the visitor's first interaction. The 🎵 button
+  // still toggles it off/on.
   const musicToggle = document.getElementById('music-toggle');
   const musicAudio = document.getElementById('music-audio');
 
@@ -1297,23 +1299,33 @@
       musicToggle.setAttribute('aria-pressed', 'true');
       musicToggle.setAttribute('aria-label', 'Stop plaza music');
     };
+    const start = async () => {
+      try { await musicAudio.play(); setPlaying(); return true; }
+      catch { return false; }
+    };
     musicToggle.addEventListener('click', async () => {
-      if (!musicAudio.paused) {
-        musicAudio.pause();
-        setIdle();
-        return;
-      }
-      try {
-        await musicAudio.play();
-        setPlaying();
-      } catch {
-        // autoplay blocked or track unavailable — stay idle, never break
-        setIdle();
-      }
+      if (!musicAudio.paused) { musicAudio.pause(); setIdle(); return; }
+      await start();
     });
     // Keep the button honest if playback stops for any reason.
     musicAudio.addEventListener('pause', setIdle);
     musicAudio.addEventListener('ended', setIdle);
+
+    // On by default: try to autoplay now; if the browser blocks it, start on
+    // the first user gesture (a one-shot listener that then removes itself).
+    (async () => {
+      if (await start()) return;
+      const kickstart = (e) => {
+        window.removeEventListener('pointerdown', kickstart);
+        window.removeEventListener('keydown', kickstart);
+        // If the first gesture was the music button itself, let its own click
+        // handler run (don't start-then-toggle-off on the same click).
+        if (e && e.target && e.target.closest && e.target.closest('#music-toggle')) return;
+        if (musicAudio.paused) start();
+      };
+      window.addEventListener('pointerdown', kickstart);
+      window.addEventListener('keydown', kickstart);
+    })();
   }
 
   boot();

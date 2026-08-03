@@ -326,30 +326,28 @@ describe('plaza smoke test (headless browser)', () => {
     }
   }, 60_000);
 
-  it('plays plaza music only after explicit opt-in, self-hosted with no iframe', async () => {
+  it('plays self-hosted plaza music on by default, with no iframe ever', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
     await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
 
-    // Before opt-in: a labelled toggle + a hidden <audio preload="none">, and
-    // NO iframe / third-party request of any kind.
+    // A labelled toggle + a hidden self-hosted <audio> (on by default), and
+    // NO iframe / third-party request of any kind — that's the whole point.
     const before = (await page.evaluate(`(() => ({
       hasButton: !!document.querySelector('#music-toggle'),
       label: document.querySelector('#music-toggle')?.getAttribute('aria-label') || '',
       iframes: document.querySelectorAll('iframe').length,
       hasAudio: !!document.querySelector('#music-audio'),
-      preload: document.querySelector('#music-audio')?.getAttribute('preload') || '',
-      paused: document.querySelector('#music-audio')?.paused,
+      src: document.querySelector('#music-audio source')?.getAttribute('src') || '',
     }))()`)) as {
       hasButton: boolean; label: string; iframes: number;
-      hasAudio: boolean; preload: string; paused: boolean;
+      hasAudio: boolean; src: string;
     };
     expect(before.hasButton).toBe(true);
     expect(before.label.toLowerCase()).toContain('music');
     expect(before.iframes).toBe(0);
     expect(before.hasAudio).toBe(true);
-    expect(before.preload).toBe('none'); // no network/audio until opt-in
-    expect(before.paused).toBe(true);
+    expect(before.src).toContain('music/plaza-theme'); // self-hosted, not YouTube
 
     // Stub playback so the toggle is deterministic without shipping an asset.
     await page.evaluate(`(() => {
