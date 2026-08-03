@@ -29,7 +29,8 @@
     "prepack": "npm run build",
     "release:patch": "npm version patch",
     "release:minor": "npm version minor",
-    "release:major": "npm version major"
+    "release:major": "npm version major",
+    "test:e2e:live": "node scripts/e2e-live-smoke.mjs"
   },
   "engines": {
     "node": ">=20"
