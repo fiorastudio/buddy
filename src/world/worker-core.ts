@@ -16,13 +16,18 @@ import {
   RateLimiter,
   type HandlerResult,
 } from '../lib/world/handlers.js';
+import { districtForTown } from '../lib/world/towns.js';
 import type { WorldStore } from '../lib/world/store.js';
+import type { DurableObjectNamespaceLike } from './runtime.js';
 
 export interface WorldWorkerConfig {
   db: D1Like;
   baseUrl: string;
   ratePerMinute?: number;
   now?: () => number;
+  // The WorldRoom Durable Object namespace. Absent in older/preview contexts —
+  // the live route then reports 503 rather than crashing.
+  roomNamespace?: DurableObjectNamespaceLike;
 }
 
 const CORS_HEADERS = {
@@ -68,6 +73,22 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
 
       if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
+      }
+
+      // WebSocket upgrade for the live room — MUST come before the JSON routes:
+      // the 101 handshake response is returned RAW (no json()/CORS wrapping), and
+      // a Durable Object cannot be reached through the D1 store path.
+      const liveMatch = url.pathname.match(/^\/v1\/live\/([a-z0-9-]+)$/);
+      if (liveMatch && req.headers.get('Upgrade') === 'websocket') {
+        const district = districtForTown(liveMatch[1]);
+        if (!district) return json({ status: 404, body: { error: 'unknown town' } });
+        if (!config.roomNamespace) return json({ status: 503, body: { error: 'rooms unavailable' } });
+        // Key the room by the VALIDATED district and forward it explicitly so the
+        // DO trusts the worker's validation, not raw path input.
+        const roomUrl = new URL(req.url);
+        roomUrl.searchParams.set('district', district);
+        const stub = config.roomNamespace.get(config.roomNamespace.idFromName(district));
+        return stub.fetch(new Request(roomUrl.toString(), req));
       }
 
       const worldMatch = url.pathname.match(/^\/v1\/world\/([a-z0-9-]+)$/);

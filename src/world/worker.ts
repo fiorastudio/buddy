@@ -9,20 +9,32 @@
 
 import { createWorldFetchHandler } from './worker-core.js';
 import { D1WorldStore, type D1Like } from '../lib/world/d1-store.js';
+import type { DurableObjectNamespaceLike } from './runtime.js';
+
+// The WorldRoom Durable Object MUST be exported from the Worker's main module so
+// Cloudflare can instantiate the class named in wrangler.toml's DO binding.
+export { WorldRoom } from './room.js';
 
 interface Env {
   DB: D1Like;
   BASE_URL?: string;
+  ROOM: DurableObjectNamespaceLike;
 }
 
 let handler: ((req: Request) => Promise<Response>) | null = null;
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    // Memoized per isolate. The ROOM binding is declared in wrangler.toml so it's
+    // always present here; the memoized handler therefore always carries the
+    // namespace. (Tests build the handler directly via createWorldFetchHandler,
+    // passing roomNamespace explicitly or omitting it, so they never poison this
+    // cache.)
     handler ??= createWorldFetchHandler({
       db: env.DB,
       baseUrl: env.BASE_URL ?? 'https://world.buddy-mcp.com',
       ratePerMinute: 60,
+      roomNamespace: env.ROOM,
     });
     return handler(req);
   },

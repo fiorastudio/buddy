@@ -1,10 +1,13 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 export default defineConfig({
   test: {
     include: ['src/__tests__/**/*.test.ts'],
+    // The workerd integration test runs in a separate pool (vitest.workers.config.ts).
+    // It can't load better-sqlite3, so keep it out of this node run.
+    exclude: [...configDefaults.exclude, '**/*.workers.test.ts'],
     env: {
       // Tests use an isolated DB so they never touch ~/.buddy/buddy.db
       BUDDY_DB_PATH: join(tmpdir(), 'buddy-test.db'),

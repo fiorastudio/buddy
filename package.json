@@ -24,6 +24,7 @@
     "dev": "ts-node src/server/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:workers": "vitest run --config vitest.workers.config.ts",
     "eval:reinject": "node scripts/reinject-eval.mjs",
     "version": "npm run build && git add -f dist/",
     "prepack": "npm run build",
@@ -43,6 +44,7 @@
     "better-sqlite3": "^12.8.0"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.2",
     "gif-encoder-2": "^1.0.5",

@@ -140,3 +140,75 @@ describe('world worker fetch handler', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('world worker live (WS upgrade) routing', () => {
+  // Fake DO namespace: records the resolved district and returns a raw 101 so we
+  // can assert the worker forwards the upgrade untouched (no json()/CORS wrap).
+  function makeHandlerWithRoom() {
+    const seen: { district?: string; url?: string } = {};
+    const roomNamespace = {
+      idFromName(name: string) {
+        seen.district = name;
+        return { toString: () => name };
+      },
+      get(_id: unknown) {
+        return {
+          async fetch(req: Request) {
+            seen.url = req.url;
+            // Node's Response can't hold status 101 (that's asserted in the
+            // workerd integration test); use a marker header to prove the worker
+            // forwards the DO's response RAW, unwrapped by json()/CORS.
+            return new Response(null, { status: 200, headers: { 'x-room-forwarded': '1' } });
+          },
+        };
+      },
+    };
+    const handler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      roomNamespace,
+    });
+    return { handler, seen };
+  }
+
+  const upgrade = (path: string) =>
+    new Request(`https://world.example.com${path}`, { headers: { Upgrade: 'websocket' } });
+
+  it('a websocket upgrade to a valid town is forwarded RAW to the room', async () => {
+    const { handler, seen } = makeHandlerWithRoom();
+    const res = await handler(upgrade('/v1/live/plaza-1'));
+    expect(seen.district).toBe('plaza-1'); // keyed by the validated district
+    expect(seen.url).toContain('district=plaza-1'); // district forwarded to the DO
+    expect(res.headers.get('x-room-forwarded')).toBe('1'); // DO response passed through
+    expect(res.headers.get('access-control-allow-origin')).toBeNull(); // NOT json()/CORS-wrapped
+  });
+
+  it('accepts a town by name and resolves it to a district', async () => {
+    const { handler, seen } = makeHandlerWithRoom();
+    const res = await handler(upgrade('/v1/live/payon'));
+    expect(seen.district).toBe('plaza-2');
+    expect(res.headers.get('x-room-forwarded')).toBe('1');
+  });
+
+  it('an unknown town is 404, never forwarded', async () => {
+    const { handler, seen } = makeHandlerWithRoom();
+    const res = await handler(upgrade('/v1/live/atlantis'));
+    expect(res.status).toBe(404);
+    expect(seen.district).toBeUndefined();
+  });
+
+  it('reports 503 when no room namespace is bound', async () => {
+    const handler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+    });
+    const res = await handler(upgrade('/v1/live/plaza-1'));
+    expect(res.status).toBe(503);
+  });
+
+  it('a GET without the Upgrade header does not hijack the live path', async () => {
+    const { handler } = makeHandlerWithRoom();
+    const res = await handler(new Request('https://world.example.com/v1/live/plaza-1'));
+    expect(res.status).toBe(404); // falls through to not-found, not a 101
+  });
+});
