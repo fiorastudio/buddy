@@ -247,7 +247,10 @@
   // bigger town (up to the viewport). Below the building line at the top.
   function plazaBounds() {
     const pop = state.citizens.length || 6;
-    const grow = Math.min(1, 0.7 + pop / 50); // spread buddies wider across the floor
+    // Near-fill the viewport so the courtyard edge ≈ the screen edge — this is
+    // what lets the perimeter portal gates actually sit AT the edges (not adrift
+    // in a small central band) while sprites can still walk out to them.
+    const grow = Math.min(1, 0.95 + pop / 50);
     const skyline = Math.min(180, canvas.height * 0.24); // building band up top
     return {
       cx: canvas.width / 2,

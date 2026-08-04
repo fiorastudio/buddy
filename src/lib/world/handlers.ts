@@ -19,7 +19,7 @@ export const MAX_EVENT_BATCH = 50;
 // it is NOT the world token and can never teleport/recall/write XP.
 export const CONTROL_TOKEN_SCOPE = 'move,portal_warp';
 // Link codes are short-lived: minted by the CLI, redeemed by the browser at once.
-export const LINK_CODE_TTL_MS = 5 * 60_000; // 5 minutes
+export const LINK_CODE_TTL_MS = 30 * 60_000; // 30 minutes (single-use; roomy enough to paste a link and click it later)
 // Control tokens live in localStorage across sessions, so a generous window.
 export const CONTROL_TOKEN_TTL_MS = 30 * 86_400_000; // 30 days
 
