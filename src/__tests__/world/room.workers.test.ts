@@ -219,12 +219,18 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
 
   // Runs last: it warps its citizen out of plaza-1, so it must not perturb the
   // shared plaza-1 room state the presence/hibernation tests above assert on.
-  it('a portal_enter warps the buddy in D1 and redirects the owner (walk-to-warp)', async () => {
-    const controlToken = await mintControlToken('ws-portal-token-aaa'); // citizen in plaza-1
+  it('a portal_enter warps the buddy in D1, redirects the owner, and peers see exactly one leave', async () => {
+    const ctB = await mintControlToken('ws-portal-token-bbb'); // a peer who stays behind
+    const b = await connect('plaza-1');
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next(); // B welcome
 
+    const controlToken = await mintControlToken('ws-portal-token-aaa'); // warper, in plaza-1
     const c = await connect('plaza-1');
     c.send({ type: 'hello', controlToken });
     await c.next(); // welcome
+    const join = await b.next(); // B hears the warper join
+    expect(join.type).toBe('join');
 
     // Walk into the Prontera→Payon gate: validate + move server-side, redirect me.
     c.send({ type: 'portal_enter', seq: 1, portal: 'prontera-payon', to: 'plaza-2', controlToken });
@@ -239,6 +245,15 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     ).json()) as { district: string };
     expect(me.district).toBe('plaza-2');
 
+    // The peer hears the warper leave — exactly ONCE. The server-initiated close
+    // that neutralizes the old socket must not double-announce the departure.
+    const leave = await b.next();
+    expect(leave.type).toBe('leave');
+    let extra: unknown = null;
+    await Promise.race([b.next().then((m) => (extra = m)), new Promise((r) => setTimeout(r, 200))]);
+    expect(extra, 'a second leave means the redirect close double-announced').toBeNull();
+
+    b.close();
     c.close();
   });
 });

@@ -77,6 +77,10 @@ export interface HandleResult {
   // A position changed — ask the adapter to schedule a batched snapshot flush
   // (the 50–100 ms coalescing + timer is host-specific, so it lives there).
   flush?: boolean;
+  // This socket's presence has ALREADY been announced as gone (portal redirect
+  // broadcasts `leave` before closing). The adapter must not re-announce it when
+  // the ensuing server-initiated close fires its close handler.
+  endPresence?: boolean;
 }
 
 // Fractional map coordinate: finite and within the unit square.
@@ -216,7 +220,9 @@ export class RoomCore<S> {
         // Closing forces a reconnect; a reconnect to THIS room would fail the
         // wrong-room check (the citizen's district is now the destination). The
         // seq is still consumed (attach) so a duplicate racing the close drops.
-        return { ...consume, close: { code: CLOSE_REDIRECT, reason: 'portal redirect' } };
+        // endPresence: the `leave` above is the ONE departure announcement — the
+        // server-initiated close must not fire a second one.
+        return { ...consume, close: { code: CLOSE_REDIRECT, reason: 'portal redirect' }, endPresence: true };
       }
       case 'ping':
         this.port.send(socket, { type: 'pong', serverTs: this.port.now() });
