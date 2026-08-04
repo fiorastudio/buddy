@@ -16,6 +16,33 @@
   }
   #ticker .line { opacity: 0.9; }
   #ticker .brand { color: var(--gold); font-weight: bold; flex-shrink: 0; }
+  /* RO world-broadcast: the iconic yellow announcement that sweeps across the
+     top for BIG moments (level-ups, ships). Distinct from the quiet #ticker —
+     gold gradient, glowing #ffff00 text, a right-to-left marquee. */
+  #broadcast {
+    position: fixed; top: 28px; left: 0; right: 0; height: 34px; z-index: 12;
+    display: flex; align-items: center; overflow: hidden; white-space: nowrap;
+    background: linear-gradient(180deg, #4a3a00 0%, #2a2100 100%);
+    border-bottom: 2px solid #ffd700;
+    box-shadow: 0 2px 14px rgba(255, 215, 0, 0.4);
+    color: #ffff00; font-weight: bold; font-size: 15px; letter-spacing: 0.3px;
+    text-shadow: 0 0 7px rgba(255, 221, 0, 0.85), 0 1px 2px #000;
+  }
+  #broadcast[hidden] { display: none; }
+  #broadcast .broadcast-msg { display: inline-block; padding-left: 100%; }
+  /* Arrival: scroll the message right-to-left across the screen (RO homage). */
+  #broadcast.scroll .broadcast-msg { animation: broadcast-scroll 9s linear; }
+  @keyframes broadcast-scroll {
+    from { transform: translateX(0%); }
+    to { transform: translateX(-100%); }
+  }
+  /* Static tier (reduced-motion / .static): centered, no scroll, just holds. */
+  #broadcast.static { justify-content: center; }
+  #broadcast.static .broadcast-msg { padding-left: 0; animation: none; }
+  @media (prefers-reduced-motion: reduce) {
+    #broadcast { justify-content: center; }
+    #broadcast .broadcast-msg { padding-left: 0; animation: none !important; }
+  }
   #plaza { display: block; }
   #cta {
     position: fixed; bottom: 12px; right: 14px; z-index: 10;
@@ -48,6 +75,7 @@
 </head>
 <body>
   <div id="ticker" aria-live="polite"><span class="brand">⛲ BUDDY WORLD</span></div>
+  <div id="broadcast" role="status" aria-live="polite" hidden></div>
   <canvas id="plaza" role="img" aria-label="Buddy World plaza"></canvas>
   <ul id="sr-citizens" class="visually-hidden" aria-label="Buddies currently in the plaza"></ul>
   <div id="cta">no buddy yet? <a href="https://github.com/fiorastudio/buddy" target="_blank" rel="noopener">adopt your own →</a></div>

@@ -6,6 +6,7 @@ import {
   handleEvents,
   handleRecall,
   handleWorld,
+  handleAnnouncements,
   handleBrowserLink,
   handleBrowserSession,
   handleMe,
@@ -210,6 +211,66 @@ describe('world handlers', () => {
     const body = res.body as { citizens: Array<{ name: string; country: string | null }> };
     expect(body.citizens[0].name).toBe('a wild Void Cat');
     expect(body.citizens[0].country).toBeNull();
+  });
+
+  it('announcements returns recent celebrations across ALL districts (town + name + type + ts)', async () => {
+    await handleTeleport({ token: 'tok-alice-000000', snapshot: snap({ name: 'Alice' }), district: 'Payon' }, store, OPTS);
+    await handleTeleport({ token: 'tok-bob-00000000', snapshot: snap({ name: 'Bob' }), district: 'Prontera' }, store, OPTS);
+    const alice = (await store.findByTokenHash(hashToken('tok-alice-000000')))!;
+    const bob = (await store.findByTokenHash(hashToken('tok-bob-00000000')))!;
+    await store.recordEvents(alice.id, [
+      { type: 'level_up', ts: T0 + 1000 },
+      { type: 'commit', ts: T0 + 1500 }, // routine — must not be broadcast
+    ]);
+    await store.recordEvents(bob.id, [{ type: 'deploy', ts: T0 + 2000 }]);
+
+    const res = await handleAnnouncements(store, OPTS);
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      announcements: Array<{ name: string; slug: string; type: string; ts: number; town: string }>;
+    };
+    // Newest first; the routine commit is excluded from the celebration feed.
+    expect(body.announcements.map((a) => a.type)).toEqual(['deploy', 'level_up']);
+    expect(body.announcements[0].name).toBe('Bob');
+    expect(body.announcements[0].town).toBe('Prontera'); // plaza-1 → RO town name
+    expect(body.announcements[0].ts).toBe(T0 + 2000);
+    expect(body.announcements[1].name).toBe('Alice');
+    expect(body.announcements[1].town).toBe('Payon'); // plaza-2, a DIFFERENT district
+  });
+
+  it('announcements includes only celebration-class types and honors the limit', async () => {
+    await handleTeleport({ token: 'tok-x-000000000', snapshot: snap() }, store, OPTS);
+    const c = (await store.findByTokenHash(hashToken('tok-x-000000000')))!;
+    await store.recordEvents(c.id, [
+      { type: 'observe', ts: T0 + 1 },
+      { type: 'commit', ts: T0 + 2 },
+      { type: 'tests_passed', ts: T0 + 3 },
+      { type: 'bug_fix', ts: T0 + 4 },
+      { type: 'streak_7', ts: T0 + 5 },
+      { type: 'deploy', ts: T0 + 6 },
+      { type: 'level_up', ts: T0 + 7 },
+    ]);
+    const all = (await handleAnnouncements(store, OPTS)).body as { announcements: Array<{ type: string }> };
+    // Only the three celebration-class types survive, newest first.
+    expect(all.announcements.map((a) => a.type)).toEqual(['level_up', 'deploy', 'streak_7']);
+    const limited = (await handleAnnouncements(store, OPTS, 2)).body as { announcements: unknown[] };
+    expect(limited.announcements).toHaveLength(2);
+  });
+
+  it('announcements masks anon buddies: "a wild <species>", masked slug, real identity never leaks', async () => {
+    await handleTeleport({ token: 'tok-anon-0000000', snapshot: snap({ name: 'Shadowpaw' }) }, store, OPTS);
+    await store.setAnon(hashToken('tok-anon-0000000'), true);
+    const c = (await store.findByTokenHash(hashToken('tok-anon-0000000')))!;
+    await store.recordEvents(c.id, [{ type: 'level_up', ts: T0 + 1000 }]);
+
+    const res = await handleAnnouncements(store, OPTS);
+    const body = res.body as { announcements: Array<{ name: string; slug: string }> };
+    expect(body.announcements).toHaveLength(1);
+    expect(body.announcements[0].name).toBe('a wild Void Cat');
+    expect(body.announcements[0].slug).toMatch(/^anon-/);
+    // The real name AND the real slug must be absent from the entire payload.
+    expect(JSON.stringify(body.announcements)).not.toContain('Shadowpaw');
+    expect(JSON.stringify(body.announcements)).not.toContain(c.slug);
   });
 
   it('rate limiter rejects after the per-minute budget', () => {

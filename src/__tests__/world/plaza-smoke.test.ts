@@ -69,6 +69,14 @@ describe('plaza smoke test (headless browser)', () => {
         res.end(JSON.stringify(fixtureDistrict()));
         return;
       }
+      // The global celebration feed. Empty by default — the broadcast-banner
+      // tests drive it directly via the window.__PLAZA__.broadcastForTest hook,
+      // so the poll just needs to succeed without spawning a banner on load.
+      if (url === '/v1/announcements') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ announcements: [] }));
+        return;
+      }
       const file = join(publicDir, url === '/' ? 'index.html' : url.slice(1));
       if (existsSync(file)) {
         res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
@@ -179,6 +187,55 @@ describe('plaza smoke test (headless browser)', () => {
     // The hostile name must appear as literal text, not parsed markup.
     expect(probe.srText).toContain('<img src=x');
     expect(probe.tickerText).toContain('<img src=x');
+  }, 60_000);
+
+  it('fires the RO-yellow broadcast banner for a level_up (scrolling marquee)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && typeof window.__PLAZA__.broadcastForTest === "function"');
+
+    // A hostile name proves the banner renders external input inert (textContent
+    // only), and the level drives the RO "reached Level N" phrasing.
+    const info = (await page.evaluate(`window.__PLAZA__.broadcastForTest({
+      slug: 'buddy-9', name: 'Evil<img src=x onerror=window.__BXSS__=1>',
+      type: 'level_up', level: 10, ts: Date.now(), town: 'Prontera'
+    })`)) as { text: string; visible: boolean; scrolling: boolean; staticHold: boolean; type: string };
+
+    expect(info.visible).toBe(true);
+    expect(info.type).toBe('level_up');
+    expect(info.scrolling).toBe(true); // marquee animation, not the static tier
+    expect(info.staticHold).toBe(false);
+    expect(info.text).toContain('Level 10'); // RO "has reached Level 10!" homage
+    expect(info.text).toContain('Prontera');
+
+    const probe = (await page.evaluate(`(() => ({
+      xss: window.__BXSS__ === 1,
+      injectedImgs: document.querySelectorAll('#broadcast img').length,
+      text: document.querySelector('#broadcast').textContent,
+      hidden: document.querySelector('#broadcast').hasAttribute('hidden'),
+    }))()`)) as { xss: boolean; injectedImgs: number; text: string; hidden: boolean };
+    expect(probe.xss).toBe(false); // the onerror never fired
+    expect(probe.injectedImgs).toBe(0); // no parsed markup
+    expect(probe.text).toContain('<img src=x'); // rendered as literal text
+    expect(probe.hidden).toBe(false); // banner shown
+  }, 60_000);
+
+  it('renders the broadcast banner statically under prefers-reduced-motion (no scroll)', async () => {
+    const page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && typeof window.__PLAZA__.broadcastForTest === "function"');
+
+    const info = (await page.evaluate(`window.__PLAZA__.broadcastForTest({
+      slug: 'buddy-1', name: 'Bob', type: 'deploy', ts: Date.now(), town: 'Prontera'
+    })`)) as { text: string; visible: boolean; scrolling: boolean; staticHold: boolean };
+
+    expect(await page.evaluate('window.__PLAZA__.reducedMotion')).toBe(true);
+    expect(info.visible).toBe(true);
+    expect(info.staticHold).toBe(true); // static tier
+    expect(info.scrolling).toBe(false); // NO marquee animation
+    expect(info.text).toContain('Bob');
+    expect(info.text.toLowerCase()).toContain('shipped'); // deploy phrasing
   }, 60_000);
 
   it('honors prefers-reduced-motion', async () => {

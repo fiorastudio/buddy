@@ -4,7 +4,7 @@
 // SQL here MUST stay semantically identical to SqliteWorldStore.
 
 import { randomUUID } from 'node:crypto';
-import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
+import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, ANNOUNCE_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
 import { makeSlug } from './identity.js';
 import type { WorldSnapshot } from './validate.js';
 import type {
@@ -13,6 +13,7 @@ import type {
   TeleportResult,
   DistrictView,
   WorldEvent,
+  AnnouncementRow,
 } from './store.js';
 
 export interface D1Like {
@@ -237,6 +238,31 @@ export class D1WorldStore implements WorldStore {
         })
       ),
     };
+  }
+
+  async announcements(limit: number): Promise<AnnouncementRow[]> {
+    const placeholders = ANNOUNCE_EVENT_TYPES.map(() => '?').join(', ');
+    const rows = await this.db
+      .prepare(
+        `SELECT c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts
+         FROM world_events e JOIN citizens c ON c.id = e.citizen_id
+         WHERE c.hidden = 0 AND e.type IN (${placeholders})
+         ORDER BY e.ts DESC LIMIT ?`
+      )
+      .bind(...ANNOUNCE_EVENT_TYPES, limit)
+      .all<Record<string, unknown>>();
+    return rows.results.map(
+      (row): AnnouncementRow => ({
+        slug: row.slug as string,
+        name: row.name as string,
+        species: row.species as string,
+        anon: !!row.anon,
+        level: row.level as number,
+        district: row.district as string,
+        type: row.type as WorldEventType,
+        ts: row.ts as number,
+      })
+    );
   }
 
   async districtCounts(): Promise<Record<string, number>> {

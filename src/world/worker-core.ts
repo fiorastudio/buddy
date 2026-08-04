@@ -9,6 +9,7 @@ import {
   handleEvents,
   handleRecall,
   handleWorld,
+  handleAnnouncements,
   handleAnon,
   handleBrowserLink,
   handleBrowserSession,
@@ -94,6 +95,12 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
       const worldMatch = url.pathname.match(/^\/v1\/world\/([a-z0-9-]+)$/);
       if (req.method === 'GET' && worldMatch) {
         return json(await handleWorld(worldMatch[1], await store(), opts));
+      }
+
+      // Global celebration feed for the RO-yellow broadcast banner (M6). GET,
+      // cross-town, no district in the path — one feed shared by every town.
+      if (req.method === 'GET' && url.pathname === '/v1/announcements') {
+        return json(await handleAnnouncements(await store(), opts));
       }
 
       // Bearer control token (browser can't set headers on WS, but this is HTTP).

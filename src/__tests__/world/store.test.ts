@@ -109,6 +109,50 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(res.district).toBe('plaza-1');
   });
 
+  it('announcements returns celebration events across ALL districts, newest first, routine excluded', async () => {
+    await store.teleport('tok-a', snap({ name: 'Alice' }), T0, 'plaza-1');
+    await store.teleport('tok-b', snap({ name: 'Bob' }), T0, 'plaza-2');
+    const a = (await store.findByTokenHash('tok-a'))!;
+    const b = (await store.findByTokenHash('tok-b'))!;
+    await store.recordEvents(a.id, [
+      { type: 'commit', ts: T0 + 1000 }, // routine — must NOT appear
+      { type: 'level_up', ts: T0 + 2000 },
+    ]);
+    await store.recordEvents(b.id, [{ type: 'deploy', ts: T0 + 3000 }]); // newest, other town
+
+    const feed = await store.announcements(10);
+    expect(feed.map((r) => r.type)).toEqual(['deploy', 'level_up']); // newest first, commit excluded
+    // Cross-town: the feed spans districts, carrying each buddy's own town.
+    expect(feed[0].district).toBe('plaza-2');
+    expect(feed[0].name).toBe('Bob');
+    expect(feed[1].district).toBe('plaza-1');
+    expect(feed[1].name).toBe('Alice');
+  });
+
+  it('announcements excludes hidden citizens and honors the limit', async () => {
+    await store.teleport('tok-a', snap({ name: 'Alice' }), T0);
+    const a = (await store.findByTokenHash('tok-a'))!;
+    await store.recordEvents(a.id, [
+      { type: 'level_up', ts: T0 + 1000 },
+      { type: 'deploy', ts: T0 + 2000 },
+      { type: 'streak_7', ts: T0 + 3000 },
+    ]);
+    expect(await store.announcements(2)).toHaveLength(2); // limit respected
+
+    await store.recall('tok-a', false); // hide the only citizen
+    expect(await store.announcements(10)).toHaveLength(0); // hidden → no broadcast
+  });
+
+  it('announcements carries the anon flag + species so the handler can mask', async () => {
+    await store.teleport('tok-a', snap({ name: 'Alice', species: 'Duck' }), T0);
+    await store.setAnon('tok-a', true);
+    const a = (await store.findByTokenHash('tok-a'))!;
+    await store.recordEvents(a.id, [{ type: 'level_up', ts: T0 + 1000 }]);
+    const feed = await store.announcements(10);
+    expect(feed[0].anon).toBe(true);
+    expect(feed[0].species).toBe('Duck');
+  });
+
   it('rollup aggregates a day of events per citizen', async () => {
     await store.teleport('tokenhash-1', snap(), T0);
     const citizen = (await store.findByTokenHash('tokenhash-1'))!;

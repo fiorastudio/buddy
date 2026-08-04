@@ -11,6 +11,7 @@
   // and fine for our draw pattern.
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const tickerEl = document.getElementById('ticker');
+  const broadcastEl = document.getElementById('broadcast');
   const srListEl = document.getElementById('sr-citizens');
 
   const params = new URLSearchParams(location.search);
@@ -141,6 +142,7 @@
   // ── world state ────────────────────────────────────────────────────────
   const state = {
     citizens: [], events: [], celebrations: [], tickerLines: [],
+    announcements: [], broadcast: null, // global celebration feed + current RO banner
     sprites: null, palettes: null, spriteColors: {}, reducedMotion: REDUCED_MOTION,
     actorFrames: {}, spriteBottoms: {},
     porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
@@ -157,6 +159,20 @@
   state.flagForSlug = (slug) => {
     const c = state.citizens.find((x) => x.slug === slug);
     return c && !c.anon && c.country ? flagEmoji(c.country) : '';
+  };
+  // Test instrumentation: force one global celebration onto the RO-yellow
+  // broadcast banner (bypassing the poll/seen gate) and report what rendered —
+  // the rendered text, whether it scrolls or holds static (reduced-motion), and
+  // visibility. Mirrors the jobLabelForSlug/flagForSlug test hooks above.
+  state.broadcastForTest = (announcement) => {
+    showBroadcast(announcement);
+    return {
+      text: broadcastEl.textContent,
+      visible: !broadcastEl.hidden,
+      scrolling: broadcastEl.classList.contains('scroll'),
+      staticHold: broadcastEl.classList.contains('static'),
+      type: broadcastEl.getAttribute('data-type'),
+    };
   };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames
@@ -1462,6 +1478,102 @@
     }
   }
 
+  // ── RO world-broadcast banner (M6) ───────────────────────────────────────
+  // The global celebration feed (/v1/announcements) drives a distinct yellow
+  // marquee for BIG moments — level-ups and ships — visible in EVERY town.
+  // Routine commits/observe stay in the quiet #ticker above; this is the RO
+  // "yellow world-broadcast" homage. Tiering is done server-side: the feed only
+  // ever contains celebration-class events, so anything that arrives here is
+  // broadcast-worthy.
+  const BROADCAST_ICON = '📢';
+  function broadcastPhrase(a) {
+    const name = a.name || a.slug || 'A buddy';
+    if (a.type === 'level_up') return a.level ? `${name} has reached Level ${a.level}!` : `${name} leveled up!`;
+    if (a.type === 'deploy') return `${name} shipped to production!`;
+    if (a.type === 'streak_7') return `${name} is on a 7-day streak!`;
+    return `${name} ${EVENT_LABEL[a.type] || a.type}`;
+  }
+  function broadcastText(a) {
+    const town = a.town ? ` — in ${a.town}` : '';
+    return `${BROADCAST_ICON} ${broadcastPhrase(a)}${town}`;
+  }
+
+  // Render one celebration on the banner NOW. textContent-only (citizen names
+  // are external input — never let them reach an HTML parser; the same
+  // stored-XSS defense updateTicker uses). Restarts the marquee, or holds
+  // static under prefers-reduced-motion.
+  function showBroadcast(a) {
+    state.broadcast = { type: a.type, name: a.name || a.slug, text: broadcastText(a) };
+    broadcastEl.replaceChildren();
+    const span = document.createElement('span');
+    span.className = 'broadcast-msg';
+    span.textContent = state.broadcast.text;
+    broadcastEl.appendChild(span);
+    broadcastEl.hidden = false;
+    broadcastEl.setAttribute('data-type', a.type);
+    if (REDUCED_MOTION) {
+      broadcastEl.classList.add('static');
+      broadcastEl.classList.remove('scroll');
+    } else {
+      broadcastEl.classList.remove('static', 'scroll');
+      void broadcastEl.offsetWidth; // reflow so the marquee restarts each time
+      broadcastEl.classList.add('scroll');
+    }
+    playSfx('level_up'); // the RO "ding" doubles as the broadcast chime (opt-in)
+  }
+
+  function hideBroadcast() {
+    state.broadcast = null;
+    broadcastEl.hidden = true;
+    broadcastEl.replaceChildren();
+    broadcastEl.classList.remove('scroll', 'static');
+    broadcastEl.removeAttribute('data-type');
+  }
+
+  // Sequential queue: one broadcast at a time, each held for its scroll (or a
+  // static beat under reduced motion) before the next plays.
+  const broadcastQueue = [];
+  let broadcastTimer = null;
+  function pumpBroadcasts() {
+    if (broadcastTimer) return; // one is already on screen
+    const a = broadcastQueue.shift();
+    if (!a) { hideBroadcast(); return; }
+    showBroadcast(a);
+    const hold = REDUCED_MOTION ? 4500 : 9500; // ~marquee duration (index.html: 9s)
+    broadcastTimer = setTimeout(() => { broadcastTimer = null; pumpBroadcasts(); }, hold);
+  }
+
+  let seenAnnounceKeys = new Set();
+  let firstAnnounceLoad = true;
+  // Fold the newest-first feed into the banner. The FIRST poll only seeds the
+  // seen-set (a fresh viewer doesn't get a burst of the last hour of history);
+  // after that, unseen celebrations enqueue oldest-first so they play in order.
+  function ingestAnnouncements(list) {
+    state.announcements = list;
+    const fresh = [];
+    for (const a of list) {
+      const key = `${a.slug}:${a.type}:${a.ts}`;
+      if (seenAnnounceKeys.has(key)) continue;
+      seenAnnounceKeys.add(key);
+      fresh.push(a);
+    }
+    if (firstAnnounceLoad) { firstAnnounceLoad = false; return; }
+    for (const a of fresh.reverse()) broadcastQueue.push(a);
+    pumpBroadcasts();
+  }
+
+  async function refreshAnnouncements() {
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/v1/announcements`);
+    } catch {
+      return; // offline/refused: keep the last banner state
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    ingestAnnouncements(Array.isArray(data.announcements) ? data.announcements : []);
+  }
+
   function updateAccessibility() {
     canvas.setAttribute(
       'aria-label',
@@ -1611,6 +1723,11 @@
     }
     await refresh();
     setInterval(refresh, 10_000);
+    // Global celebration feed → RO-yellow broadcast banner. Its own light poll
+    // (same cadence) so a per-town world fetch failing never stalls the banner,
+    // and every town shows the same cross-town celebrations.
+    await refreshAnnouncements();
+    setInterval(refreshAnnouncements, 10_000);
     requestAnimationFrame(tick);
 
     // Real-time control bootstrap (M3). Best-effort and fully optional: any

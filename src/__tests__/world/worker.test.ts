@@ -56,6 +56,18 @@ describe('world worker fetch handler', () => {
     expect(worldBody.citizens.map((c) => c.slug)).toContain(tpBody.slug);
   });
 
+  it('GET /v1/announcements returns the global celebration feed with CORS', async () => {
+    await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
+    await post('/v1/events', { token: TOKEN, events: [{ type: 'level_up', ts: 1_800_000_100_000 }] });
+
+    const res = await fetchHandler(new Request('https://world.example.com/v1/announcements'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    const body = (await res.json()) as { announcements: Array<{ type: string; town: string; name: string }> };
+    expect(body.announcements.some((a) => a.type === 'level_up')).toBe(true);
+    expect(body.announcements[0].town).toBe('Prontera');
+  });
+
   it('returns 404 for unknown routes', async () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/nonsense'));
     expect(res.status).toBe(404);

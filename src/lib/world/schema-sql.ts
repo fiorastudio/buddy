@@ -21,6 +21,13 @@ export type WorldEventType = (typeof WORLD_EVENT_TYPES)[number];
 // adding a new celebration event means touching this file, not the client.
 export const INSTANT_WORLD_EVENTS: ReadonlySet<WorldEventType> = new Set(['deploy', 'level_up', 'streak_7']);
 
+// Events big enough to earn a GLOBAL world-broadcast — the RO-yellow scrolling
+// banner (M6). The store filters world_events to these when building the
+// cross-town /v1/announcements feed. Named separately from INSTANT_WORLD_EVENTS
+// (currently the same set) so "worth shouting across every town" and "skip the
+// sync debounce" can diverge without one silently changing the other.
+export const ANNOUNCE_EVENT_TYPES: readonly WorldEventType[] = ['level_up', 'deploy', 'streak_7'];
+
 export const WORLD_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS citizens (
   id TEXT PRIMARY KEY,

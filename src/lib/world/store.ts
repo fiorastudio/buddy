@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Database } from 'better-sqlite3';
-import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
+import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, ANNOUNCE_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
 import { makeSlug } from './identity.js';
 import type { WorldSnapshot } from './validate.js';
 
@@ -40,6 +40,20 @@ export interface WorldEvent {
   ts: number;
 }
 
+// One row of the GLOBAL celebration feed (M6). Carries the raw citizen identity
+// (slug/name/species/anon) so the HANDLER can apply anon masking exactly like
+// handleWorld — the store stays masking-agnostic, mirroring district().
+export interface AnnouncementRow {
+  slug: string;
+  name: string;
+  species: string;
+  anon: boolean;
+  level: number;
+  district: string;
+  type: WorldEventType;
+  ts: number;
+}
+
 export interface TeleportResult {
   created: boolean;
   slug: string;
@@ -58,6 +72,10 @@ export interface WorldStore {
   recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number>;
   recall(tokenHash: string, purge: boolean): Promise<boolean>;
   district(name: string, sinceMs: number): Promise<DistrictView>;
+  // GLOBAL celebration feed (M6): the most recent celebration-class events
+  // (ANNOUNCE_EVENT_TYPES) across ALL districts, newest first, from visible
+  // citizens only. Returns raw identity; the handler masks anon buddies.
+  announcements(limit: number): Promise<AnnouncementRow[]>;
   // Live per-town population, counting ONLY visible (hidden=0) citizens so the
   // capacity gate matches what district()/handleWorld actually render.
   districtCounts(): Promise<Record<string, number>>;
@@ -265,6 +283,28 @@ export class SqliteWorldStore implements WorldStore {
         ts: row.ts as number,
       })),
     };
+  }
+
+  async announcements(limit: number): Promise<AnnouncementRow[]> {
+    const placeholders = ANNOUNCE_EVENT_TYPES.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts
+         FROM world_events e JOIN citizens c ON c.id = e.citizen_id
+         WHERE c.hidden = 0 AND e.type IN (${placeholders})
+         ORDER BY e.ts DESC LIMIT ?`
+      )
+      .all(...ANNOUNCE_EVENT_TYPES, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      slug: row.slug as string,
+      name: row.name as string,
+      species: row.species as string,
+      anon: !!row.anon,
+      level: row.level as number,
+      district: row.district as string,
+      type: row.type as WorldEventType,
+      ts: row.ts as number,
+    }));
   }
 
   async districtCounts(): Promise<Record<string, number>> {

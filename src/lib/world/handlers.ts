@@ -8,7 +8,7 @@ import { validateSnapshot, type WorldSnapshot } from './validate.js';
 import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
-import { districtForTown } from './towns.js';
+import { districtForTown, townForDistrict } from './towns.js';
 import { portalBetween, spawnInto } from './portals.js';
 import { DISTRICT_CAPACITY } from './districts.js';
 import type { WorldStore, CitizenRow } from './store.js';
@@ -338,6 +338,32 @@ export async function handleWorld(
   );
 
   return { status: 200, body: { district, citizens, events } };
+}
+
+// How many celebrations the global feed returns. Enough to fill a fresh
+// viewer's banner backlog without shipping a wall of history.
+export const ANNOUNCE_LIMIT = 30;
+
+// announcements: the GLOBAL celebration feed powering the RO-yellow broadcast
+// banner (M6). Cross-town (never scoped to one district) — a level-up in Payon
+// is announced in Prontera too. Anon buddies are masked EXACTLY like handleWorld
+// (never the real name/slug), and the stored `plaza-N` district is surfaced as
+// its RO town name for the broadcast phrasing.
+export async function handleAnnouncements(
+  store: WorldStore,
+  _opts: HandlerOpts,
+  limit: number = ANNOUNCE_LIMIT
+): Promise<HandlerResult> {
+  const rows = await store.announcements(limit);
+  const announcements = rows.map((r) => {
+    const town = townForDistrict(r.district) ?? r.district;
+    const base = { type: r.type, ts: r.ts, level: r.level, town };
+    if (!r.anon) return { ...base, name: r.name, slug: r.slug };
+    // Anon = minimal identity: broadcast as "a wild <species>", masked slug —
+    // the same masking handleWorld applies to the per-town event stream.
+    return { ...base, name: `a wild ${r.species}`, slug: `anon-${hashToken(r.slug).slice(0, 6)}` };
+  });
+  return { status: 200, body: { announcements } };
 }
 
 // Fixed-window rate limiter. Per-isolate in the Worker: best-effort, which
