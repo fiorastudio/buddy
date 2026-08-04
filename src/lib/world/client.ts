@@ -22,7 +22,7 @@ export interface WorldConfig {
 }
 
 export const DEFAULT_WORLD_CONFIG_PATH = join(homedir(), '.buddy', 'world.json');
-export const DEFAULT_API_URL = 'https://world.buddy-mcp.com';
+export const DEFAULT_API_URL = 'https://buddyworldonline.com';
 
 export function generateToken(): string {
   return randomBytes(16).toString('hex'); // 32 hex chars

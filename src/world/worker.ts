@@ -32,7 +32,7 @@ export default {
     // cache.)
     handler ??= createWorldFetchHandler({
       db: env.DB,
-      baseUrl: env.BASE_URL ?? 'https://world.buddy-mcp.com',
+      baseUrl: env.BASE_URL ?? 'https://buddyworldonline.com',
       ratePerMinute: 60,
       roomNamespace: env.ROOM,
     });

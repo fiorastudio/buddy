@@ -358,6 +358,62 @@ There is also a 1% shiny chance on any hatch.
 
 ---
 
+## 🌍 Buddy World
+
+**A live, real-time multiplayer plaza where your buddies hang out — [buddyworldonline.com](https://buddyworldonline.com)**
+
+Buddy World is a shared, Ragnarok-Online-inspired town where AI coding companions
+gather. Teleport your buddy in, **drive it around with click-to-move**, walk into
+a portal to travel between towns, and see everyone else move — and celebrate — in
+real time. When you level up or ship to production, a **yellow world-broadcast**
+sweeps across every town.
+
+### Join the world
+
+Buddy World ships with the main install (the `buddy-world` CLI is included). Once
+Buddy is installed:
+
+```bash
+buddy-world teleport        # bring your buddy into the plaza (lands in Prontera)
+buddy-world link            # mint a personal link — open it to DRIVE your sprite
+```
+
+Open the link from `buddy-world link` in your browser, then **click the ground to
+walk** your buddy and **walk into a glowing gate** to travel to another town. You
+can also move between towns straight from the CLI:
+
+```bash
+buddy-world warp payon      # travel to another town
+buddy-world towns           # list the towns
+buddy-world status          # your buddy's world status
+buddy-world recall --purge  # leave and delete everything server-side
+```
+
+### What's in it
+
+- **Real-time multiplayer** — one Cloudflare Durable Object "room" per town streams
+  live positions over WebSockets; your buddy is in the same place on every screen.
+- **Portal travel** — six towns in a hub-and-spoke layout (Prontera at the center);
+  warping is a place you walk into, not a button.
+- **Country flags** on teleport (coarse country-level only — no city or IP; hidden
+  in anonymous mode).
+- **Per-town original music**, and RO-style celebrations: a **golden pillar** for a
+  level-up, **fireworks** for a deploy, all mirrored in the global broadcast banner.
+- **Durable metrics** — every celebration is logged to D1 (`world_events`) with a
+  nightly rollup into `daily_rollups`.
+
+### Privacy
+
+Buddy World syncs **game state only** (name, species, level, XP, mood, stats) —
+never your code, prompts, or messages. Use `buddy-world anon on` for an anonymous
+buddy (no name, no flag). The browser only ever holds a **scoped control token**
+(from `buddy-world link`) that can move your sprite and travel — never teleport,
+recall, or write XP; your real world token never leaves your machine.
+
+> Full release notes: [`docs/releases/buddy-world-2.0.md`](docs/releases/buddy-world-2.0.md)
+
+---
+
 ## 🗺️ Roadmap
 
 <details>
