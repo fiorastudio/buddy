@@ -42,18 +42,18 @@ const SATELLITE_SPAWN: PortalSpawn = { x: 0.5, y: 0.2 };
 // Arrivals into Prontera land at the fountain-center, clear of the edge gates.
 const HUB_SPAWN: PortalSpawn = { x: 0.5, y: 0.5 };
 
-// Prontera's five outgoing gates, spaced around the courtyard edge. Index i maps
-// to satellite plaza-(i+2). Rects are deliberately roomy (~10% of the floor) so
-// a walking sprite reliably lands inside one.
+// Prontera's five outgoing gates, hugging the courtyard perimeter (corners +
+// side/bottom edges). Index i maps to satellite plaza-(i+2). Kept small (~7% of
+// the floor) so they stay out of the central walking area — unobtrusive.
 const HUB_GATE_RECTS: PortalRect[] = [
-  { x: 0.08, y: 0.1, w: 0.1, h: 0.12 }, // top-left    → Payon   (plaza-2)
-  { x: 0.82, y: 0.1, w: 0.1, h: 0.12 }, // top-right   → Geffen  (plaza-3)
-  { x: 0.05, y: 0.44, w: 0.1, h: 0.12 }, // mid-left    → Alberta (plaza-4)
-  { x: 0.85, y: 0.44, w: 0.1, h: 0.12 }, // mid-right   → Morroc  (plaza-5)
-  { x: 0.45, y: 0.84, w: 0.1, h: 0.12 }, // bottom-cent → Comodo  (plaza-6)
+  { x: 0.03, y: 0.05, w: 0.07, h: 0.08 }, // top-left    → Payon   (plaza-2)
+  { x: 0.9, y: 0.05, w: 0.07, h: 0.08 }, // top-right   → Geffen  (plaza-3)
+  { x: 0.02, y: 0.46, w: 0.07, h: 0.08 }, // mid-left    → Alberta (plaza-4)
+  { x: 0.91, y: 0.46, w: 0.07, h: 0.08 }, // mid-right   → Morroc  (plaza-5)
+  { x: 0.465, y: 0.9, w: 0.07, h: 0.08 }, // bottom-cent → Comodo  (plaza-6)
 ];
-// Every satellite's single gate home to Prontera sits bottom-center.
-const RETURN_GATE_RECT: PortalRect = { x: 0.45, y: 0.84, w: 0.1, h: 0.12 };
+// Every satellite's single gate home to Prontera sits bottom-center edge.
+const RETURN_GATE_RECT: PortalRect = { x: 0.465, y: 0.9, w: 0.07, h: 0.08 };
 
 // The full graph: 5 hub→satellite gates + 5 satellite→hub gates. Written out as
 // a literal so the drift guard can compare it field-for-field with plaza.js.

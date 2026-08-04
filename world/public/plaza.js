@@ -48,14 +48,16 @@
   // — drift-guarded by portals-drift.test.ts, exactly like TOWNS ↔ TOWN_NAMES.
   // rect = fractional [0,1] gate footprint on the floor (mapped to pixels via
   // RT.toPixel); spawn = fractional arrival point in the destination town.
+  // Gates hug the courtyard perimeter (corners/edges) and are kept small so they
+  // stay out of the central walking area — unobtrusive, RO-overworld-edge feel.
   const HUB_GATE_RECTS = [
-    { x: 0.08, y: 0.10, w: 0.10, h: 0.12 }, // → Payon   (plaza-2)
-    { x: 0.82, y: 0.10, w: 0.10, h: 0.12 }, // → Geffen  (plaza-3)
-    { x: 0.05, y: 0.44, w: 0.10, h: 0.12 }, // → Alberta (plaza-4)
-    { x: 0.85, y: 0.44, w: 0.10, h: 0.12 }, // → Morroc  (plaza-5)
-    { x: 0.45, y: 0.84, w: 0.10, h: 0.12 }, // → Comodo  (plaza-6)
+    { x: 0.03, y: 0.05, w: 0.07, h: 0.08 }, // top-left    → Payon   (plaza-2)
+    { x: 0.90, y: 0.05, w: 0.07, h: 0.08 }, // top-right   → Geffen  (plaza-3)
+    { x: 0.02, y: 0.46, w: 0.07, h: 0.08 }, // mid-left    → Alberta (plaza-4)
+    { x: 0.91, y: 0.46, w: 0.07, h: 0.08 }, // mid-right   → Morroc  (plaza-5)
+    { x: 0.465, y: 0.90, w: 0.07, h: 0.08 }, // bottom-cent → Comodo  (plaza-6)
   ];
-  const RETURN_GATE_RECT = { x: 0.45, y: 0.84, w: 0.10, h: 0.12 };
+  const RETURN_GATE_RECT = { x: 0.465, y: 0.90, w: 0.07, h: 0.08 };
   const SATELLITE_SPAWN = { x: 0.5, y: 0.2 };
   const HUB_SPAWN = { x: 0.5, y: 0.5 };
   const PORTALS = [
