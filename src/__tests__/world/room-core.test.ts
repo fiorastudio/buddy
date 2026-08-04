@@ -221,10 +221,10 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
 
     // The warp ran against the token + target the client sent.
     expect(rec.warps).toEqual([{ controlToken: 'good-control-token', to: 'plaza-2' }]);
-    // seq is consumed so a duplicate frame is dropped (dedupe).
-    expect(res.attach?.seq).toBe(1);
-    // The old socket is neutralized server-side (normal closure) so a client
-    // that ignores the redirect can't keep moving in the town it just left.
+    // The actor is detached (cleared from presence) and the old socket closed
+    // (normal closure) so a client that ignores the redirect can't keep moving
+    // in the town it just left, nor linger in its roster/snapshots.
+    expect(res.detach).toBe(true);
     expect(res.close?.code).toBe(1000);
     // The room is told I left this town...
     const leave = rec.broadcasts.find((b) => b.msg.type === 'leave')!;
@@ -237,7 +237,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     expect(rmsg.spawn).toEqual({ x: 0.5, y: 0.2 });
   });
 
-  it('dedupes a duplicate portal_enter by seq (only one warp + one redirect)', async () => {
+  it('a warp fires exactly once — a duplicate frame racing the close is refused', async () => {
     const rec = makePort();
     const core = new RoomCore<Sock>(DISTRICT, rec.port);
     const first = await core.onMessage(
@@ -246,19 +246,24 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
       JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
       []
     );
-    expect(first.attach?.seq).toBe(1);
-    // The DO persists the bumped seq; a re-delivered frame with the SAME seq
-    // must be dropped — no second warp, no second redirect.
-    const dup = await core.onMessage(
-      'me',
-      first.attach!,
-      JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
-      []
-    );
-    expect(dup.attach).toBeUndefined();
+    expect(first.detach).toBe(true);
     expect(rec.warps).toHaveLength(1);
     expect(rec.sent.filter((s) => s.msg.type === 'room_redirect')).toHaveLength(1);
     expect(rec.broadcasts.filter((b) => b.msg.type === 'leave')).toHaveLength(1);
+    // The DO persists actor:null (detached), so a duplicate portal_enter that
+    // races the close arrives UNAUTHENTICATED and is refused — no second warp,
+    // no second redirect. Also covers a stale same-seq frame before the detach:
+    // isFreshSeq drops it against the last honored seq.
+    expect(isFreshSeq(1, 1)).toBe(false);
+    const dup = await core.onMessage(
+      'me',
+      null,
+      JSON.stringify({ type: 'portal_enter', seq: 2, to: 'plaza-2', controlToken: 'good-control-token' }),
+      []
+    );
+    expect(dup.close?.code).toBe(1008);
+    expect(rec.warps).toHaveLength(1);
+    expect(rec.sent.filter((s) => s.msg.type === 'room_redirect')).toHaveLength(1);
   });
 
   it('a failed warp (town full) consumes the seq but neither redirects nor leaves', async () => {

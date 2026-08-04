@@ -38,9 +38,6 @@ interface RoomEnv {
 interface SocketAttachment {
   district: string;
   actor: ActorState | null;
-  // Set once a portal redirect has already broadcast this socket's `leave`, so
-  // the ensuing server-initiated close doesn't announce the departure twice.
-  left?: boolean;
 }
 
 const WebSocketPairCtor = (globalThis as unknown as {
@@ -189,30 +186,31 @@ export class WorldRoom {
     const att = this.attachmentOf(ws) ?? { district: '', actor: null };
     const core = new RoomCore<CfWebSocket>(att.district, this.port());
     const res = await core.onMessage(ws, att.actor, raw, this.peersExcept(ws));
-    if (res.attach) {
-      ws.serializeAttachment({
-        district: att.district,
-        actor: res.attach,
-        left: res.endPresence || att.left,
-      } satisfies SocketAttachment);
+    if (res.detach) {
+      // Left the room (portal redirect): clear the actor so this socket is gone
+      // from every presence path immediately — even during the close window and
+      // across any hibernation rehydration before the runtime drops it.
+      ws.serializeAttachment({ district: att.district, actor: null } satisfies SocketAttachment);
+    } else if (res.attach) {
+      ws.serializeAttachment({ district: att.district, actor: res.attach } satisfies SocketAttachment);
     }
     if (res.flush) this.scheduleFlush();
     if (res.close) ws.close(res.close.code, res.close.reason);
   }
 
   async webSocketClose(ws: CfWebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    // A portal-redirect close already detached the actor (null) and broadcast the
+    // leave, so onClose(null) no-ops — no double announcement. A normal drop
+    // still carries its actor and gets the usual single leave.
     const att = this.attachmentOf(ws);
-    // A portal redirect already broadcast this socket's leave before closing it;
-    // don't double-announce the departure on the resulting close.
-    if (att?.left) return;
     const core = new RoomCore<CfWebSocket>(att?.district ?? '', this.port());
     core.onClose(att?.actor ?? null);
   }
 
   async webSocketError(ws: CfWebSocket, _error: unknown): Promise<void> {
-    // Treat a socket error like a close for presence purposes.
+    // Treat a socket error like a close for presence purposes (same detach-aware
+    // no-op behavior as webSocketClose).
     const att = this.attachmentOf(ws);
-    if (att?.left) return; // already announced (see webSocketClose)
     const core = new RoomCore<CfWebSocket>(att?.district ?? '', this.port());
     core.onClose(att?.actor ?? null);
   }

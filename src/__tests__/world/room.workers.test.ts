@@ -249,11 +249,24 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     // that neutralizes the old socket must not double-announce the departure.
     const leave = await b.next();
     expect(leave.type).toBe('leave');
+    const warperSlug = (leave as { slug: string }).slug;
     let extra: unknown = null;
     await Promise.race([b.next().then((m) => (extra = m)), new Promise((r) => setTimeout(r, 200))]);
     expect(extra, 'a second leave means the redirect close double-announced').toBeNull();
 
+    // And the departed socket is fully out of presence: a fresh joiner's welcome
+    // roster lists the peer who stayed but NOT the warper (its actor is detached,
+    // so it can't ghost into rosters/snapshots even before the close completes).
+    const ctD = await mintControlToken('ws-portal-token-ddd');
+    const d = await connect('plaza-1');
+    d.send({ type: 'hello', controlToken: ctD });
+    const welcomeD = (await d.next()) as { type: string; actors: Array<{ slug: string }> };
+    expect(welcomeD.type).toBe('welcome');
+    const rosterSlugs = welcomeD.actors.map((a) => a.slug);
+    expect(rosterSlugs).not.toContain(warperSlug);
+
     b.close();
     c.close();
+    d.close();
   });
 });

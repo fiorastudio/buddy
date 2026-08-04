@@ -77,10 +77,12 @@ export interface HandleResult {
   // A position changed — ask the adapter to schedule a batched snapshot flush
   // (the 50–100 ms coalescing + timer is host-specific, so it lives there).
   flush?: boolean;
-  // This socket's presence has ALREADY been announced as gone (portal redirect
-  // broadcasts `leave` before closing). The adapter must not re-announce it when
-  // the ensuing server-initiated close fires its close handler.
-  endPresence?: boolean;
+  // Clear this socket's stored actor: it has left the room (portal redirect) and
+  // must be excluded from every presence path — rosters, snapshots, broadcasts,
+  // and further message handling — the instant it's persisted, not just when the
+  // close handler eventually fires. The departure `leave` is already broadcast,
+  // so the ensuing close no-ops (a null actor has nothing to announce).
+  detach?: boolean;
 }
 
 // Fractional map coordinate: finite and within the unit square.
@@ -204,10 +206,10 @@ export class RoomCore<S> {
         const warp = await this.port.warp(controlToken, to);
         if (!warp || !warp.ok || !warp.district || !warp.url) return consume;
 
-        // Success: tell the OTHER occupants I left this town, then redirect ME
-        // to the new one (excluding self from the leave so my socket only hears
-        // the redirect). A DO cannot hand a socket to another DO, so there is no
-        // handoff — the client closes, navigates to ?district=new, reconnects.
+        // Success: tell the OTHER occupants I left this town (excluding self so
+        // my socket only hears the redirect), then redirect ME to the new one.
+        // A DO cannot hand a socket to another DO, so there is no handoff — the
+        // client closes, navigates to ?district=new, and reconnects there.
         this.port.broadcast({ type: 'leave', slug: attachment.slug }, socket);
         this.port.send(socket, {
           type: 'room_redirect',
@@ -215,14 +217,13 @@ export class RoomCore<S> {
           url: warp.url,
           spawn: warp.spawn ?? { x: ROOM_SPAWN.x, y: ROOM_SPAWN.y },
         });
-        // Neutralize this socket SERVER-SIDE: the buddy no longer lives in this
-        // town, so a client that ignores the redirect must not keep moving here.
-        // Closing forces a reconnect; a reconnect to THIS room would fail the
-        // wrong-room check (the citizen's district is now the destination). The
-        // seq is still consumed (attach) so a duplicate racing the close drops.
-        // endPresence: the `leave` above is the ONE departure announcement — the
-        // server-initiated close must not fire a second one.
-        return { ...consume, close: { code: CLOSE_REDIRECT, reason: 'portal redirect' }, endPresence: true };
+        // detach + close: the buddy no longer lives here, so clear its presence
+        // (excluded from rosters/snapshots and refused if it keeps sending) and
+        // close the socket. Closing forces a reconnect; a reconnect to THIS room
+        // would fail the wrong-room check (the citizen's district moved). The
+        // `leave` above is the single departure announcement — with the actor
+        // now cleared, the close handler has nothing to re-announce.
+        return { detach: true, close: { code: CLOSE_REDIRECT, reason: 'portal redirect' } };
       }
       case 'ping':
         this.port.send(socket, { type: 'pong', serverTs: this.port.now() });
