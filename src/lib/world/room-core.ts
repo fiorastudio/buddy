@@ -124,6 +124,7 @@ function parse(raw: string): { type?: unknown; [k: string]: unknown } | null {
 }
 
 const CLOSE_POLICY = 1008; // WebSocket "policy violation"
+const CLOSE_REDIRECT = 1000; // normal closure: you've been warped, reconnect elsewhere
 
 export class RoomCore<S> {
   constructor(private district: string, private port: RoomPort<S>) {}
@@ -210,7 +211,12 @@ export class RoomCore<S> {
           url: warp.url,
           spawn: warp.spawn ?? { x: ROOM_SPAWN.x, y: ROOM_SPAWN.y },
         });
-        return consume;
+        // Neutralize this socket SERVER-SIDE: the buddy no longer lives in this
+        // town, so a client that ignores the redirect must not keep moving here.
+        // Closing forces a reconnect; a reconnect to THIS room would fail the
+        // wrong-room check (the citizen's district is now the destination). The
+        // seq is still consumed (attach) so a duplicate racing the close drops.
+        return { ...consume, close: { code: CLOSE_REDIRECT, reason: 'portal redirect' } };
       }
       case 'ping':
         this.port.send(socket, { type: 'pong', serverTs: this.port.now() });

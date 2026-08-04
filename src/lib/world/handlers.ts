@@ -9,7 +9,7 @@ import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
 import { districtForTown } from './towns.js';
-import { spawnInto } from './portals.js';
+import { portalBetween, spawnInto } from './portals.js';
 import { DISTRICT_CAPACITY } from './districts.js';
 import type { WorldStore, CitizenRow } from './store.js';
 
@@ -298,6 +298,12 @@ export async function handlePortalWarp(
   // Idempotent: already in the destination → success (no capacity check, so a
   // duplicate portal_enter or a re-warp into your own town never 409s).
   if (from === target) return redirect(target);
+
+  // Enforce the hub-and-spoke topology SERVER-SIDE: `to` must be reachable from
+  // the citizen's CURRENT town by a real portal edge. `from` is server-derived
+  // (the stored district), so a forged frame can't claim a satellite→satellite
+  // hop the map never offers — the client-rendered graph is not the authority.
+  if (!portalBetween(from, target)) return bad(400, 'no_portal');
 
   // Capacity gate. `from !== target` here, so this citizen is genuinely moving
   // in and legitimately counts against the cap — mirroring handleTeleport.

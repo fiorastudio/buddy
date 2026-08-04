@@ -223,6 +223,9 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     expect(rec.warps).toEqual([{ controlToken: 'good-control-token', to: 'plaza-2' }]);
     // seq is consumed so a duplicate frame is dropped (dedupe).
     expect(res.attach?.seq).toBe(1);
+    // The old socket is neutralized server-side (normal closure) so a client
+    // that ignores the redirect can't keep moving in the town it just left.
+    expect(res.close?.code).toBe(1000);
     // The room is told I left this town...
     const leave = rec.broadcasts.find((b) => b.msg.type === 'leave')!;
     expect((leave.msg as Extract<ServerMsg, { type: 'leave' }>).slug).toBe('shadowpaw-ab12');
@@ -268,6 +271,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
       []
     );
     expect(res.attach?.seq).toBe(1); // consumed, so a replay can't retry
+    expect(res.close).toBeUndefined(); // warp failed → stay put; socket kept open
     expect(rec.sent.some((s) => s.msg.type === 'room_redirect')).toBe(false);
     expect(rec.broadcasts.some((b) => b.msg.type === 'leave')).toBe(false);
   });

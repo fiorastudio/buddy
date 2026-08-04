@@ -400,6 +400,32 @@ describe('browser identity handlers', () => {
     expect((await handlePortalWarp({ controlToken, to: 42 as unknown as string }, store, OPTS)).status).toBe(400);
   });
 
+  it('portal-warp enforces hub-and-spoke: a satellite cannot warp straight to another satellite', async () => {
+    const { controlToken } = await link(); // owner in plaza-1 (hub)
+    // Legit: hub → satellite plaza-2.
+    expect((await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS)).status).toBe(200);
+    // Forged frame: from plaza-2, ask for plaza-3 directly. The map has no such
+    // edge (satellites only link through Prontera), so the server refuses even
+    // though plaza-3 is a real town — `from` is server-derived, not spoofable.
+    const res = await handlePortalWarp({ controlToken, to: 'plaza-3' }, store, OPTS);
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe('no_portal');
+    // ...and the owner stayed in plaza-2.
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.district).toBe('plaza-2');
+    // Returning to the hub IS a valid edge.
+    expect((await handlePortalWarp({ controlToken, to: 'plaza-1' }, store, OPTS)).status).toBe(200);
+  });
+
+  it('portal-warp capacity counts only VISIBLE citizens (a recalled buddy frees a slot)', async () => {
+    const { controlToken } = await link(); // owner in plaza-1
+    await fill('plaza-2', DISTRICT_CAPACITY); // town is full of visible buddies
+    expect((await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS)).status).toBe(409);
+    // Recall (hide) one occupant — capacity must now reflect the visible count.
+    await handleRecall({ token: 'filler-plaza-2-0-000000', purge: false }, store);
+    const res = await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS);
+    expect(res.status).toBe(200); // the hidden buddy no longer occupies a slot
+  });
+
   it('an expired control token cannot portal-warp', async () => {
     const { controlToken } = await link(T0);
     const res = await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, { ...OPTS, now: T0 + 400 * 86_400_000 });
