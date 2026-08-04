@@ -238,6 +238,30 @@ describe('plaza smoke test (headless browser)', () => {
     expect(info.text.toLowerCase()).toContain('shipped'); // deploy phrasing
   }, 60_000);
 
+  it('de-dupes the global feed and queues broadcasts sequentially (real ingest path)', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && typeof window.__PLAZA__.ingestAnnouncementsForTest === "function"');
+
+    // First real poll after the (empty) boot seed: a level_up arrives and shows.
+    const first = (await page.evaluate(`window.__PLAZA__.ingestAnnouncementsForTest([
+      { id: 1, slug: 'buddy-0', name: 'Buddy0', type: 'level_up', level: 8, ts: 1000, town: 'Prontera' }
+    ])`)) as { broadcastType: string; queued: number; visible: boolean };
+    expect(first.broadcastType).toBe('level_up');
+    expect(first.visible).toBe(true);
+    expect(first.queued).toBe(0);
+
+    // Next poll re-sends id:1 (already seen) plus a NEW id:2 deploy. Only the
+    // deploy is fresh, so it queues behind the still-showing level_up. If the
+    // seen-set de-dupe were broken, id:1 would re-queue and queued would be 2.
+    const second = (await page.evaluate(`window.__PLAZA__.ingestAnnouncementsForTest([
+      { id: 2, slug: 'buddy-1', name: 'Bob', type: 'deploy', ts: 2000, town: 'Prontera' },
+      { id: 1, slug: 'buddy-0', name: 'Buddy0', type: 'level_up', level: 8, ts: 1000, town: 'Prontera' }
+    ])`)) as { broadcastType: string; queued: number };
+    expect(second.broadcastType).toBe('level_up'); // first one still on screen
+    expect(second.queued).toBe(1); // exactly the new deploy — id:1 de-duped, not re-queued
+  }, 60_000);
+
   it('honors prefers-reduced-motion', async () => {
     const page = await browser.newPage();
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);

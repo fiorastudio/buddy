@@ -143,6 +143,19 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(await store.announcements(10)).toHaveLength(0); // hidden → no broadcast
   });
 
+  it('announcements gives every event a distinct id, even two of the same type at the same ms', async () => {
+    await store.teleport('tok-a', snap({ name: 'Alice' }), T0);
+    const a = (await store.findByTokenHash('tok-a'))!;
+    await store.recordEvents(a.id, [
+      { type: 'level_up', ts: T0 + 1000 },
+      { type: 'level_up', ts: T0 + 1000 }, // same type, same millisecond
+    ]);
+    const feed = await store.announcements(10);
+    expect(feed).toHaveLength(2); // both surface — not collapsed
+    const ids = feed.map((r) => r.id);
+    expect(new Set(ids).size).toBe(2); // distinct, stable keys for the client
+  });
+
   it('announcements carries the anon flag + species so the handler can mask', async () => {
     await store.teleport('tok-a', snap({ name: 'Alice', species: 'Duck' }), T0);
     await store.setAnon('tok-a', true);

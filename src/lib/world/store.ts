@@ -44,6 +44,10 @@ export interface WorldEvent {
 // (slug/name/species/anon) so the HANDLER can apply anon masking exactly like
 // handleWorld — the store stays masking-agnostic, mirroring district().
 export interface AnnouncementRow {
+  // The world_events row id — a STABLE per-event key. Two celebrations of the
+  // same type in the same millisecond share slug/type/ts but never an id, so
+  // the client de-dupes on this and never drops the second one.
+  id: number;
   slug: string;
   name: string;
   species: string;
@@ -289,13 +293,14 @@ export class SqliteWorldStore implements WorldStore {
     const placeholders = ANNOUNCE_EVENT_TYPES.map(() => '?').join(', ');
     const rows = this.db
       .prepare(
-        `SELECT c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts
+        `SELECT e.id, c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts
          FROM world_events e JOIN citizens c ON c.id = e.citizen_id
          WHERE c.hidden = 0 AND e.type IN (${placeholders})
-         ORDER BY e.ts DESC LIMIT ?`
+         ORDER BY e.ts DESC, e.id DESC LIMIT ?`
       )
       .all(...ANNOUNCE_EVENT_TYPES, limit) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
+      id: row.id as number,
       slug: row.slug as string,
       name: row.name as string,
       species: row.species as string,

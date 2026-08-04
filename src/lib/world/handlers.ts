@@ -357,7 +357,10 @@ export async function handleAnnouncements(
   const rows = await store.announcements(limit);
   const announcements = rows.map((r) => {
     const town = townForDistrict(r.district) ?? r.district;
-    const base = { type: r.type, ts: r.ts, level: r.level, town };
+    // `id` is the stable per-event key the client de-dupes on (so two
+    // same-ms celebrations don't collapse). It's an opaque sequence number —
+    // no citizen identity — so it's safe to surface even for anon buddies.
+    const base = { id: r.id, type: r.type, ts: r.ts, level: r.level, town };
     if (!r.anon) return { ...base, name: r.name, slug: r.slug };
     // Anon = minimal identity: broadcast as "a wild <species>", masked slug —
     // the same masking handleWorld applies to the per-town event stream.

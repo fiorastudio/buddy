@@ -174,6 +174,18 @@
       type: broadcastEl.getAttribute('data-type'),
     };
   };
+  // Test instrumentation: drive the REAL poll-ingest path (seen-set de-dupe,
+  // first-load seeding, oldest-first enqueue, and the sequential timer queue)
+  // that broadcastForTest bypasses. Reports what's on screen vs. still queued.
+  state.ingestAnnouncementsForTest = (list) => {
+    ingestAnnouncements(list);
+    return {
+      broadcastType: state.broadcast ? state.broadcast.type : null,
+      queued: broadcastQueue.length,
+      visible: !broadcastEl.hidden,
+      text: broadcastEl.textContent,
+    };
+  };
   const actors = new Map(); // slug -> {x, y, tx, ty, rng, frame, behavior}
   const metricsBySpecies = new Map(); // species -> {cols, rows} max across ALL frames
   let charW = 8; // measured once per font in tick()
@@ -1552,7 +1564,10 @@
     state.announcements = list;
     const fresh = [];
     for (const a of list) {
-      const key = `${a.slug}:${a.type}:${a.ts}`;
+      // Prefer the stable world_events id (distinct even for two same-ms
+      // same-type events); fall back to the composite only if a feed row
+      // somehow lacks an id, so nothing silently re-broadcasts.
+      const key = a.id != null ? `e${a.id}` : `${a.slug}:${a.type}:${a.ts}`;
       if (seenAnnounceKeys.has(key)) continue;
       seenAnnounceKeys.add(key);
       fresh.push(a);
