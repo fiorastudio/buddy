@@ -58,7 +58,12 @@ export interface WorldStore {
   recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number>;
   recall(tokenHash: string, purge: boolean): Promise<boolean>;
   district(name: string, sinceMs: number): Promise<DistrictView>;
+  // Live per-town population, counting ONLY visible (hidden=0) citizens so the
+  // capacity gate matches what district()/handleWorld actually render.
   districtCounts(): Promise<Record<string, number>>;
+  // Move a citizen's town. District-ONLY: never touches xp/level/etc. This is
+  // the write the scoped portal-warp path uses (it must not write XP).
+  setDistrict(citizenId: string, district: string): Promise<void>;
   rollup(date: string): Promise<number>;
   getRollups(date: string): Promise<Array<{ citizen_id: string; event_counts: Record<string, number>; xp_gained: number }>>;
   setAnon(tokenHash: string, anon: boolean): Promise<boolean>;
@@ -263,10 +268,16 @@ export class SqliteWorldStore implements WorldStore {
   }
 
   async districtCounts(): Promise<Record<string, number>> {
+    // hidden = 0 only: a recalled/hidden citizen isn't shown in the town, so it
+    // must not count against the town's capacity either.
     const rows = this.db
-      .prepare('SELECT district, COUNT(*) AS n FROM citizens GROUP BY district')
+      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 GROUP BY district')
       .all() as Array<{ district: string; n: number }>;
     return Object.fromEntries(rows.map((r) => [r.district, r.n]));
+  }
+
+  async setDistrict(citizenId: string, district: string): Promise<void> {
+    this.db.prepare('UPDATE citizens SET district = ? WHERE id = ?').run(district, citizenId);
   }
 
   async rollup(date: string): Promise<number> {

@@ -9,9 +9,11 @@ import {
   handleBrowserLink,
   handleBrowserSession,
   handleMe,
+  handlePortalWarp,
   hashToken,
   RateLimiter,
 } from '../../lib/world/handlers.js';
+import { DISTRICT_CAPACITY } from '../../lib/world/districts.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
 
@@ -330,6 +332,78 @@ describe('browser identity handlers', () => {
     expect(after.district).toBe(before.district);
     expect(after.level).toBe(before.level);
     expect(after.xp).toBe(before.xp);
+  });
+
+  // Fill a town to a given visible population using ordinary teleports.
+  async function fill(district: string, n: number) {
+    for (let i = 0; i < n; i++) {
+      await handleTeleport(
+        { token: `filler-${district}-${i}-000000`, snapshot: snap({ name: `Fill${i}` }), district },
+        store,
+        OPTS
+      );
+    }
+  }
+
+  it('portal-warp moves district ONLY — the scoped token never writes xp/level', async () => {
+    const { controlToken } = await link();
+    const before = (await store.findByTokenHash(hashToken(TOKEN)))!;
+    const res = await handlePortalWarp({ controlToken, to: 'Geffen' }, store, OPTS);
+    expect(res.status).toBe(200);
+    const body = res.body as { district: string; url: string; spawn: { x: number; y: number } };
+    expect(body.district).toBe('plaza-3');
+    expect(body.url).toContain('district=plaza-3');
+    const after = (await store.findByTokenHash(hashToken(TOKEN)))!;
+    expect(after.district).toBe('plaza-3'); // moved
+    expect(after.xp).toBe(before.xp); // ...but xp/level/bucket untouched
+    expect(after.level).toBe(before.level);
+    expect(after.xp_bucket).toBe(before.xp_bucket);
+  });
+
+  it('portal-warp is idempotent: warping into your CURRENT town returns success', async () => {
+    const { controlToken } = await link(); // owner is in plaza-1
+    const res = await handlePortalWarp({ controlToken, to: 'plaza-1' }, store, OPTS);
+    expect(res.status).toBe(200);
+    expect((res.body as { district: string }).district).toBe('plaza-1');
+  });
+
+  it('portal-warp returns 409 when the destination town is full', async () => {
+    const { controlToken } = await link(); // owner in plaza-1
+    await fill('plaza-2', DISTRICT_CAPACITY);
+    const res = await handlePortalWarp({ controlToken, to: 'Payon' }, store, OPTS);
+    expect(res.status).toBe(409);
+    // ...and the owner did NOT move.
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.district).toBe('plaza-1');
+  });
+
+  it('portal-warp never bounces someone ALREADY in a full destination (idempotent)', async () => {
+    const { controlToken } = await link();
+    // Owner walks into plaza-2 first (room has space), then it fills to the cap
+    // (owner is one of the 80). A repeat warp into their own full town succeeds.
+    expect((await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS)).status).toBe(200);
+    await fill('plaza-2', DISTRICT_CAPACITY - 1);
+    const again = await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS);
+    expect(again.status).toBe(200);
+  });
+
+  it('portal-warp is scoped-token-only: a world token cannot use it (401)', async () => {
+    await link();
+    // TOKEN is the real world token, not a browser control token — rejected.
+    expect((await handlePortalWarp({ controlToken: TOKEN, to: 'plaza-2' }, store, OPTS)).status).toBe(401);
+    expect((await handlePortalWarp({ to: 'plaza-2' }, store, OPTS)).status).toBe(401);
+    expect((await handlePortalWarp({ controlToken: 'x', to: 'plaza-2' }, store, OPTS)).status).toBe(401);
+  });
+
+  it('portal-warp rejects an unknown destination town (400)', async () => {
+    const { controlToken } = await link();
+    expect((await handlePortalWarp({ controlToken, to: 'Atlantis' }, store, OPTS)).status).toBe(400);
+    expect((await handlePortalWarp({ controlToken, to: 42 as unknown as string }, store, OPTS)).status).toBe(400);
+  });
+
+  it('an expired control token cannot portal-warp', async () => {
+    const { controlToken } = await link(T0);
+    const res = await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, { ...OPTS, now: T0 + 400 * 86_400_000 });
+    expect(res.status).toBe(401);
   });
 
   it('recall --purge deletes the citizen link codes and browser sessions', async () => {

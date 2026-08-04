@@ -216,4 +216,29 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     b.close();
     c.close();
   });
+
+  // Runs last: it warps its citizen out of plaza-1, so it must not perturb the
+  // shared plaza-1 room state the presence/hibernation tests above assert on.
+  it('a portal_enter warps the buddy in D1 and redirects the owner (walk-to-warp)', async () => {
+    const controlToken = await mintControlToken('ws-portal-token-aaa'); // citizen in plaza-1
+
+    const c = await connect('plaza-1');
+    c.send({ type: 'hello', controlToken });
+    await c.next(); // welcome
+
+    // Walk into the Prontera→Payon gate: validate + move server-side, redirect me.
+    c.send({ type: 'portal_enter', seq: 1, portal: 'prontera-payon', to: 'plaza-2', controlToken });
+    const redirect = await c.next();
+    expect(redirect.type).toBe('room_redirect');
+    expect(redirect.district).toBe('plaza-2');
+    expect(redirect.url).toContain('district=plaza-2');
+
+    // The move is durable in D1: /v1/me now reports the new town.
+    const me = (await (
+      await SELF.fetch(`${BASE}/v1/me`, { headers: { authorization: `Bearer ${controlToken}` } })
+    ).json()) as { district: string };
+    expect(me.district).toBe('plaza-2');
+
+    c.close();
+  });
 });

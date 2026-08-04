@@ -226,17 +226,42 @@ describe('plaza smoke test (headless browser)', () => {
 
 
 
-  it('has a warp portal to the next RO town (RO navigation)', async () => {
+  it('retires the camera-only #warp button and renders in-world portal gates', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
     await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
-    const warp = (await page.evaluate(`(() => {
-      const el = document.querySelector('#warp');
-      return { exists: !!el, label: el?.getAttribute('aria-label') || '', href: el?.getAttribute('href') || el?.dataset.district || '' };
-    })()`)) as { exists: boolean; label: string; href: string };
-    expect(warp.exists).toBe(true);
-    expect(warp.label.toLowerCase()).toMatch(/warp|travel|payon/);
-    expect(warp.href).toContain('plaza-2'); // next district
+    const info = (await page.evaluate(`(() => ({
+      warpGone: !document.querySelector('#warp'),
+      dests: (window.__PLAZA__.portals || []).map((p) => p.to),
+    }))()`)) as { warpGone: boolean; dests: string[] };
+    // The old camera-only <a id="warp"> link is gone...
+    expect(info.warpGone).toBe(true);
+    // ...replaced by Prontera's five hub gates, one to each satellite town.
+    expect(info.dests).toEqual(['plaza-2', 'plaza-3', 'plaza-4', 'plaza-5', 'plaza-6']);
+  }, 60_000);
+
+  it('walking the owner sprite into a portal fires portal_enter (RO walk-to-warp)', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAYER__ && window.__PLAZA__ && window.__PLAZA__.actorFrames && window.__PLAZA__.actorFrames["buddy-0"] !== undefined'
+    );
+    // Own buddy-0's sprite, then drive it into the first Prontera gate. The real
+    // hit-test (checkPortal) runs and emits portal_enter via the socket path
+    // (recorded on the instrumentation hook even without a live WS).
+    await page.evaluate(`window.__PLAZA__.meSlug = 'buddy-0'`);
+    const fired = (await page.evaluate(`window.__PLAYER__.enterPortalForTest(0)`)) as {
+      type: string;
+      to: string;
+      portal: string;
+      seq: number;
+    } | null;
+    expect(fired).toBeTruthy();
+    expect(fired!.type).toBe('portal_enter');
+    expect(fired!.to).toBe('plaza-2'); // Prontera's first gate → Payon
+    expect(fired!.portal).toBe('prontera-payon');
+    expect(fired!.seq).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
   it('click-to-pet spawns a heart emote on a buddy (RO /heart)', async () => {

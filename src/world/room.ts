@@ -15,9 +15,10 @@ import {
   type ActorState,
   type AuthResult,
   type ServerMsg,
+  type WarpOutcome,
 } from '../lib/world/room-core.js';
 import { D1WorldStore, type D1Like } from '../lib/world/d1-store.js';
-import { hashToken } from '../lib/world/handlers.js';
+import { hashToken, handlePortalWarp } from '../lib/world/handlers.js';
 import type {
   CfWebSocket,
   DurableObjectStateLike,
@@ -26,6 +27,9 @@ import type {
 
 interface RoomEnv {
   DB: D1Like;
+  // Bound from wrangler.toml [vars]; used to build the room_redirect URL. Falls
+  // back to a relative `/?district=…` (fine for same-origin client navigation).
+  BASE_URL?: string;
 }
 
 // What each socket stores. `district` is known at connect time (even before the
@@ -90,12 +94,27 @@ export class WorldRoom {
     }
   }
 
+  // Run the portal-warp semantic in D1 (idempotent, capacity-gated, no XP
+  // write) and translate the handler result into a room-core WarpOutcome.
+  private async warp(controlToken: string, to: string): Promise<WarpOutcome> {
+    const store = await this.store();
+    const res = await handlePortalWarp(
+      { controlToken, to },
+      store,
+      { now: Date.now(), baseUrl: this.env.BASE_URL ?? '' }
+    );
+    if (res.status !== 200) return { ok: false, error: (res.body as { error?: string })?.error };
+    const b = res.body as { district: string; url: string; spawn: { x: number; y: number } };
+    return { ok: true, district: b.district, url: b.url, spawn: b.spawn };
+  }
+
   private port(): RoomPort<CfWebSocket> {
     return {
       now: () => Date.now(),
       send: (ws, msg) => ws.send(JSON.stringify(msg)),
       broadcast: (msg, except) => this.broadcastToAuthed(msg, except),
       verify: (token) => this.verify(token),
+      warp: (token, to) => this.warp(token, to),
     };
   }
 

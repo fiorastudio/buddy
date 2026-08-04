@@ -240,11 +240,17 @@ export class D1WorldStore implements WorldStore {
   }
 
   async districtCounts(): Promise<Record<string, number>> {
+    // hidden = 0 only: a recalled/hidden citizen isn't shown in the town, so it
+    // must not count against the town's capacity either.
     const rows = await this.db
-      .prepare('SELECT district, COUNT(*) AS n FROM citizens GROUP BY district')
+      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 GROUP BY district')
       .bind()
       .all<{ district: string; n: number }>();
     return Object.fromEntries(rows.results.map((r) => [r.district, r.n]));
+  }
+
+  async setDistrict(citizenId: string, district: string): Promise<void> {
+    await this.db.prepare('UPDATE citizens SET district = ? WHERE id = ?').bind(district, citizenId).run();
   }
 
   async rollup(date: string): Promise<number> {

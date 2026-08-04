@@ -43,15 +43,30 @@ export type ServerMsg =
   | { type: 'leave'; slug: string }
   | { type: 'snapshot'; district: string; serverTs: number; actors: PublicActor[] }
   | { type: 'pong'; serverTs: number }
+  | { type: 'room_redirect'; district: string; url: string; spawn: { x: number; y: number } }
   | { type: 'error'; error: string };
 
-// The adapter injects transport + auth + clock. `S` is the opaque socket handle
-// (a real WebSocket in prod, a string in tests).
+// Result of the portal-warp semantic (the adapter runs handlePortalWarp against
+// D1). `ok` with a district/url on success; `ok: false` on capacity/auth/bad
+// target. The room turns a success into a `leave` + `room_redirect`.
+export interface WarpOutcome {
+  ok: boolean;
+  district?: string;
+  url?: string;
+  spawn?: { x: number; y: number };
+  error?: string;
+}
+
+// The adapter injects transport + auth + warp + clock. `S` is the opaque socket
+// handle (a real WebSocket in prod, a string in tests).
 export interface RoomPort<S> {
   now(): number;
   send(socket: S, msg: ServerMsg): void;
   broadcast(msg: ServerMsg, except?: S): void;
   verify(controlToken: string): Promise<AuthResult | null>;
+  // Move the control token's own citizen to `to` in D1 (idempotent, capacity
+  // -gated, no XP write). Returns the redirect payload on success.
+  warp(controlToken: string, to: string): Promise<WarpOutcome | null>;
 }
 
 export interface HandleResult {
@@ -169,6 +184,33 @@ export class RoomCore<S> {
         if (typeof seq !== 'number' || !isFreshSeq(attachment.seq, seq)) return {};
         if (!inUnit(x) || !inUnit(y)) return {};
         return { attach: { slug: attachment.slug, x, y, seq }, flush: true };
+      }
+      case 'portal_enter': {
+        // The owner WALKED into a portal. seq is monotonic so a duplicated
+        // portal_enter (same seq) is dropped — that's the dedupe. We consume the
+        // seq on any fresh frame (success or failure) so a network-level replay
+        // can't re-run the warp; only a NEW gesture (higher seq) retries.
+        const { seq, to, controlToken } = msg as { seq?: unknown; to?: unknown; controlToken?: unknown };
+        if (typeof seq !== 'number' || !isFreshSeq(attachment.seq, seq)) return {};
+        const consume: HandleResult = { attach: { ...attachment, seq } };
+        if (typeof to !== 'string') return consume;
+        if (typeof controlToken !== 'string' || controlToken.length < 8) return consume;
+
+        const warp = await this.port.warp(controlToken, to);
+        if (!warp || !warp.ok || !warp.district || !warp.url) return consume;
+
+        // Success: tell the OTHER occupants I left this town, then redirect ME
+        // to the new one (excluding self from the leave so my socket only hears
+        // the redirect). A DO cannot hand a socket to another DO, so there is no
+        // handoff — the client closes, navigates to ?district=new, reconnects.
+        this.port.broadcast({ type: 'leave', slug: attachment.slug }, socket);
+        this.port.send(socket, {
+          type: 'room_redirect',
+          district: warp.district,
+          url: warp.url,
+          spawn: warp.spawn ?? { x: ROOM_SPAWN.x, y: ROOM_SPAWN.y },
+        });
+        return consume;
       }
       case 'ping':
         this.port.send(socket, { type: 'pong', serverTs: this.port.now() });

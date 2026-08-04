@@ -9,6 +9,7 @@ import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
 import { districtForTown } from './towns.js';
+import { spawnInto } from './portals.js';
 import { DISTRICT_CAPACITY } from './districts.js';
 import type { WorldStore, CitizenRow } from './store.js';
 
@@ -256,6 +257,56 @@ export async function handleMe(
       capabilities: found.scope.split(','),
     },
   };
+}
+
+// portal-warp: the buddy WALKED into a portal (validated + relayed by the room
+// over the live socket). Authenticated by the SCOPED control token — it may
+// move only its OWN citizen and never writes xp/level. Mirrors the teleport
+// capacity gate (409 when the destination is full) with the same "never bounce
+// someone already there" exception, and is IDEMPOTENT: a buddy already in the
+// destination gets success, not a capacity failure. Updates D1 `district` only.
+export async function handlePortalWarp(
+  payload: { controlToken?: unknown; to?: unknown },
+  store: WorldStore,
+  opts: HandlerOpts
+): Promise<HandlerResult> {
+  if (typeof payload.controlToken !== 'string' || payload.controlToken.length < 8) {
+    return bad(401, 'missing control token');
+  }
+  const found = await store.findCitizenByBrowserToken(hashToken(payload.controlToken), opts.now);
+  if (!found) return bad(401, 'invalid control token');
+  // Scope belt-and-braces: a control token minted for anything other than
+  // portal_warp cannot drive this path (today all tokens carry both scopes).
+  if (!found.scope.split(',').includes('portal_warp')) return bad(403, 'insufficient scope');
+
+  if (typeof payload.to !== 'string') return bad(400, 'unknown_town');
+  const target = districtForTown(payload.to);
+  if (!target) return bad(400, 'unknown_town');
+
+  const citizen = found.citizen;
+  const from = citizen.district;
+
+  const redirect = (district: string) => ({
+    status: 200,
+    body: {
+      district,
+      url: `${opts.baseUrl}/?district=${district}`,
+      spawn: spawnInto(from, district),
+    },
+  });
+
+  // Idempotent: already in the destination → success (no capacity check, so a
+  // duplicate portal_enter or a re-warp into your own town never 409s).
+  if (from === target) return redirect(target);
+
+  // Capacity gate. `from !== target` here, so this citizen is genuinely moving
+  // in and legitimately counts against the cap — mirroring handleTeleport.
+  const counts = await store.districtCounts();
+  if ((counts[target] ?? 0) >= DISTRICT_CAPACITY) return bad(409, 'town_full');
+
+  // District-ONLY write: the scoped token must never touch xp/level.
+  await store.setDistrict(citizen.id, target);
+  return redirect(target);
 }
 
 export async function handleWorld(

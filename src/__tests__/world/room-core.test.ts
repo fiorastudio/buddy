@@ -8,6 +8,7 @@ import {
   type ServerMsg,
   type ActorState,
   type AuthResult,
+  type WarpOutcome,
 } from '../../lib/world/room-core.js';
 
 // A fake socket is just a string id; a fake port records everything the core
@@ -18,18 +19,32 @@ interface Recorder {
   port: RoomPort<Sock>;
   sent: Array<{ socket: Sock; msg: ServerMsg }>;
   broadcasts: Array<{ msg: ServerMsg; except?: Sock }>;
+  warps: Array<{ controlToken: string; to: string }>;
 }
 
-function makePort(opts: { verify?: (t: string) => AuthResult | null; now?: number } = {}): Recorder {
+function makePort(
+  opts: {
+    verify?: (t: string) => AuthResult | null;
+    warp?: (controlToken: string, to: string) => WarpOutcome | null;
+    now?: number;
+  } = {}
+): Recorder {
   const sent: Recorder['sent'] = [];
   const broadcasts: Recorder['broadcasts'] = [];
+  const warps: Recorder['warps'] = [];
   const port: RoomPort<Sock> = {
     now: () => opts.now ?? 1000,
     send: (socket, msg) => sent.push({ socket, msg }),
     broadcast: (msg, except) => broadcasts.push({ msg, except }),
     verify: async (t) => (opts.verify ? opts.verify(t) : null),
+    warp: async (controlToken, to) => {
+      warps.push({ controlToken, to });
+      return opts.warp
+        ? opts.warp(controlToken, to)
+        : { ok: true, district: to, url: `/?district=${to}`, spawn: { x: 0.5, y: 0.2 } };
+    },
   };
-  return { port, sent, broadcasts };
+  return { port, sent, broadcasts, warps };
 }
 
 const DISTRICT = 'plaza-1';
@@ -186,6 +201,109 @@ describe('room-core movement (move_to)', () => {
     const core = new RoomCore<Sock>(DISTRICT, rec.port);
     const res = await core.onMessage('me', null, JSON.stringify({ type: 'move_to', seq: 1, x: 0.2, y: 0.2 }), []);
     expect(res.close?.code).toBe(1008);
+  });
+});
+
+describe('room-core portal warp (portal_enter → room_redirect)', () => {
+  const HELLO_SEQ = { seq: 1, to: 'plaza-2', controlToken: 'good-control-token' };
+
+  it('a portal_enter warps: broadcasts leave and redirects the owner', async () => {
+    const rec = makePort({
+      warp: () => ({ ok: true, district: 'plaza-2', url: 'https://x/?district=plaza-2', spawn: { x: 0.5, y: 0.2 } }),
+    });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('shadowpaw-ab12', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', portal: 'prontera-payon', ...HELLO_SEQ }),
+      []
+    );
+
+    // The warp ran against the token + target the client sent.
+    expect(rec.warps).toEqual([{ controlToken: 'good-control-token', to: 'plaza-2' }]);
+    // seq is consumed so a duplicate frame is dropped (dedupe).
+    expect(res.attach?.seq).toBe(1);
+    // The room is told I left this town...
+    const leave = rec.broadcasts.find((b) => b.msg.type === 'leave')!;
+    expect((leave.msg as Extract<ServerMsg, { type: 'leave' }>).slug).toBe('shadowpaw-ab12');
+    // ...and I get a redirect to the new one, carrying the arrival spawn.
+    const redirect = rec.sent.find((s) => s.msg.type === 'room_redirect')!;
+    const rmsg = redirect.msg as Extract<ServerMsg, { type: 'room_redirect' }>;
+    expect(rmsg.district).toBe('plaza-2');
+    expect(rmsg.url).toContain('district=plaza-2');
+    expect(rmsg.spawn).toEqual({ x: 0.5, y: 0.2 });
+  });
+
+  it('dedupes a duplicate portal_enter by seq (only one warp + one redirect)', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const first = await core.onMessage(
+      'me',
+      actor('x', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
+      []
+    );
+    expect(first.attach?.seq).toBe(1);
+    // The DO persists the bumped seq; a re-delivered frame with the SAME seq
+    // must be dropped — no second warp, no second redirect.
+    const dup = await core.onMessage(
+      'me',
+      first.attach!,
+      JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
+      []
+    );
+    expect(dup.attach).toBeUndefined();
+    expect(rec.warps).toHaveLength(1);
+    expect(rec.sent.filter((s) => s.msg.type === 'room_redirect')).toHaveLength(1);
+    expect(rec.broadcasts.filter((b) => b.msg.type === 'leave')).toHaveLength(1);
+  });
+
+  it('a failed warp (town full) consumes the seq but neither redirects nor leaves', async () => {
+    const rec = makePort({ warp: () => ({ ok: false, error: 'town_full' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('x', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
+      []
+    );
+    expect(res.attach?.seq).toBe(1); // consumed, so a replay can't retry
+    expect(rec.sent.some((s) => s.msg.type === 'room_redirect')).toBe(false);
+    expect(rec.broadcasts.some((b) => b.msg.type === 'leave')).toBe(false);
+  });
+
+  it('a portal_enter without a control token is ignored (no warp attempted)', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('x', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', seq: 1, to: 'plaza-2' }),
+      []
+    );
+    expect(res.attach?.seq).toBe(1); // seq still consumed
+    expect(rec.warps).toHaveLength(0);
+  });
+
+  it('drops a stale / non-increasing portal_enter seq', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('x', { seq: 5 }),
+      JSON.stringify({ type: 'portal_enter', seq: 5, to: 'plaza-2', controlToken: 'good-control-token' }),
+      []
+    );
+    expect(res.attach).toBeUndefined();
+    expect(rec.warps).toHaveLength(0);
+  });
+
+  it('a portal_enter before authentication is refused (hello still required first)', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }), []);
+    expect(res.close?.code).toBe(1008);
+    expect(rec.warps).toHaveLength(0);
   });
 });
 

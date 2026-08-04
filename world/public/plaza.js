@@ -42,20 +42,35 @@
   }
   const TOWN = townFor(district);
 
-  // Warp portal → next district/town (RO blue gate). Wire the label + href
-  // to whatever town comes next in the cycle.
-  (() => {
-    const warp = document.getElementById('warp');
-    if (!warp) return;
-    // Clamp to a sane integer so the href is always ?district=plaza-<int>
-    // (huge inputs would otherwise stringify as exponent/Infinity).
-    const cur = Math.min(9999, Math.max(1, parseInt(String(district).replace(/\D/g, ''), 10) || 1));
-    const nextNum = cur + 1;
-    const nextTown = townFor('plaza-' + nextNum);
-    warp.setAttribute('href', `?district=plaza-${nextNum}`);
-    warp.setAttribute('aria-label', `Warp to ${nextTown.name} (next town)`);
-    warp.textContent = `🌀 warp to ${nextTown.name} →`;
-  })();
+  // Portal graph (M4). RO-style blue gates you WALK into to travel — the old
+  // camera-only #warp button is retired. Hub-and-spoke with Prontera (plaza-1)
+  // at the center. This MUST mirror src/lib/world/portals.ts by (id, from, to)
+  // — drift-guarded by portals-drift.test.ts, exactly like TOWNS ↔ TOWN_NAMES.
+  // rect = fractional [0,1] gate footprint on the floor (mapped to pixels via
+  // RT.toPixel); spawn = fractional arrival point in the destination town.
+  const HUB_GATE_RECTS = [
+    { x: 0.08, y: 0.10, w: 0.10, h: 0.12 }, // → Payon   (plaza-2)
+    { x: 0.82, y: 0.10, w: 0.10, h: 0.12 }, // → Geffen  (plaza-3)
+    { x: 0.05, y: 0.44, w: 0.10, h: 0.12 }, // → Alberta (plaza-4)
+    { x: 0.85, y: 0.44, w: 0.10, h: 0.12 }, // → Morroc  (plaza-5)
+    { x: 0.45, y: 0.84, w: 0.10, h: 0.12 }, // → Comodo  (plaza-6)
+  ];
+  const RETURN_GATE_RECT = { x: 0.45, y: 0.84, w: 0.10, h: 0.12 };
+  const SATELLITE_SPAWN = { x: 0.5, y: 0.2 };
+  const HUB_SPAWN = { x: 0.5, y: 0.5 };
+  const PORTALS = [
+    { id: 'prontera-payon', from: 'plaza-1', to: 'plaza-2', rect: HUB_GATE_RECTS[0], spawn: SATELLITE_SPAWN },
+    { id: 'prontera-geffen', from: 'plaza-1', to: 'plaza-3', rect: HUB_GATE_RECTS[1], spawn: SATELLITE_SPAWN },
+    { id: 'prontera-alberta', from: 'plaza-1', to: 'plaza-4', rect: HUB_GATE_RECTS[2], spawn: SATELLITE_SPAWN },
+    { id: 'prontera-morroc', from: 'plaza-1', to: 'plaza-5', rect: HUB_GATE_RECTS[3], spawn: SATELLITE_SPAWN },
+    { id: 'prontera-comodo', from: 'plaza-1', to: 'plaza-6', rect: HUB_GATE_RECTS[4], spawn: SATELLITE_SPAWN },
+    { id: 'payon-prontera', from: 'plaza-2', to: 'plaza-1', rect: RETURN_GATE_RECT, spawn: HUB_SPAWN },
+    { id: 'geffen-prontera', from: 'plaza-3', to: 'plaza-1', rect: RETURN_GATE_RECT, spawn: HUB_SPAWN },
+    { id: 'alberta-prontera', from: 'plaza-4', to: 'plaza-1', rect: RETURN_GATE_RECT, spawn: HUB_SPAWN },
+    { id: 'morroc-prontera', from: 'plaza-5', to: 'plaza-1', rect: RETURN_GATE_RECT, spawn: HUB_SPAWN },
+    { id: 'comodo-prontera', from: 'plaza-6', to: 'plaza-1', rect: RETURN_GATE_RECT, spawn: HUB_SPAWN },
+  ];
+  const portalsHere = PORTALS.filter((p) => p.from === district);
 
   // RO emote bubbles: recent activity pops the classic overhead marks.
   const EVENT_EMOTES = {
@@ -840,6 +855,7 @@
     ctx.font = SPRITE_FONT;
     charW = ctx.measureText('M').width;
     drawPorings();
+    drawPortals(now);
     // Vending stalls parked for now — see the future "buddy marketplace /
     // job board" idea (owners sell services or post for help).
     let sitting = 0;
@@ -883,6 +899,7 @@
               actor.lastMoveSentAt = nowMs;
               actor.wasMoving = moving;
             }
+            checkPortal(actor); // walked into a gate? → portal_enter + redirect
           }
         }
         actor.frame = Math.floor((performance.now() + actor.phaseMs) / 450);
@@ -951,6 +968,42 @@
     }
   }
 
+  // ── Portal gates: RO blue warp tiles you walk into to travel ──────────
+  // One glowing gate per outgoing portal in this town, labelled with its
+  // destination. Purely a ground feature; the actual travel is driven by the
+  // owner sprite's hit-test (checkPortal) → portal_enter → room_redirect.
+  function drawPortals(now) {
+    if (!portalsHere.length) return;
+    ctx.textAlign = 'center';
+    for (const p of portalsHere) {
+      const tl = RT.toPixel(p.rect.x, p.rect.y);
+      const br = RT.toPixel(p.rect.x + p.rect.w, p.rect.y + p.rect.h);
+      const w = br.x - tl.x, h = br.y - tl.y;
+      const cx = tl.x + w / 2, cy = tl.y + h / 2;
+      const pulse = REDUCED_MOTION ? 0.7 : 0.5 + 0.35 * Math.abs(Math.sin(now / 400));
+      ctx.save();
+      // outer glow
+      const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, Math.max(w, h) * 0.75);
+      glow.addColorStop(0, `rgba(120,170,255,${0.5 * pulse})`);
+      glow.addColorStop(1, 'rgba(120,170,255,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.ellipse(cx, cy, w * 0.7, h * 0.72, 0, 0, Math.PI * 2); ctx.fill();
+      // swirling gate oval (RO warp portal)
+      ctx.fillStyle = `rgba(90,140,255,${0.35 + 0.25 * pulse})`;
+      ctx.strokeStyle = 'rgba(190,215,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(cx, cy, w * 0.42, h * 0.46, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      // destination label above the gate
+      const dest = townFor(p.to).name;
+      ctx.font = 'bold 10px Menlo, Consolas, monospace';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+      ctx.strokeText(`🌀 ${dest}`, cx, tl.y - 4);
+      ctx.fillStyle = '#cfe0ff';
+      ctx.fillText(`🌀 ${dest}`, cx, tl.y - 4);
+      ctx.restore();
+    }
+  }
+
   // ── Vending stalls: RO merchant flex boards ───────────────────────────
   function drawStalls() {
     for (const stall of state.stalls) {
@@ -993,6 +1046,7 @@
     let seq = 0;
     let backoff = 1000;
     let stopped = false; // a fatal auth close (1008) parks reconnection
+    let currentToken = null; // the control token this socket authenticated with
 
     function storedToken() {
       try { return localStorage.getItem(LS_KEY); } catch { return null; }
@@ -1070,7 +1124,23 @@
         case 'join': applySnapshot([msg.actor]); break;
         case 'snapshot': applySnapshot(msg.actors); break;
         case 'leave': { const a = actors.get(msg.slug); if (a) a.remote = false; break; }
+        case 'room_redirect': doRedirect(msg); break;
       }
+    }
+
+    // Portal warp landed server-side: my buddy now lives in msg.district. A DO
+    // can't hand a socket to another DO, so we close this one, navigate to the
+    // new town, and the fresh page reconnects to /v1/live/<new>. Full reload is
+    // the MVP; an in-place town-swap is a later optimization.
+    function doRedirect(msg) {
+      if (!msg || typeof msg.district !== 'string') return;
+      stopped = true; // don't reconnect to the OLD room after we close it
+      try { if (socket) socket.close(1000, 'portal'); } catch {}
+      socket = null;
+      state.lastRedirect = msg; // test hook
+      const url = new URL(location.href);
+      url.searchParams.set('district', msg.district);
+      location.assign(url.toString());
     }
 
     function wsUrl() {
@@ -1082,6 +1152,7 @@
 
     function connect(token) {
       if (stopped) return;
+      currentToken = token; // remembered so portal_enter can re-assert scope
       let ws;
       try { ws = new WebSocket(wsUrl()); } catch { scheduleReconnect(token); return; }
       socket = ws;
@@ -1118,7 +1189,18 @@
       if (socket && socket.readyState === 1) { try { socket.send(JSON.stringify(msg)); } catch {} }
     }
 
-    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo };
+    // Emit a portal-enter intent when the owner sprite walks into a gate. Reuses
+    // the monotonic seq (shared with move_to) so the room drops a duplicate
+    // portal_enter. Carries the control token so the room can validate the move
+    // against my own citizen (and only mine). Fire-and-forget like move_to.
+    function sendPortalEnter(portal) {
+      seq += 1;
+      const msg = { type: 'portal_enter', seq, portal: portal.id, to: portal.to, controlToken: currentToken || undefined };
+      state.lastPortalEnter = msg; // test hook
+      if (socket && socket.readyState === 1) { try { socket.send(JSON.stringify(msg)); } catch {} }
+    }
+
+    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo, sendPortalEnter };
   })();
 
   // The sprite I control, if any (keyed by the plaza's public slug).
@@ -1140,16 +1222,53 @@
       const f = RT.toFraction(tx, ty);
       RT.sendMoveTo(f.x, f.y);
     }
+    checkPortal(actor); // a reduced-motion snap may land straight in a gate
     return true;
   }
+
+  // Hit-test the owner sprite against the town's portal gates each frame. Only a
+  // DRIVEN owner (owned === true, i.e. you've clicked at least once) can warp,
+  // so a fresh spawn that happens to sit on a gate never auto-travels. Firing is
+  // EDGE-triggered: portal_enter goes out once on entry, not every resident
+  // frame; leaving the rect re-arms it.
+  function checkPortal(actor) {
+    if (!actor || !actor.owned || !portalsHere.length) return;
+    const f = RT.toFraction(actor.x, actor.y);
+    let inside = null;
+    for (const p of portalsHere) {
+      if (f.x >= p.rect.x && f.x <= p.rect.x + p.rect.w && f.y >= p.rect.y && f.y <= p.rect.y + p.rect.h) {
+        inside = p;
+        break;
+      }
+    }
+    if (inside) {
+      if (actor.inPortal !== inside.id) { actor.inPortal = inside.id; RT.sendPortalEnter(inside); }
+    } else {
+      actor.inPortal = null;
+    }
+  }
+
   // Test/instrumentation hooks (read by plaza-smoke.test.ts).
   state.moveOwnerTo = moveOwnerTo;
   state.applySnapshot = (msg) => RT.applySnapshot(msg && msg.actors);
   state.rtToPixel = RT.toPixel;
   state.rtToFraction = RT.toFraction;
+  state.portals = portalsHere;
   state.actorPos = (slug) => {
     const a = actors.get(slug);
     return a ? { x: a.x, y: a.y, tx: a.tx, ty: a.ty, owned: !!a.owned, remote: !!a.remote } : null;
+  };
+  // Drive the owner sprite into a gate and run the real hit-test — the portal
+  // warp then fires through sendPortalEnter (recorded on state.lastPortalEnter)
+  // whether or not a live socket is attached.
+  state.enterPortalForTest = (i = 0) => {
+    const actor = ownerActor();
+    if (!actor || !portalsHere.length) return null;
+    const p = portalsHere[i % portalsHere.length];
+    const c = RT.toPixel(p.rect.x + p.rect.w / 2, p.rect.y + p.rect.h / 2);
+    actor.x = c.x; actor.y = c.y; actor.owned = true; actor.inPortal = null;
+    checkPortal(actor);
+    return state.lastPortalEnter || null;
   };
 
   canvas.addEventListener('click', (ev) => {
@@ -1509,9 +1628,12 @@
     window.__PLAYER__ = {
       get meSlug() { return state.meSlug; },
       get lastMoveTo() { return state.lastMoveTo; },
+      get lastPortalEnter() { return state.lastPortalEnter; },
+      get lastRedirect() { return state.lastRedirect; },
       get me() { return state.me; },
       moveOwnerTo,
       applySnapshot: state.applySnapshot,
+      enterPortalForTest: (i) => state.enterPortalForTest(i),
     };
   }
 
