@@ -116,6 +116,12 @@ export function initDb() {
 
   // Migration: Zeny (RO currency) earned from coding events
   try { db.exec(`ALTER TABLE companions ADD COLUMN zeny INTEGER DEFAULT 0`); } catch {}
+  // Backfill any explicit NULLs so the self-referential `zeny = zeny + ?` award
+  // (lib/award.ts) never resolves to NULL and wipe the balance. DEFAULT 0 only
+  // covers rows created after this column existed; an imported/legacy row can
+  // still carry NULL. Belt-and-suspenders with the COALESCE in the award.
+  try { db.exec(`UPDATE companions SET zeny = 0 WHERE zeny IS NULL`); } catch {}
+  try { db.exec(`UPDATE companions SET xp = 0 WHERE xp IS NULL`); } catch {}
 
   // Reasoning-layer migration (claims/edges tables + guard_mode column).
   initReasoningSchema(db);

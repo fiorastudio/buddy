@@ -14,17 +14,17 @@ import {
   renderSprite,
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
-import { autoSyncWorld, isWorldBlessed } from "../lib/world/client.js";
-import { classifySummary, resolveEventType, shouldDampenSelfReport } from "../lib/xp-classify.js";
-import { zenyForEvent, formatZeny } from "../lib/zeny.js";
+import { autoSyncWorld } from "../lib/world/client.js";
+import { classifySummary, resolveEventType } from "../lib/xp-classify.js";
+import { formatZeny } from "../lib/zeny.js";
 import { jobClass } from "../lib/jobclass.js";
 import { consumePendingEvents } from "../lib/pending-events.js";
-import { checkStreakMilestone } from "../lib/streaks.js";
+import { awardWithGates } from "../lib/award.js";
 import { statBar } from "../lib/rng.js";
 import { getVoice, getNever } from "../lib/personality.js";
 import { buildObserverPrompt } from "../lib/observer.js";
 import { renderSpeechBubble, renderMarkdownBubble } from "../lib/bubble.js";
-import { XP_REWARDS, levelFromXp, levelBar, applyBlessing } from "../lib/leveling.js";
+import { levelBar } from "../lib/leveling.js";
 import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -67,95 +67,21 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
 }
 
 /**
- * Award XP for one or more events. The whole award runs in one IMMEDIATE
- * transaction with a self-referential UPDATE (xp = xp + ?, zeny = zeny + ?)
- * rather than a read-modify-write.
- *
- * Two Claude Code sessions run two server processes against the same
- * ~/.buddy/buddy.db. A read-modify-write let both read the same old total and
- * write their own sum, so one award vanished and companions.xp drifted
- * permanently below sum(xp_events.xp_gained) — sometimes skipping a level-up
- * boundary too, since leveledUp compared against the stale level. BEGIN
- * IMMEDIATE takes the write lock up front, so the second session waits
- * (busy_timeout) and re-reads instead of losing its award; the level is then
- * recomputed from the value SQLite actually stored, never a stale read.
- *
- * Each event still gets its own append-only xp_events row, so a hook batch of
- * commit + tests + deploy stays cheap.
- */
-const awardXpBatchTxn = db.transaction((companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number; newZeny: number } => {
-  // Buddy World blessing: teleported buddies earn +10% (local file check, cached).
-  const blessed = isWorldBlessed();
-  const insert = db.prepare("INSERT INTO xp_events (id, companion_id, event_type, xp_gained) VALUES (?, ?, ?, ?)");
-  let xpGained = 0;
-  let zenyGained = 0;
-  for (const eventType of eventTypes) {
-    const xp = applyBlessing(XP_REWARDS[eventType] || 1, blessed);
-    insert.run(randomUUID(), companionId, eventType, xp);
-    xpGained += xp;
-    zenyGained += applyBlessing(zenyForEvent(eventType), blessed);
-  }
-
-  // Pre-award level, read inside the txn, is what leveledUp compares against.
-  const before = db.prepare("SELECT level FROM companions WHERE id = ?").get(companionId) as any;
-
-  // Self-referential: SQLite does the addition under the write lock, so two
-  // interleaved sessions can't clobber each other. companions.xp therefore
-  // stays equal to sum(xp_events.xp_gained), and zeny to its own running sum.
-  db.prepare("UPDATE companions SET xp = xp + ?, zeny = zeny + ? WHERE id = ?").run(xpGained, zenyGained, companionId);
-
-  const after = db.prepare("SELECT xp, zeny FROM companions WHERE id = ?").get(companionId) as any;
-  const newXp = after?.xp ?? xpGained;
-  const newZeny = after?.zeny ?? zenyGained;
-  const newLevel = levelFromXp(newXp);
-  const leveledUp = newLevel > (before?.level || 1);
-  db.prepare("UPDATE companions SET level = ? WHERE id = ?").run(newLevel, companionId);
-
-  return { newXp, newLevel, leveledUp, xpGained, newZeny };
-});
-
-/**
- * Run the award as BEGIN IMMEDIATE so concurrent server processes serialize on
- * the write lock rather than deadlocking on a lock upgrade — the failure mode a
- * DEFERRED read-then-write would hit under busy_timeout.
- */
-function awardXpBatch(companionId: string, eventTypes: string[]): { newXp: number; newLevel: number; leveledUp: boolean; xpGained: number; newZeny: number } {
-  return awardXpBatchTxn.immediate(companionId, eventTypes);
-}
-
-/**
  * Award XP, recalculate mood, update DB, and load companion — shared by observe + pet.
  * Also ingests ground-truth events queued by the PostToolUse hook, dedupes
- * them against the self-reported event, and emits streak milestones.
+ * them against the self-reported event, and emits streak milestones. The award
+ * itself (damper + base + streak, all read-then-decide gates) is a single
+ * IMMEDIATE transaction in lib/award.ts, so concurrent server processes can't
+ * lose XP or double/skip a streak — see #161.
  */
 function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
   // Ground-truth channel: commits/deploys/test-passes the hook actually saw.
+  // File I/O happens here, before the write lock; the award runs atomically.
   const pending = consumePendingEvents();
   const pendingTypes = new Set(pending.map((e) => e.type));
-  let selfType = resolveEventType(eventType as never, pendingTypes);
-  // Honor-system damper: summary-classified elevated events cap per day;
-  // hook-verified events below are exempt.
-  if (selfType !== 'observe' && selfType !== 'session') {
-    const elevated = (db.prepare(
-      "SELECT COUNT(*) AS n FROM xp_events WHERE companion_id = ? AND date(created_at) = date('now') AND event_type IN ('commit','tests_passed','bug_fix','deploy')"
-    ).get(row.id) as any)?.n ?? 0;
-    if (shouldDampenSelfReport(elevated)) selfType = 'observe';
-  }
-  const worldEvents: string[] = [selfType];
-  for (const ev of pending) {
-    if (XP_REWARDS[ev.type] !== undefined) worldEvents.push(ev.type);
-  }
+  const requestedSelfType = resolveEventType(eventType as never, pendingTypes);
 
-  let xpResult = awardXpBatch(row.id, worldEvents);
-
-  // Streak milestone: first award of a new day landing on a 7-day multiple.
-  // Award it through the batch too so its XP AND Zeny (500z) actually land —
-  // it must go through awardXpBatch, not just get appended to worldEvents.
-  if (checkStreakMilestone(db, row.id, worldEvents.length)) {
-    worldEvents.push('streak_7');
-    const streakResult = awardXpBatch(row.id, ['streak_7']);
-    xpResult = { ...streakResult, xpGained: xpResult.xpGained + streakResult.xpGained, leveledUp: xpResult.leveledUp || streakResult.leveledUp };
-  }
+  const { xpResult, worldEvents } = awardWithGates(db, row.id, requestedSelfType, pending);
 
   // A muted buddy keeps earning XP quietly, but its mood is left alone —
   // overwriting it here was the second path that silently un-muted.
