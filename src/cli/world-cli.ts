@@ -199,7 +199,7 @@ async function main() {
   initDb();
   const out = await worldCommand(process.argv.slice(2), {
     loadCompanion: () => {
-      const row = db.prepare('SELECT * FROM companions LIMIT 1').get();
+      const row = db.prepare('SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get();
       return row ? loadCompanion(row) : null;
     },
     confirm: askYesNo,
