@@ -12,7 +12,9 @@ const SID = 'abc0123456789def-20260604';
 
 function memDb(guard = 1, mood = 'happy'): Database.Database {
   const db = new Database(':memory:');
-  db.exec(`CREATE TABLE companions (id TEXT PRIMARY KEY, name TEXT, guard_mode INTEGER, mood TEXT);`);
+  // Mirrors the real companions table closely enough for companion lookups,
+  // which order by created_at so the resolved row is deterministic.
+  db.exec(`CREATE TABLE companions (id TEXT PRIMARY KEY, name TEXT, guard_mode INTEGER, mood TEXT, muted INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`);
   initReasoningSchema(db);
   db.prepare(`INSERT INTO companions (id, name, guard_mode, mood) VALUES (?, 't', ?, ?)`).run(CID, guard, mood);
   return db;
