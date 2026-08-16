@@ -6,7 +6,7 @@
 
 Persistent memory, XP evolutions, 21 species, and context-aware feedback for Claude Code CLI, Codex CLI, Gemini CLI, Copilot CLI, Cursor CLI, Openclaw, and other MCP-capable clients. 
 
-**🚀 16130+ clones · 6355+ buddies rescued or hatched · 18 weeks in the wild**
+**🚀 16162+ clones · 6374+ buddies rescued or hatched · 18 weeks in the wild**
 
 [![License](https://img.shields.io/badge/license-MIT-ffd166?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/fiorastudio/buddy?style=flat-square)](https://github.com/fiorastudio/buddy/stargazers)
