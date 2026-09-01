@@ -262,6 +262,49 @@ The installer:
 
 </details>
 
+## 📊 Statusline Usage Panel
+
+Claude Code hands the statusline a payload describing the session. Buddy renders the useful parts of it as a third column, to the right of the buddy:
+
+```
+     (\   /)     Pebble (Rabbit) Lv.21   acct Rebellions-Lime | daekyeong.kim
+     (\_._/)     curious XP:9687 ★       via  Opus 5 | max5x
+     ( ·.· )     · ready to critique     ctx  ██░░░░░░░░   23%  229k/1.0M
+      > ^ <                              5h   █░|░░░░░░░    5%  3h50m
+     (") (")                             week ███|█░░░░░   46%  4d13h
+```
+
+- `acct` — the signed-in organization and account, so sessions on different logins are told apart at a glance
+- `via` — the answering model, tagged `(gateway)` when it is not an Anthropic model
+- `ctx` — context window in use
+- `5h` / `week` — rate-limit windows, with the time left until each resets
+- `|` — how much of that window has already run, so the two can be compared directly: fill left of the tick means the budget is outlasting the clock, fill past it means it is burning faster than the window resets
+
+<details>
+<summary><strong>Where the numbers come from, and how to turn them off</strong></summary>
+<br>
+
+Rate limits are taken from the first source that has them:
+
+1. the `rate_limits` block on the statusline payload, when Claude Code sends one
+2. Buddy's own snapshot, when the optional refresh below is enabled
+3. the utilization Claude Code last cached in `~/.claude.json`
+
+Sources 2 and 3 are caches, so their age is shown in parentheses once it passes ten minutes — `4d13h | (5h)`.
+
+Claude Code only refreshes its own cache when it fetches utilization itself, which never happens in sessions answered through a gateway; those numbers can sit hours behind. So Buddy keeps the snapshot current itself: it reads the Claude Code OAuth credential (macOS keychain, or `~/.claude/.credentials.json` elsewhere) and calls the same usage endpoint Claude Code does, at most once a minute, in a detached background process. Nothing is sent anywhere else, and nothing is stored beyond the utilization snapshot in `~/.claude/buddy-usage-cache.json`.
+
+Set `BUDDY_STATUSLINE_USAGE_FETCH=0` to switch that off — the panel then falls back to Claude Code's cache and shows its age, and the statusline never reads a credential or touches the network.
+
+The refresh never blocks a render: the statusline draws from the cache it already has, and a refresh started now appears on a later frame. Failures are silent by design — an expired token, an offline laptop, or a rejected request just leaves the previous snapshot on screen.
+
+| Variable | Effect |
+| --- | --- |
+| `BUDDY_STATUSLINE_USAGE=0` | Hide the panel entirely |
+| `BUDDY_STATUSLINE_USAGE_FETCH=0` | Never fetch; show only what Claude Code already cached |
+
+</details>
+
 ## 🐣 Companion System
 
 ### Meet the 21 species
