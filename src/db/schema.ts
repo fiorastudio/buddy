@@ -29,6 +29,7 @@ export function initDb() {
       level INTEGER DEFAULT 1,
       xp INTEGER DEFAULT 0,
       mood TEXT DEFAULT 'happy',
+      muted INTEGER DEFAULT 0,
       personality_bio TEXT DEFAULT '',
       user_id TEXT,
       stat_debugging INTEGER,
@@ -93,6 +94,17 @@ export function initDb() {
   try {
     db.exec(`ALTER TABLE companions ADD COLUMN cc_rescue INTEGER DEFAULT 0`);
   } catch { /* column already exists */ }
+
+  // Migration: mute is its own flag rather than a value parked in `mood`.
+  // calculateMood never returns 'muted', so every mood recompute overwrote it.
+  try {
+    db.exec(`ALTER TABLE companions ADD COLUMN muted INTEGER DEFAULT 0`);
+  } catch { /* column already exists */ }
+
+  // Backfill: anyone currently muted under the old scheme stays muted.
+  try {
+    db.exec(`UPDATE companions SET muted = 1 WHERE mood = 'muted'`);
+  } catch { /* column not present yet on a failed migration */ }
 
   // Migration: add stat columns for growth
   try { db.exec(`ALTER TABLE companions ADD COLUMN stat_debugging INTEGER`); } catch {}
