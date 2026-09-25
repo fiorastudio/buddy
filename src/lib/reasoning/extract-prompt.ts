@@ -26,7 +26,8 @@ Each claim ≤240 chars, single sentence.
 
 basis — apply the FIRST matching rule (ordered priority; do not skip ahead):
   1. cites a specific paper, author, study, or named finding? → research
-  2. first-person observation ("I saw", "we tested", "I noticed")? → empirical
+  2. first-person observation backed by evidence seen THIS turn (a command run,
+     output read, a file opened: "I ran X and saw Y")? → empirical
   3. explicitly defines a term ("X is defined as Y", "by 'Z' we mean")? → definition
   4. declares a project/team policy or adopted practice ("this project uses X",
      "agents must Y", "we track work in Z")? → convention
@@ -39,6 +40,10 @@ basis — apply the FIRST matching rule (ordered priority; do not skip ahead):
 Precision (the noisy boundaries):
 - research REQUIRES a citation IN THE TEXT. "Einstein was brilliant" → vibes/llm_output;
   "Einstein (1905) showed E=mc²" → research.
+- empirical REQUIRES that the speaker actually saw the evidence this turn. What
+  you expect, remember, or reasoned your way to is not empirical: "the fix works"
+  without running anything → llm_output; "the tests pass (ran them: 12/12)" →
+  empirical. When unsure, do not pick empirical.
 - vibes = unsourced assertion by the user. Not pejorative — a structural label. Do not
   relabel as assumption to be polite.
 - assumption = ONLY claims framed as premises ("assume", "given that", "suppose").
