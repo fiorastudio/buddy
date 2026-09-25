@@ -3,6 +3,7 @@
 // Selection layer. Given candidate findings from all detectors and the
 // recent findings log, pick at most one to surface. Enforces:
 //   - per-anchor cooldown (different cooldowns for caution vs kudos)
+//   - no repeats: a (type, anchor) pair already surfaced stays retired
 //   - kudos bias when recent window is caution-heavy
 //   - caution-weighted tie-break when both fire
 
@@ -42,6 +43,21 @@ function isOnCooldown(finding: Finding, recent: RecentFinding[], currentSeq: num
   return false;
 }
 
+// A (type, anchor) pair that has already been surfaced is never surfaced
+// again: repeating the same observation about the same claim is noise, not
+// signal. A different finding type on that anchor is still eligible once
+// the per-anchor cooldown has passed. Anchors are claim ids, which are
+// unique per session, so this is effectively once per session.
+function loadSurfacedKeys(db: Database.Database, companionId: string, candidates: Finding[]): Set<string> {
+  const anchors = [...new Set(candidates.map(c => c.anchor_claim_id))];
+  const rows = db.prepare(
+    `SELECT finding_type, anchor_claim_id
+     FROM reasoning_findings_log
+     WHERE companion_id = ? AND anchor_claim_id IN (${anchors.map(() => '?').join(',')})`
+  ).all(companionId, ...anchors) as Pick<RecentFinding, 'finding_type' | 'anchor_claim_id'>[];
+  return new Set(rows.map(r => `${r.finding_type}:${r.anchor_claim_id}`));
+}
+
 export function selectFindingDetailed(
   db: Database.Database,
   companionId: string,
@@ -61,7 +77,9 @@ export function selectFindingDetailed(
     ),
   );
 
-  const eligible = candidates.filter(c => !isOnCooldown(c, recent, currentSeq));
+  const surfaced = loadSurfacedKeys(db, companionId, candidates);
+  const eligible = candidates.filter(c =>
+    !isOnCooldown(c, recent, currentSeq) && !surfaced.has(`${c.type}:${c.anchor_claim_id}`));
   if (eligible.length === 0) return { finding: null, suppression: 'cooldown' };
 
   const cautionCands = eligible.filter(c => isCaution(c.type));
