@@ -24,10 +24,12 @@ import {
   chainHasMidChainChallenge,
 } from './graph.js';
 
-// Caution: claims with basis ∈ {vibes, assumption} holding up N+ downstream.
+// Caution: claims with basis ∈ {vibes, assumption, llm_output} holding up
+// N+ downstream. llm_output is the assistant's own unsourced claim — the
+// same risk as a user hunch when other work leans on it.
 export function detectLoadBearingVibes(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];
-  for (const node of nodesByBasis(graph, ['vibes', 'assumption'])) {
+  for (const node of nodesByBasis(graph, ['vibes', 'assumption', 'llm_output'])) {
     const n = downstreamCount(graph, node.id);
     if (n >= REASONING_CONFIG.LOAD_BEARING_MIN_DOWNSTREAM) {
       out.push({
