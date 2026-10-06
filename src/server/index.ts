@@ -195,7 +195,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 type: "object",
                 properties: {
                   text: { type: "string", description: "≤240 chars, single sentence." },
-                  basis: { type: "string", enum: ["research","empirical","deduction","analogy","definition","convention","llm_output","assumption","vibes"], description: "Epistemic source: research=cited, empirical=measured, deduction=derived, analogy=X-is-like-Y, definition=naming a term's meaning, convention=stipulated practice/policy by a named actor (correct-by-fiat), llm_output=model-ungrounded, assumption=stated-without-justification, vibes=unsourced-hunch." },
+                  basis: { type: "string", enum: ["research","empirical","deduction","analogy","definition","convention","llm_output","assumption","vibes"], description: "Epistemic source: research=cited, empirical=observed this turn (command run, output read), deduction=derived, analogy=X-is-like-Y, definition=naming a term's meaning, convention=stipulated practice/policy by a named actor (correct-by-fiat), llm_output=model-ungrounded, assumption=stated-without-justification, vibes=unsourced-hunch." },
                   speaker: { type: "string", enum: ["user","assistant"] },
                   confidence: { type: "string", enum: ["low","medium","high"] },
                   external_id: { type: "string", description: "Unique within this payload, e.g. 'c1'." },

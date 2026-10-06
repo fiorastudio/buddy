@@ -27,7 +27,7 @@ export const REASONING_CONFIG = {
 
   // When both kudos and caution fire and neither is cooldown-blocked, weight
   // toward caution (higher information density) but leave room for kudos.
-  KUDOS_TIE_BREAK_WEIGHT: 0.4,
+  KUDOS_TIE_BREAK_WEIGHT: 0.2,
 
   // Detector-specific thresholds.
   LOAD_BEARING_MIN_DOWNSTREAM: 2,

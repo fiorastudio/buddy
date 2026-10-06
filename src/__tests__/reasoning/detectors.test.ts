@@ -88,6 +88,20 @@ describe('detectLoadBearingVibes', () => {
     expect(detectLoadBearingVibes(g)).toHaveLength(0);
   });
 
+  it('fires on an unsourced assistant claim (llm_output) holding up ≥2', () => {
+    const g = withFiller([
+      { id: 'l1', basis: 'llm_output', text: 'the cache is never invalidated' },
+      { id: 'd1', basis: 'deduction' },
+      { id: 'd2', basis: 'deduction' },
+    ], [
+      { from: 'd1', to: 'l1', type: 'depends_on' },
+      { from: 'd2', to: 'l1', type: 'depends_on' },
+    ]);
+    const findings = detectLoadBearingVibes(g);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].anchor_claim_id).toBe('l1');
+  });
+
   it('ignores sourced claims even if load-bearing', () => {
     const g = withFiller([
       { id: 'r1', basis: 'research' },
