@@ -65,8 +65,22 @@ describe('selectFinding — kudos bias', () => {
     const justBefore = 5 + REASONING_CONFIG.CAUTION_COOLDOWN_OBSERVES - 1;
     expect(selectFinding(db, COMP, justBefore, [f])).toBeNull();
     const atBoundary = 5 + REASONING_CONFIG.CAUTION_COOLDOWN_OBSERVES;
-    const chosen = selectFinding(db, COMP, atBoundary, [f]);
+    const other: Finding = { ...f, type: 'unchallenged_chain' };
+    expect(selectFinding(db, COMP, justBefore, [other])).toBeNull();
+    const chosen = selectFinding(db, COMP, atBoundary, [other]);
     expect(chosen).not.toBeNull();
+  });
+
+  it('never re-surfaces the same (type, anchor) pair, even after cooldown', () => {
+    const db = memDb();
+    const caution = cautionFinding('said-once');
+    const kudos = kudosFinding('praised-once');
+    logFinding(db, COMP, 'fixture', caution, 1);
+    logFinding(db, COMP, 'fixture', kudos, 2);
+    expect(selectFinding(db, COMP, 500, [caution])).toBeNull();
+    expect(selectFinding(db, COMP, 500, [kudos])).toBeNull();
+    const fresh = kudosFinding('never-said');
+    expect(selectFinding(db, COMP, 500, [kudos, fresh])?.anchor_claim_id).toBe('never-said');
   });
 
   it('kudos cooldown is shorter than caution', () => {
@@ -76,6 +90,8 @@ describe('selectFinding — kudos bias', () => {
     const inBetween = 10 + REASONING_CONFIG.KUDOS_COOLDOWN_OBSERVES - 1;
     expect(selectFinding(db, COMP, inBetween, [f])).toBeNull();
     const atBoundary = 10 + REASONING_CONFIG.KUDOS_COOLDOWN_OBSERVES;
-    expect(selectFinding(db, COMP, atBoundary, [f])).not.toBeNull();
+    const other: Finding = { ...f, type: 'productive_stress_test' };
+    expect(selectFinding(db, COMP, inBetween, [other])).toBeNull();
+    expect(selectFinding(db, COMP, atBoundary, [other])).not.toBeNull();
   });
 });
