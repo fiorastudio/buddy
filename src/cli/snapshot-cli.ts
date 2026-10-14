@@ -14,7 +14,7 @@ async function main() {
     console.error("Failed to initialize database:", error);
     process.exit(1);
   }
-  const row = db.prepare("SELECT * FROM companions LIMIT 1").get() as any;
+  const row = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
   if (!row) {
     console.error("No buddy found. Hatch one first!");
     process.exit(1);
