@@ -3,7 +3,7 @@
 import { type Companion, type StatName, STAT_NAMES, getPeakStat, getDumpStat } from './types.js';
 import { claimSnippet } from './reasoning/index.js';
 import type { Finding } from './reasoning/index.js';
-import { phraseFinding } from './reasoning/phrasings.js';
+import { phraseFindingForCompanion } from './reasoning/phrasings.js';
 import { scrubReactionText } from './reasoning/scrub.js';
 
 // --- Reaction States ---
@@ -174,10 +174,10 @@ What happened: ${summary}`;
   // second line of defense beyond the phrasings-tone review-time test.
   let templateFallback = templateReaction(companion, mode, summary, reaction.state);
   if (guardInjection?.finding) {
-    const findingPhrase = phraseFinding(
+    const findingPhrase = phraseFindingForCompanion(
       guardInjection.finding.type,
-      reaction.state,
       guardInjection.finding.claim_text,
+      companion,
       summary.length,
     );
     templateFallback = `${templateFallback} ${findingPhrase}`;
