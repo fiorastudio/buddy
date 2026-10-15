@@ -92,12 +92,20 @@ describe('plaza smoke test (headless browser)', () => {
     // Disable background throttling — headless treats the page as
     // backgrounded and throttles requestAnimationFrame, so the canvas
     // never paints under load. These flags keep rAF running.
+    //
+    // On Linux CI runners (GitHub's ubuntu-24.04 image restricts unprivileged
+    // user namespaces via AppArmor) Chrome aborts with "No usable sandbox!".
+    // Puppeteer's documented workaround for CI is --no-sandbox. The page only
+    // ever loads our own static files from a loopback server, so dropping the
+    // sandbox there costs nothing; local runs keep the sandbox on.
+    const ciLinux = process.platform === 'linux' && !!process.env.CI;
     browser = await puppeteer.launch({
       headless: true,
       args: [
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
         '--disable-backgrounding-occluded-windows',
+        ...(ciLinux ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
       ],
     });
   }, 60_000);
