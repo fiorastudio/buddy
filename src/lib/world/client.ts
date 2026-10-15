@@ -24,6 +24,24 @@ export interface WorldConfig {
 export const DEFAULT_WORLD_CONFIG_PATH = join(homedir(), '.buddy', 'world.json');
 export const DEFAULT_API_URL = 'https://buddyworldonline.com';
 
+// BUDDY_WORLD_API_URL points a first teleport at another world server (a local
+// `wrangler dev`, a staging deploy). It only matters when world.json is first
+// written; after that the saved apiUrl wins.
+export function resolveApiUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.BUDDY_WORLD_API_URL?.trim();
+  if (!raw) return DEFAULT_API_URL;
+  let protocol: string;
+  try {
+    protocol = new URL(raw).protocol;
+  } catch {
+    protocol = '';
+  }
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(`BUDDY_WORLD_API_URL must be an http(s) URL, got "${raw}"`);
+  }
+  return raw.replace(/\/+$/, '');
+}
+
 export function generateToken(): string {
   return randomBytes(16).toString('hex'); // 32 hex chars
 }

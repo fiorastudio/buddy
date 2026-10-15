@@ -10,6 +10,8 @@ import {
   saveWorldConfig,
   deleteWorldConfig,
   isWorldBlessed,
+  resolveApiUrl,
+  DEFAULT_API_URL,
   WorldSync,
 } from '../../lib/world/client.js';
 import { validateSnapshot } from '../../lib/world/validate.js';
@@ -44,6 +46,23 @@ describe('buildWorldSnapshot', () => {
     expect(validateSnapshot(snap)).toEqual({ ok: true });
     expect(snap.stats.debugging).toBe(60);
     expect(snap.avatar).toBe('chibi-2');
+  });
+});
+
+describe('resolveApiUrl', () => {
+  it('defaults to the public world when BUDDY_WORLD_API_URL is unset or blank', () => {
+    expect(resolveApiUrl({})).toBe(DEFAULT_API_URL);
+    expect(resolveApiUrl({ BUDDY_WORLD_API_URL: '  ' })).toBe(DEFAULT_API_URL);
+  });
+
+  it('uses BUDDY_WORLD_API_URL without a trailing slash', () => {
+    expect(resolveApiUrl({ BUDDY_WORLD_API_URL: 'http://127.0.0.1:8787/' })).toBe('http://127.0.0.1:8787');
+    expect(resolveApiUrl({ BUDDY_WORLD_API_URL: 'https://staging.example.com' })).toBe('https://staging.example.com');
+  });
+
+  it('rejects values that are not http(s) URLs', () => {
+    expect(() => resolveApiUrl({ BUDDY_WORLD_API_URL: 'localhost:8787' })).toThrow(/BUDDY_WORLD_API_URL/);
+    expect(() => resolveApiUrl({ BUDDY_WORLD_API_URL: 'file:///etc/passwd' })).toThrow(/BUDDY_WORLD_API_URL/);
   });
 });
 

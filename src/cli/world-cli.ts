@@ -13,6 +13,7 @@ import {
   deleteWorldConfig,
   DEFAULT_WORLD_CONFIG_PATH,
   DEFAULT_API_URL,
+  resolveApiUrl,
   type WorldConfig,
 } from '../lib/world/client.js';
 import type { Companion } from '../lib/types.js';
@@ -38,6 +39,9 @@ const USAGE = [
   '  link                            get a personal link to drive your own buddy in the plaza',
   '  anon <on|off>                   toggle anonymous mode ("a wild Void Cat")',
   '  recall [--purge]                leave the world (--purge deletes all server data)',
+  '',
+  'Set BUDDY_WORLD_API_URL before the first teleport to use another world server',
+  '(for example a local `wrangler dev` at http://127.0.0.1:8787).',
 ];
 
 const AVAILABLE_TOWNS = `Available: ${TOWN_NAMES.join(', ')}.`;
@@ -202,6 +206,7 @@ async function main() {
       const row = db.prepare('SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get();
       return row ? loadCompanion(row) : null;
     },
+    apiUrl: resolveApiUrl(),
     confirm: askYesNo,
   });
   console.log(out.join('\n'));
