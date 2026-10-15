@@ -1,9 +1,11 @@
+#!/usr/bin/env node
 // src/cli/world-cli.ts
 // buddy-world: teleport your buddy into the shared plaza (Buddy World).
 // All orchestration lives in worldCommand() so tests can inject the
 // companion source, fetch, and config path; main() is the thin argv shell.
 
 import { createInterface } from 'node:readline';
+import { isMainModule } from '../lib/is-main.js';
 import {
   WorldSync,
   buildWorldSnapshot,
@@ -207,8 +209,9 @@ async function main() {
   console.log(out.join('\n'));
 }
 
-// Only run main() when executed directly (not when imported by tests).
-if (process.argv[1] && /world-cli\.(ts|js)$/.test(process.argv[1])) {
+// Only run main() when executed directly (not when imported by tests). Compares
+// real paths, so it also runs through the npm bin link or an installer symlink.
+if (isMainModule(import.meta.url)) {
   main().catch((err) => {
     console.error('buddy-world failed:', err instanceof Error ? err.message : err);
     process.exit(1);
