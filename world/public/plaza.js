@@ -16,7 +16,10 @@
 
   const params = new URLSearchParams(location.search);
   const district = params.get('district') || 'plaza-1';
-  const API_BASE = params.get('api') || '';
+  // The API is always same-origin: the Worker serves this page and /v1 together.
+  // There is deliberately no ?api= override, because the control code and token
+  // would follow it to whatever origin the link named.
+  const API_BASE = '';
 
   const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 

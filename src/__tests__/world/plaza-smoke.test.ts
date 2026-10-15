@@ -49,6 +49,17 @@ function fixtureDistrict() {
   };
 }
 
+// The production headers from world/public/_headers (one `/*` block), applied
+// to every static response so the smoke tests run under the real CSP.
+function staticHeaders(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of readFileSync(join(publicDir, '_headers'), 'utf8').split(/\r?\n/)) {
+    const m = /^\s+([\w-]+):\s*(.+)$/.exec(line);
+    if (m) out[m[1]] = m[2].trim();
+  }
+  return out;
+}
+
 const MIME: Record<string, string> = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -62,6 +73,7 @@ describe('plaza smoke test (headless browser)', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
+    const securityHeaders = staticHeaders();
     server = createServer((req, res) => {
       const url = (req.url ?? '/').split('?')[0];
       if (url.startsWith('/v1/world/')) {
@@ -79,7 +91,10 @@ describe('plaza smoke test (headless browser)', () => {
       }
       const file = join(publicDir, url === '/' ? 'index.html' : url.slice(1));
       if (existsSync(file)) {
-        res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+        res.writeHead(200, {
+          ...securityHeaders,
+          'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+        });
         res.end(readFileSync(file));
       } else {
         res.writeHead(404);
@@ -579,5 +594,39 @@ describe('plaza smoke test (headless browser)', () => {
     for (const [slug, ratio] of Object.entries(ratios)) {
       expect(ratio, `contrast for ${slug}`).toBeGreaterThanOrEqual(4.5);
     }
+  }, 60_000);
+
+  it('runs under a CSP that only allows its own origin', async () => {
+    const csp = staticHeaders()['Content-Security-Policy'];
+    expect(csp).toMatch(/connect-src 'self'/);
+    expect(csp).toMatch(/frame-ancestors 'none'/);
+    expect(csp).toMatch(/script-src 'self'(;|$)/);
+
+    // The page must still boot and render with the policy enforced.
+    const page = await browser.newPage();
+    const violations: string[] = [];
+    page.on('console', (m) => {
+      if (/Content Security Policy/i.test(m.text())) violations.push(m.text());
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0', {
+      timeout: 15_000,
+    });
+    expect(violations).toEqual([]);
+  }, 60_000);
+
+  it('ignores an ?api= override, so the control code never leaves the origin', async () => {
+    const page = await browser.newPage();
+    const requested: string[] = [];
+    page.on('request', (r) => requested.push(r.url()));
+    await page.goto(
+      `${baseUrl}/?district=plaza-1&api=${encodeURIComponent('http://attacker.invalid')}#code=deadbeefdeadbeef`,
+      { waitUntil: 'networkidle0' }
+    );
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0', {
+      timeout: 15_000,
+    });
+    expect(requested.filter((u) => new URL(u).origin !== baseUrl)).toEqual([]);
+    expect(requested.some((u) => u.startsWith(`${baseUrl}/v1/browser-session`))).toBe(true);
   }, 60_000);
 });
