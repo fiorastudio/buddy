@@ -95,7 +95,8 @@ describe('resolveSessionTrace', () => {
     expect(trace.source).toBe('codex');
     expect(trace.cwd).toBe(CODEX_CWD);
     expect(trace.codexSessionId).toBe('codex-abc123');
-    expect(trace.codexSessionFile).toContain('.codex/sessions');
+    // Native separators: the resolver returns OS paths (backslashes on Windows).
+    expect(trace.codexSessionFile).toContain(join('.codex', 'sessions'));
   });
 
   it('does not match a transcript belonging to a different cwd', () => {

@@ -8,7 +8,13 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 describe('D1 migration drift guard', () => {
   it('migrations/0001_init.sql matches WORLD_SCHEMA_SQL exactly', () => {
-    const migration = readFileSync(join(repoRoot, 'world', 'migrations', '0001_init.sql'), 'utf8');
+    // Normalise CRLF: a Windows checkout with core.autocrlf rewrites line
+    // endings, and both the banner-stripping regex and the comparison
+    // below assume '\n'.
+    const migration = readFileSync(join(repoRoot, 'world', 'migrations', '0001_init.sql'), 'utf8').replace(
+      /\r\n/g,
+      '\n'
+    );
     // Ignore the generated-file banner comment, compare the SQL itself.
     const body = migration.replace(/^--.*\n/gm, '').trim();
     expect(body).toBe(WORLD_SCHEMA_SQL.trim());
