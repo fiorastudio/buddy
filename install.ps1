@@ -159,6 +159,16 @@ if ($userPath -notlike "*$BIN_DIR*") {
   Write-Host "  Added $BIN_DIR to user PATH"
 }
 
+# A bare `buddy` would otherwise resolve to buddy.js through PATHEXT and run
+# under Windows Script Host, not node. A .cmd beside each entry point wins
+# (.CMD precedes .JS in PATHEXT) and runs it with the pinned node.
+$CLI_SHIMS = [ordered]@{ "buddy" = "buddy.js"; "buddy-doctor" = "doctor-cli.js"; "buddy-world" = "world-cli.js" }
+foreach ($shim in $CLI_SHIMS.GetEnumerator()) {
+  if (Test-Path "$BIN_DIR\$($shim.Value)") {
+    Set-Content -Path "$BIN_DIR\$($shim.Key).cmd" -Encoding ASCII -Value "@`"$NODE_BIN`" `"%~dp0$($shim.Value)`" %*"
+  }
+}
+
 $SERVER_PATH = "$INSTALL_DIR\dist\server\index.js"
 $SERVER_PATH_UNIX = $SERVER_PATH -replace '\\', '/'
 $STATUSLINE_PATH = "$INSTALL_DIR\dist\statusline-wrapper.js"
