@@ -357,8 +357,11 @@ export async function handleMe(
 // capacity gate (409 when the destination is full) with the same "never bounce
 // someone already there" exception, and is IDEMPOTENT: a buddy already in the
 // destination gets success, not a capacity failure. Updates D1 `district` only.
+// `citizenId` is the live socket's owner (the room passes it): the token must
+// resolve to that same citizen, so a socket can't warp a buddy it doesn't own
+// with someone else's token (B15).
 export async function handlePortalWarp(
-  payload: { controlToken?: unknown; to?: unknown },
+  payload: { controlToken?: unknown; to?: unknown; citizenId?: string },
   store: WorldStore,
   opts: HandlerOpts
 ): Promise<HandlerResult> {
@@ -367,6 +370,9 @@ export async function handlePortalWarp(
   }
   const found = await store.findCitizenByBrowserToken(hashToken(payload.controlToken), opts.now);
   if (!found) return bad(401, 'invalid control token');
+  if (payload.citizenId !== undefined && found.citizen.id !== payload.citizenId) {
+    return bad(403, 'not_your_buddy');
+  }
   // Scope belt-and-braces: a control token minted for anything other than
   // portal_warp cannot drive this path (today all tokens carry both scopes).
   if (!found.scope.split(',').includes('portal_warp')) return bad(403, 'insufficient scope');

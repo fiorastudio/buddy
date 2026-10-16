@@ -427,8 +427,13 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     const join = await b.next(); // B hears the warper join
     expect(join.type).toBe('join');
 
-    // Walk into the Prontera→Payon gate: validate + move server-side, redirect me.
-    c.send({ type: 'portal_enter', seq: 1, portal: 'prontera-payon', to: 'plaza-2', controlToken });
+    // Walk into the Prontera→Payon gate (the room only honors a portal_enter
+    // from a buddy standing in it, B15). Both sockets hear the move.
+    c.send({ type: 'move_to', seq: 1, x: 0.065, y: 0.09 });
+    expect((await c.next()).type).toBe('snapshot');
+    expect((await b.next()).type).toBe('snapshot');
+    // Validate + move server-side, redirect me.
+    c.send({ type: 'portal_enter', seq: 2, portal: 'prontera-payon', to: 'plaza-2', controlToken });
     const redirect = await c.next();
     expect(redirect.type).toBe('room_redirect');
     expect(redirect.district).toBe('plaza-2');

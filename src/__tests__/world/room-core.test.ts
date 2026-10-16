@@ -19,7 +19,7 @@ interface Recorder {
   port: RoomPort<Sock>;
   sent: Array<{ socket: Sock; msg: ServerMsg }>;
   broadcasts: Array<{ msg: ServerMsg; except?: Sock }>;
-  warps: Array<{ controlToken: string; to: string }>;
+  warps: Array<{ controlToken: string; to: string; citizenId?: string }>;
 }
 
 function makePort(
@@ -27,6 +27,8 @@ function makePort(
     verify?: (t: string) => AuthResult | null;
     warp?: (controlToken: string, to: string) => WarpOutcome | null;
     now?: number;
+    // The socket's owner as the adapter knows it (B15). null = unknown.
+    owner?: string | null;
   } = {}
 ): Recorder {
   const sent: Recorder['sent'] = [];
@@ -37,8 +39,9 @@ function makePort(
     send: (socket, msg) => sent.push({ socket, msg }),
     broadcast: (msg, except) => broadcasts.push({ msg, except }),
     verify: async (t) => (opts.verify ? opts.verify(t) : null),
-    warp: async (controlToken, to) => {
-      warps.push({ controlToken, to });
+    owner: () => (opts.owner === null ? undefined : (opts.owner ?? 'cit-me')),
+    warp: async (controlToken, to, citizenId) => {
+      warps.push({ controlToken, to, citizenId });
       return opts.warp
         ? opts.warp(controlToken, to)
         : { ok: true, district: to, url: `/?district=${to}`, spawn: { x: 0.5, y: 0.2 } };
@@ -51,6 +54,13 @@ const DISTRICT = 'plaza-1';
 
 function actor(slug: string, over: Partial<ActorState> = {}): ActorState {
   return { slug, x: 0.5, y: 0.5, seq: 0, ...over };
+}
+
+// Standing in Prontera's gate to Payon (plaza-1 → plaza-2), where a
+// portal_enter to plaza-2 is honored (B15).
+const PAYON_GATE = { x: 0.065, y: 0.09 };
+function atGate(slug: string, over: Partial<ActorState> = {}): ActorState {
+  return actor(slug, { ...PAYON_GATE, ...over });
 }
 
 describe('room-core hello authentication', () => {
@@ -214,13 +224,13 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     const core = new RoomCore<Sock>(DISTRICT, rec.port);
     const res = await core.onMessage(
       'me',
-      actor('shadowpaw-ab12', { seq: 0 }),
+      atGate('shadowpaw-ab12', { seq: 0 }),
       JSON.stringify({ type: 'portal_enter', portal: 'prontera-payon', ...HELLO_SEQ }),
       []
     );
 
     // The warp ran against the token + target the client sent.
-    expect(rec.warps).toEqual([{ controlToken: 'good-control-token', to: 'plaza-2' }]);
+    expect(rec.warps).toEqual([{ controlToken: 'good-control-token', to: 'plaza-2', citizenId: 'cit-me' }]);
     // The actor is detached (cleared from presence) and the old socket closed
     // (normal closure) so a client that ignores the redirect can't keep moving
     // in the town it just left, nor linger in its roster/snapshots.
@@ -242,7 +252,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     const core = new RoomCore<Sock>(DISTRICT, rec.port);
     const first = await core.onMessage(
       'me',
-      actor('x', { seq: 0 }),
+      atGate('x', { seq: 0 }),
       JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
       []
     );
@@ -271,7 +281,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     const core = new RoomCore<Sock>(DISTRICT, rec.port);
     const res = await core.onMessage(
       'me',
-      actor('x', { seq: 0 }),
+      atGate('x', { seq: 0 }),
       JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
       []
     );
@@ -286,7 +296,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     const core = new RoomCore<Sock>(DISTRICT, rec.port);
     const res = await core.onMessage(
       'me',
-      actor('x', { seq: 0 }),
+      atGate('x', { seq: 0 }),
       JSON.stringify({ type: 'portal_enter', seq: 1, to: 'plaza-2' }),
       []
     );
@@ -299,7 +309,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     const core = new RoomCore<Sock>(DISTRICT, rec.port);
     const res = await core.onMessage(
       'me',
-      actor('x', { seq: 5 }),
+      atGate('x', { seq: 5 }),
       JSON.stringify({ type: 'portal_enter', seq: 5, to: 'plaza-2', controlToken: 'good-control-token' }),
       []
     );
@@ -313,6 +323,57 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     const res = await core.onMessage('me', null, JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }), []);
     expect(res.close?.code).toBe(1008);
     expect(rec.warps).toHaveLength(0);
+  });
+});
+
+describe('room-core portal_enter is bound to the socket and its gate (B15)', () => {
+  const ENTER = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: 'portal_enter', seq: 1, to: 'plaza-2', controlToken: 'good-control-token', ...over });
+
+  it('passes the socket owner to the warp, so the token is checked against it', async () => {
+    const rec = makePort({ owner: 'cit-42' });
+    await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('x'), ENTER(), []);
+    expect(rec.warps).toEqual([{ controlToken: 'good-control-token', to: 'plaza-2', citizenId: 'cit-42' }]);
+  });
+
+  it('refuses a socket whose owner is unknown (no warp)', async () => {
+    const rec = makePort({ owner: null });
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('x'), ENTER(), []);
+    expect(rec.warps).toHaveLength(0);
+    expect(res.attach?.seq).toBe(1); // consumed, no redirect, socket kept
+    expect(res.close).toBeUndefined();
+  });
+
+  it('refuses a buddy that is not standing in the gate (no warp)', async () => {
+    const rec = makePort();
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('x', { x: 0.5, y: 0.5 }), ENTER(), []);
+    expect(rec.warps).toHaveLength(0);
+    expect(res.attach?.seq).toBe(1);
+    expect(rec.sent.some((m) => m.msg.type === 'room_redirect')).toBe(false);
+  });
+
+  it('accepts a position a step outside the rect (the move_to stream lags the sprite)', async () => {
+    const rec = makePort();
+    // Payon gate rect: x 0.03..0.10, y 0.05..0.13. Just past its right edge.
+    await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('x', { x: 0.115, y: 0.09 }), ENTER(), []);
+    expect(rec.warps).toHaveLength(1);
+  });
+
+  it("refuses a gate into a town this room has no portal to, even when standing in another gate", async () => {
+    const rec = makePort();
+    // plaza-1 has a gate to every satellite, but none to itself.
+    await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('x'), ENTER({ to: 'plaza-1' }), []);
+    // Standing in the Payon gate does not open the Geffen gate.
+    await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('x', { seq: 1 }), ENTER({ seq: 2, to: 'plaza-3' }), []);
+    // A satellite has only its gate home.
+    await new RoomCore<Sock>('plaza-2', rec.port).onMessage('me', atGate('x', { seq: 2 }), ENTER({ seq: 3, to: 'plaza-3' }), []);
+    expect(rec.warps).toHaveLength(0);
+  });
+
+  it('accepts a town name for `to` when the gate matches', async () => {
+    const rec = makePort();
+    await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('x'), ENTER({ to: 'Payon' }), []);
+    expect(rec.warps).toHaveLength(1);
   });
 });
 
@@ -497,7 +558,7 @@ describe('room-core re-reads state after an await', () => {
   it('a warp whose socket was evicted or replaced meanwhile says nothing more', async () => {
     const rec = makePort();
     rec.port.current = () => ({ gone: true, actor: null });
-    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('x'), ENTER, []);
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('x'), ENTER, []);
     expect(res).toEqual({});
     expect(rec.broadcasts).toHaveLength(0);
     expect(rec.sent).toHaveLength(0);
@@ -506,14 +567,14 @@ describe('room-core re-reads state after an await', () => {
   it('a failed warp writes back the CURRENT actor (relabeled meanwhile), not the pre-await copy', async () => {
     const rec = makePort({ warp: () => ({ ok: false, error: 'town_full' }) });
     rec.port.current = () => ({ gone: false, actor: actor('anon-1a2b3c', { x: 0.7, y: 0.2, seq: 1 }) });
-    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('shadowpaw-ab12'), ENTER, []);
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('shadowpaw-ab12'), ENTER, []);
     expect(res.attach).toEqual({ slug: 'anon-1a2b3c', x: 0.7, y: 0.2, seq: 3 });
   });
 
   it('a successful warp announces the leave under the CURRENT slug', async () => {
     const rec = makePort();
     rec.port.current = () => ({ gone: false, actor: actor('anon-1a2b3c') });
-    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('shadowpaw-ab12'), ENTER, []);
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', atGate('shadowpaw-ab12'), ENTER, []);
     expect(res.detach).toBe(true);
     expect(rec.broadcasts).toEqual([{ msg: { type: 'leave', slug: 'anon-1a2b3c' }, except: 'me' }]);
   });

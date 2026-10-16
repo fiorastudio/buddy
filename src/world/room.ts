@@ -146,10 +146,11 @@ export class WorldRoom {
 
   // Run the portal-warp semantic in D1 (idempotent, capacity-gated, no XP
   // write) and translate the handler result into a room-core WarpOutcome.
-  private async warp(controlToken: string, to: string): Promise<WarpOutcome> {
+  // `citizenId` is the socket's owner; the handler refuses any other buddy's token.
+  private async warp(controlToken: string, to: string, citizenId: string): Promise<WarpOutcome> {
     const store = await this.store();
     const res = await handlePortalWarp(
-      { controlToken, to },
+      { controlToken, to, citizenId },
       store,
       { now: Date.now(), baseUrl: this.env.BASE_URL ?? '' }
     );
@@ -164,7 +165,8 @@ export class WorldRoom {
       send: (ws, msg) => this.trySend(ws, msg),
       broadcast: (msg, except) => this.broadcastToAuthed(msg, except),
       verify: (token) => this.verify(token),
-      warp: (token, to) => this.warp(token, to),
+      warp: (token, to, citizenId) => this.warp(token, to, citizenId),
+      owner: (ws) => this.attachmentOf(ws)?.citizenId,
       current: (ws) => {
         const att = this.attachmentOf(ws);
         return { gone: this.closed.has(ws) || !att || !!att.left, actor: att?.actor ?? null };

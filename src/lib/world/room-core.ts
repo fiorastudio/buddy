@@ -9,9 +9,18 @@
 // from the sockets themselves. So a Durable Object that woke from hibernation
 // with empty memory behaves identically — there is nothing to lose.
 
+import { portalBetween, type PortalRect } from './portals.js';
+import { districtForTown } from './towns.js';
+
 // Default spawn (fractional map coords). Real positions arrive in M3; presence
 // in M2 just needs a well-defined starting point to broadcast.
 export const ROOM_SPAWN = { x: 0.5, y: 0.5 } as const;
+
+// How far (fractional) outside a gate's rect the owner's last reported
+// position may be and still enter it. The plaza streams move_to at ~8 Hz and
+// hit-tests the gate every frame, so the room's copy of the position can lag
+// the sprite by one send interval, a few pixels at walking speed.
+export const PORTAL_REACH = 0.03;
 
 // Internal worker -> room channel for HTTP-side privacy changes (RoomNotice in
 // handlers.ts). The worker forwards a CLIENT request to a room only as a
@@ -78,8 +87,13 @@ export interface RoomPort<S> {
   broadcast(msg: ServerMsg, except?: S): void;
   verify(controlToken: string): Promise<AuthResult | null>;
   // Move the control token's own citizen to `to` in D1 (idempotent, capacity
-  // -gated, no XP write). Returns the redirect payload on success.
-  warp(controlToken: string, to: string): Promise<WarpOutcome | null>;
+  // -gated, no XP write). Returns the redirect payload on success. `citizenId`
+  // is the socket's owner: the warp must refuse a token that resolves to
+  // anyone else, BEFORE it writes.
+  warp(controlToken: string, to: string, citizenId: string): Promise<WarpOutcome | null>;
+  // The citizen this socket authenticated as at hello (server-side only).
+  // Undefined when unknown; a portal_enter is then refused.
+  owner(socket: S): string | undefined;
   // Re-read state AFTER an await. A Durable Object's input gate does not hold
   // across D1 I/O, so while verify()/warp() wait, other events run: a recall
   // or anon notice, a newer tab's hello taking this buddy over, a close. The
@@ -111,6 +125,16 @@ export interface HandleResult<S = never> {
   // The adapter detaches each one (so its close announces nothing) and closes
   // it with CLOSE_TAKEN_OVER. They were already told why.
   takeover?: S[];
+}
+
+// Is the actor's last reported position inside (or within PORTAL_REACH of) the gate?
+function atGate(a: ActorState, r: PortalRect): boolean {
+  return (
+    a.x >= r.x - PORTAL_REACH &&
+    a.x <= r.x + r.w + PORTAL_REACH &&
+    a.y >= r.y - PORTAL_REACH &&
+    a.y <= r.y + r.h + PORTAL_REACH
+  );
 }
 
 // Fractional map coordinate: finite and within the unit square.
@@ -261,8 +285,19 @@ export class RoomCore<S> {
         const consume: HandleResult<S> = { attach: { ...attachment, seq } };
         if (typeof to !== 'string') return consume;
         if (typeof controlToken !== 'string' || controlToken.length < 8) return consume;
+        // B15: the warp acts only for this socket's own buddy, through a gate
+        // in this town that the buddy is standing in. The token in the frame
+        // must belong to the socket's owner (checked by the warp before it
+        // writes), so a socket can't move another buddy with a token it holds.
+        const target = districtForTown(to);
+        if (!target) return consume;
+        const gate = portalBetween(this.district, target);
+        if (!gate) return consume;
+        if (!atGate(attachment, gate.rect)) return consume;
+        const owner = this.port.owner(socket);
+        if (!owner) return consume;
 
-        const warp = await this.port.warp(controlToken, to);
+        const warp = await this.port.warp(controlToken, to, owner);
         // Re-read after the D1 round-trip: if this socket was closed, evicted
         // or taken over meanwhile, its departure is already handled — say
         // nothing more. Otherwise write back what is CURRENT (an anon relabel

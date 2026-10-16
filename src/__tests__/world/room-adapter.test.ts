@@ -130,10 +130,15 @@ function setup() {
     return ws;
   }
 
-  return { room, sockets, alarm, queries, controlToken, connect, joined };
+  return { room, sockets, alarm, queries, controlToken, connect, joined, post, db };
 }
 
 const frame = (m: unknown) => JSON.stringify(m);
+
+// Walk a joined buddy into Prontera's gate to Payon (B15: the room only honors
+// a portal_enter from a buddy standing in that gate).
+const toPayonGate = (room: WorldRoom, ws: FakeWs, seq = 1) =>
+  room.webSocketMessage(ws, frame({ type: 'move_to', seq, x: 0.065, y: 0.09 }));
 
 describe('WorldRoom adapter under interleaved frames (B5)', () => {
   let room: WorldRoom;
@@ -141,21 +146,53 @@ describe('WorldRoom adapter under interleaved frames (B5)', () => {
   let controlToken: (worldToken: string, name: string) => Promise<string>;
   let connect: (district?: string) => FakeWs;
   let joined: (ct: string) => Promise<FakeWs>;
+  let post: (path: string, body: unknown) => Promise<any>;
+  let db: Database.Database;
 
   beforeEach(() => {
-    ({ room, sockets, controlToken, connect, joined } = setup());
+    ({ room, sockets, controlToken, connect, joined, post, db } = setup());
+  });
+
+  it("a socket can't warp another buddy with that buddy's control token (B15)", async () => {
+    const victimCt = await controlToken('tok-victim-00001', 'Mistcoil');
+    const attackerCt = await controlToken('tok-attacker-001', 'Shadowpaw');
+    const attacker = await joined(attackerCt);
+    await toPayonGate(room, attacker);
+
+    await room.webSocketMessage(attacker, frame({ type: 'portal_enter', seq: 2, to: 'plaza-2', controlToken: victimCt }));
+
+    const district = (name: string) =>
+      (db.prepare('SELECT district FROM citizens WHERE name = ?').get(name) as { district: string }).district;
+    expect(district('Mistcoil')).toBe('plaza-1'); // the victim did not move
+    expect(district('Shadowpaw')).toBe('plaza-1');
+    expect(attacker.of('room_redirect')).toHaveLength(0);
+    expect(attacker.closedWith).toBeNull();
+
+    // With its own token, from the same spot, the warp goes through.
+    await room.webSocketMessage(attacker, frame({ type: 'portal_enter', seq: 3, to: 'plaza-2', controlToken: attackerCt }));
+    expect(attacker.of('room_redirect')).toHaveLength(1);
+    expect(district('Shadowpaw')).toBe('plaza-2');
+  });
+
+  it("a buddy that isn't standing in the gate doesn't warp (B15)", async () => {
+    const ct = await controlToken('tok-farwalk-0001', 'Shadowpaw');
+    const ws = await joined(ct); // at the fountain (spawn)
+    await room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 1, to: 'plaza-2', controlToken: ct }));
+    expect(ws.of('room_redirect')).toHaveLength(0);
+    expect((db.prepare('SELECT district FROM citizens').get() as { district: string }).district).toBe('plaza-1');
   });
 
   it('two portal_enter frames in flight together warp once: one redirect, one leave', async () => {
     const observer = await joined(await controlToken('tok-observer-0001', 'Mistcoil'));
     const ct = await controlToken('tok-warper-00001', 'Shadowpaw');
     const warper = await joined(ct);
+    await toPayonGate(room, warper);
     observer.sent.length = 0;
 
     const enter = (seq: number) =>
       room.webSocketMessage(warper, frame({ type: 'portal_enter', seq, to: 'plaza-2', portal: 'prontera-payon', controlToken: ct }));
     // Not awaited between: the second arrives while the first awaits D1.
-    await Promise.all([enter(1), enter(2)]);
+    await Promise.all([enter(2), enter(3)]);
 
     expect(warper.of('room_redirect')).toHaveLength(1);
     expect(observer.of('leave')).toHaveLength(1);
@@ -208,9 +245,13 @@ describe('WorldRoom adapter under interleaved frames (B5)', () => {
     const ws = await joined(ct);
     const citizenId = ((ws.deserializeAttachment() as any).citizenId) as string;
 
-    // An unknown town fails only after the D1 token lookup — so the relabel
-    // notice runs while the warp is still waiting on D1.
-    const warping = room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 4, to: 'nowhere', controlToken: ct }));
+    // The room still sees the buddy in plaza-1, standing in the Payon gate, but
+    // the CLI has moved it to Geffen meanwhile: the warp fails only after the
+    // D1 token lookup (no Geffen → Payon portal), so the relabel notice runs
+    // while the warp is still waiting on D1.
+    await toPayonGate(room, ws);
+    await post('/v1/teleport', { token: 'tok-relabel-0005', snapshot: snap('Shadowpaw'), district: 'plaza-3' });
+    const warping = room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 4, to: 'plaza-2', controlToken: ct }));
     const notice = room.fetch(
       new Request('https://room.internal/__internal/notice', {
         method: 'POST',
@@ -243,9 +284,10 @@ describe('WorldRoom adapter under interleaved frames (B5)', () => {
     const ct = await controlToken('tok-recall-00007', 'Shadowpaw');
     const ws = await joined(ct);
     const citizenId = ((ws.deserializeAttachment() as any).citizenId) as string;
+    await toPayonGate(room, ws);
     observer.sent.length = 0;
 
-    const warping = room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 1, to: 'plaza-2', controlToken: ct }));
+    const warping = room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 2, to: 'plaza-2', controlToken: ct }));
     const notice = room.fetch(
       new Request('https://room.internal/__internal/notice', {
         method: 'POST',
@@ -363,9 +405,10 @@ describe('WorldRoom adapter error boundary (B17)', () => {
   it('a joined socket survives a frame that fails (portal_enter during a D1 outage)', async () => {
     const ct = await t.controlToken('tok-d1down-00002', 'Shadowpaw');
     const ws = await t.joined(ct);
+    await toPayonGate(t.room, ws);
     t.queries.fail = true;
     await expect(
-      t.room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 1, to: 'plaza-2', controlToken: ct }))
+      t.room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 2, to: 'plaza-2', controlToken: ct }))
     ).resolves.toBeUndefined();
     expect(ws.of('error')).toEqual([{ type: 'error', error: 'internal error' }]);
     expect(ws.closedWith).toBeNull();

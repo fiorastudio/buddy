@@ -491,6 +491,18 @@ describe('browser identity handlers', () => {
     expect(res.status).toBe(200); // the hidden buddy no longer occupies a slot
   });
 
+  it("portal-warp refuses a token that isn't the socket owner's, before it writes (B15)", async () => {
+    const { controlToken } = await link(); // owner in plaza-1
+    const owner = (await store.findByTokenHash(hashToken(TOKEN)))!;
+    // The room passes the socket's owner; a different citizen's socket replaying this token is refused.
+    const res = await handlePortalWarp({ controlToken, to: 'plaza-2', citizenId: 'someone-else' }, store, OPTS);
+    expect(res.status).toBe(403);
+    expect((res.body as { error: string }).error).toBe('not_your_buddy');
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.district).toBe('plaza-1');
+    // The owner's own socket still warps.
+    expect((await handlePortalWarp({ controlToken, to: 'plaza-2', citizenId: owner.id }, store, OPTS)).status).toBe(200);
+  });
+
   it('an expired control token cannot portal-warp', async () => {
     const { controlToken } = await link(T0);
     const res = await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, { ...OPTS, now: T0 + 400 * 86_400_000 });
