@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { createWorldFetchHandler } from '../../world/worker-core.js';
+import { publicSlug } from '../../lib/world/handlers.js';
 import { sqliteAsD1 } from './d1-shim.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
@@ -150,6 +151,32 @@ describe('world worker fetch handler', () => {
   it('GET /v1/me without a Bearer control token is 401', async () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/me'));
     expect(res.status).toBe(401);
+  });
+});
+
+// B10: the anon mask is keyed by the deployment's ANON_SECRET.
+describe('world worker anon masking', () => {
+  it('masks anon buddies with the configured secret', async () => {
+    const handler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      anonSecret: 'worker-test-secret',
+    });
+    const post = (path: string, body: unknown) =>
+      handler(
+        new Request(`https://world.example.com${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      );
+    const { slug } = (await (await post('/v1/teleport', { token: TOKEN, snapshot: snap() })).json()) as { slug: string };
+    await post('/v1/anon', { token: TOKEN, anon: true });
+    const world = (await (await handler(new Request('https://world.example.com/v1/world/plaza-1'))).json()) as {
+      citizens: Array<{ slug: string }>;
+    };
+    expect(world.citizens[0].slug).toBe(publicSlug({ slug, anon: true }, 'worker-test-secret'));
+    expect(world.citizens[0].slug).not.toBe(publicSlug({ slug, anon: true })); // not the dev key
   });
 });
 

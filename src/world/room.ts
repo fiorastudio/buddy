@@ -35,6 +35,9 @@ interface RoomEnv {
   // Bound from wrangler.toml [vars]; used to build the room_redirect URL. Falls
   // back to a relative `/?district=…` (fine for same-origin client navigation).
   BASE_URL?: string;
+  // Same secret the worker masks /v1/world with, so a live actor's anon id
+  // matches the plaza's (handlers.publicSlug).
+  ANON_SECRET?: string;
 }
 
 // What each socket stores. `district` is known at connect time (even before the
@@ -120,7 +123,7 @@ export class WorldRoom {
     const found = await store.findCitizenByBrowserToken(hashToken(controlToken), Date.now());
     if (!found) return null;
     const c = found.citizen;
-    return { slug: publicSlug(c), district: c.district, citizenId: c.id };
+    return { slug: publicSlug(c, this.env.ANON_SECRET), district: c.district, citizenId: c.id };
   }
 
   // Presence/snapshots reach only sockets that completed the hello handshake —

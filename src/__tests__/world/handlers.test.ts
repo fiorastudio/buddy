@@ -14,6 +14,7 @@ import {
   handleAnon,
   hashToken,
   publicSlug,
+  coarseLastSeen,
   RateLimiter,
   type RoomNotice,
 } from '../../lib/world/handlers.js';
@@ -590,5 +591,107 @@ describe('recall / anon reach live rooms', () => {
     notices = [];
     await handleAnon({ token: TOKEN, anon: false }, store, notify);
     expect(notices).toEqual([{ kind: 'relabel', citizenId: id, slug: real }]);
+  });
+});
+
+// B10: an anon buddy must not be re-identifiable from public payloads.
+describe('anon masking is keyed and anon payloads are minimal (B10)', () => {
+  let store: SqliteWorldStore;
+  const SECRET = 'test-anon-secret-0123456789';
+  const WITH_SECRET = { ...OPTS, anonSecret: SECRET };
+
+  beforeEach(() => {
+    store = new SqliteWorldStore(new Database(':memory:'));
+  });
+
+  it('the mask is an HMAC under the server secret, not a hash anyone can recompute from the slug', () => {
+    const c = { slug: 'shadowpaw-ab12', anon: true };
+    const unkeyed = `anon-${hashToken(c.slug).slice(0, 6)}`; // the old, precomputable mask
+    expect(publicSlug(c, SECRET)).toMatch(/^anon-[0-9a-f]{6}$/);
+    expect(publicSlug(c, SECRET)).not.toBe(unkeyed);
+    expect(publicSlug(c, SECRET)).toBe(publicSlug(c, SECRET)); // stable for the room <-> plaza match
+    expect(publicSlug(c, SECRET)).not.toBe(publicSlug(c, 'another-secret'));
+    expect(publicSlug(c)).not.toBe(unkeyed); // the dev fallback is keyed too
+    expect(publicSlug({ ...c, anon: false }, SECRET)).toBe('shadowpaw-ab12'); // non-anon untouched
+  });
+
+  it('/v1/world, announcements and the live relabel all use the configured secret', async () => {
+    const notices: RoomNotice[] = [];
+    await handleTeleport({ token: 'tok-keyed-000000', snapshot: snap() }, store, OPTS);
+    const real = (await store.findByTokenHash(hashToken('tok-keyed-000000')))!;
+    await store.recordEvents(real.id, [{ type: 'level_up', ts: T0 + 1 }]);
+    await handleAnon({ token: 'tok-keyed-000000', anon: true }, store, async (n) => void notices.push(n), {
+      anonSecret: SECRET,
+    });
+    const expected = publicSlug({ slug: real.slug, anon: true }, SECRET);
+
+    const world = (await handleWorld('plaza-1', store, WITH_SECRET)).body as { citizens: Array<{ slug: string }> };
+    expect(world.citizens[0].slug).toBe(expected);
+    const ann = (await handleAnnouncements(store, WITH_SECRET)).body as { announcements: Array<{ slug: string }> };
+    expect(ann.announcements[0].slug).toBe(expected);
+    expect(notices).toEqual([{ kind: 'relabel', citizenId: real.id, slug: expected }]);
+  });
+
+  it('an anon citizen carries only what the plaza renders, coarsened', async () => {
+    await handleTeleport({ token: 'tok-minimal-0000', snapshot: snap({ hat: 'crown', eye: '◉' }) }, store, OPTS);
+    await store.setAnon(hashToken('tok-minimal-0000'), true);
+    const real = (await store.findByTokenHash(hashToken('tok-minimal-0000')))!;
+
+    const body = (await handleWorld('plaza-1', store, { ...WITH_SECRET, now: T0 + 90_000 })).body as {
+      citizens: Array<Record<string, unknown>>;
+    };
+    const c = body.citizens[0];
+    expect(Object.keys(c).sort()).toEqual(
+      ['anon', 'avatar', 'country', 'district', 'eye', 'last_seen_at', 'level', 'mood', 'name', 'shiny', 'slug', 'species', 'stats'].sort()
+    );
+    expect(c).toMatchObject({ name: 'a wild Void Cat', species: 'Void Cat', level: 5, country: null, anon: true, eye: '·' });
+    // Only WHICH stat leads (chaos: 80 in snap()), not the five numbers.
+    expect(c.stats).toEqual({ chaos: 1 });
+    // No created_at / xp / hat / skin / rarity, and no millisecond activity.
+    expect(c.last_seen_at).toBe(T0 + 60_000); // the minute, not T0 itself
+    const wire = JSON.stringify(body);
+    expect(wire).not.toContain(real.slug);
+    expect(wire).not.toContain('Shadowpaw');
+    expect(wire).not.toContain('crown');
+    expect(wire).not.toContain('◉');
+    expect(wire).not.toContain(String(real.created_at));
+  });
+
+  it('a non-anon citizen is unchanged', async () => {
+    await handleTeleport({ token: 'tok-public-00000', snapshot: snap() }, store, OPTS);
+    const body = (await handleWorld('plaza-1', store, WITH_SECRET)).body as { citizens: Array<Record<string, unknown>> };
+    expect(body.citizens[0]).toMatchObject({
+      name: 'Shadowpaw',
+      xp: totalXpForLevel(5) + 3,
+      stats: { debugging: 60, patience: 40, chaos: 80, wisdom: 30, snark: 70 },
+      created_at: T0,
+      last_seen_at: T0,
+      hat: 'none',
+      rarity: 'rare',
+    });
+  });
+
+  it('coarse last_seen_at keeps the plaza states: active (<15m), idle, long-AFK (>=3h)', () => {
+    const now = T0 + 12_345;
+    const ACTIVE_WINDOW_MS = 15 * 60_000; // plaza.js
+    const IDLE_SIT_MS = 3 * 60 * 60_000; // plaza.js
+    const state = (ls: number, clientNow = now) => {
+      const age = clientNow - ls;
+      return age < ACTIVE_WINDOW_MS ? 'active' : age >= IDLE_SIT_MS ? 'sit' : 'idle';
+    };
+    for (const [ago, expected] of [
+      [0, 'active'],
+      [14 * 60_000, 'active'],
+      [16 * 60_000, 'idle'],
+      [2.9 * 3_600_000, 'idle'],
+      [3.1 * 3_600_000, 'sit'],
+      [30 * 86_400_000, 'sit'],
+    ] as const) {
+      const coarse = coarseLastSeen(now - ago, now);
+      expect(coarse % 60_000).toBe(0); // minute grain, never the real ms
+      expect(state(coarse), `${ago}ms ago`).toBe(expected);
+      // A viewer whose clock is a few minutes off still sees the same state.
+      expect(state(coarse, now + 5 * 60_000)).toBe(expected);
+    }
   });
 });

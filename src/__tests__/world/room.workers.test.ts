@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject, evictDurableObject, runDurableObjectAlarm } from 'cloudflare:test';
 import { totalXpForLevel } from '../../lib/leveling.js';
+import { publicSlug } from '../../lib/world/handlers.js';
 
 // env bindings provided by vitest.workers.config.ts' miniflare block.
 declare module 'cloudflare:test' {
@@ -257,6 +258,9 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
       citizens: Array<{ slug: string; name: string }>;
     };
     const masked = world.citizens.find((c) => c.slug.startsWith('anon-'))!.slug;
+    // B10: keyed by the ANON_SECRET binding (vitest.workers.config.ts) in the
+    // worker, and the room's welcome below must carry the same id.
+    expect(masked).toBe(publicSlug({ slug: realSlug, anon: true }, 'workers-test-anon-secret'));
 
     const rewelcome = await a.next();
     expect(rewelcome).toMatchObject({ type: 'welcome', district: 'plaza-3', self: masked });

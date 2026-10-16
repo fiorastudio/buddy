@@ -31,6 +31,9 @@ export interface WorldWorkerConfig {
   // upgrade is a socket the room holds and, on hello, a D1 lookup; the plaza
   // reconnects with capped exponential backoff, so a real viewer needs few.
   upgradesPerMinute?: number;
+  // Keys the anon mask (handlers.publicSlug). MUST be set in production
+  // (`wrangler secret put ANON_SECRET`); absent → a public dev constant.
+  anonSecret?: string;
   now?: () => number;
   // The WorldRoom Durable Object namespace. Absent in older/preview contexts —
   // the live route then reports 503 rather than crashing.
@@ -111,7 +114,7 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
       // fallback. Absent off-Cloudflare — handlers treat undefined as "no flag".
       const cf = (req as { cf?: { country?: string } }).cf;
       const country = cf?.country ?? req.headers.get('cf-ipcountry') ?? undefined;
-      const opts = { now: now(), baseUrl: config.baseUrl, country };
+      const opts = { now: now(), baseUrl: config.baseUrl, country, anonSecret: config.anonSecret };
 
       if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -188,7 +191,7 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
           case '/v1/recall':
             return json(await handleRecall(payload, s, notifyRooms));
           case '/v1/anon':
-            return json(await handleAnon(payload, s, notifyRooms));
+            return json(await handleAnon(payload, s, notifyRooms, opts));
           case '/v1/browser-link':
             return json(await handleBrowserLink(payload, s, opts));
           case '/v1/browser-session':
