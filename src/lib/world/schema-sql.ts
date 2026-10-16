@@ -1,6 +1,6 @@
 // src/lib/world/schema-sql.ts
 // Single source of truth for the Buddy World schema. Used by the local
-// SqliteWorldStore (tests, dev) and the D1 migration (deploy) — D1 is
+// SqliteWorldStore (tests, dev) and the D1 migrations (deploy) — D1 is
 // SQLite, so these statements run unchanged in both.
 
 export const WORLD_EVENT_TYPES = [
@@ -28,7 +28,26 @@ export const INSTANT_WORLD_EVENTS: ReadonlySet<WorldEventType> = new Set(['deplo
 // sync debounce" can diverge without one silently changing the other.
 export const ANNOUNCE_EVENT_TYPES: readonly WorldEventType[] = ['level_up', 'deploy', 'streak_7'];
 
-export const WORLD_SCHEMA_SQL = `
+// Most events one /v1/events request may carry. Shared wire contract: the
+// server rejects larger batches with 400, so the client must chunk to this.
+export const MAX_EVENT_BATCH = 50;
+
+// Event types only the SERVER may record. `level_up` is derived from the
+// stored-vs-snapshot level delta (updateSnapshot, behind the XP clamp), so a
+// client claiming one is either a duplicate or a forgery — /v1/events drops it.
+export const SERVER_DERIVED_EVENT_TYPES: ReadonlySet<WorldEventType> = new Set(['level_up']);
+
+// At most this many rows per citizen in the global announcements feed, so one
+// buddy (or one self-minted token) can't flood every slot of the banner.
+export const ANNOUNCE_MAX_PER_CITIZEN = 3;
+
+// The schema is the D1 migrations in order. Each entry mirrors one file in
+// world/migrations (the migration-drift test enforces it). A migration that
+// production has applied is never edited: a schema change goes in a NEW entry
+// and a NEW file, written with IF NOT EXISTS so it is safe to re-run.
+
+// world/migrations/0001_init.sql
+const MIGRATION_0001_INIT = `
 CREATE TABLE IF NOT EXISTS citizens (
   id TEXT PRIMARY KEY,
   slug TEXT UNIQUE NOT NULL,
@@ -55,6 +74,7 @@ CREATE TABLE IF NOT EXISTS citizens (
   last_seen_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_citizens_district ON citizens(district) WHERE hidden = 0;
+CREATE INDEX IF NOT EXISTS idx_citizens_district_seen ON citizens(district, last_seen_at) WHERE hidden = 0;
 
 CREATE TABLE IF NOT EXISTS world_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,3 +111,27 @@ CREATE TABLE IF NOT EXISTS browser_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_browser_sessions_citizen ON browser_sessions(citizen_id);
 `;
+
+// world/migrations/0002_hot_query_indexes.sql (B13). Indexes for the queries
+// that read world_events and daily_rollups as they grow:
+//   idx_citizens_district_seen  B2's capacity/roster index. It was added to
+//                               0001 after production applied 0001, so it is
+//                               repeated here to reach existing databases.
+//   idx_events_type_ts          /v1/announcements reads only the announce
+//                               types in its window, not every event in it.
+//   idx_rollups_citizen         a purge deletes a citizen's rollups without
+//                               scanning the whole table.
+const MIGRATION_0002_HOT_QUERY_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_citizens_district_seen ON citizens(district, last_seen_at) WHERE hidden = 0;
+CREATE INDEX IF NOT EXISTS idx_events_type_ts ON world_events(type, ts);
+CREATE INDEX IF NOT EXISTS idx_rollups_citizen ON daily_rollups(citizen_id);
+`;
+
+export const WORLD_MIGRATIONS: ReadonlyArray<{ file: string; sql: string }> = [
+  { file: '0001_init.sql', sql: MIGRATION_0001_INIT },
+  { file: '0002_hot_query_indexes.sql', sql: MIGRATION_0002_HOT_QUERY_INDEXES },
+];
+
+// The whole schema, every migration in order. The local SqliteWorldStore and
+// D1WorldStore.create apply it to fresh databases; all of it is idempotent.
+export const WORLD_SCHEMA_SQL = WORLD_MIGRATIONS.map((m) => m.sql.trim()).join('\n\n') + '\n';
