@@ -279,6 +279,41 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     expect(res.close).toBeUndefined(); // warp failed → stay put; socket kept open
     expect(rec.sent.some((s) => s.msg.type === 'room_redirect')).toBe(false);
     expect(rec.broadcasts.some((b) => b.msg.type === 'leave')).toBe(false);
+    // ...and the owner (only the owner) is told why, so the client can say so.
+    expect(rec.sent).toEqual([{ socket: 'me', msg: { type: 'warp_failed', to: 'plaza-2', reason: 'town_full' } }]);
+    expect(rec.broadcasts.some((b) => b.msg.type === 'warp_failed')).toBe(false);
+  });
+
+  it('a warp that throws (D1 hiccup) reports warp_failed and keeps the socket', async () => {
+    const rec = makePort({
+      warp: () => {
+        throw new Error('D1 unavailable');
+      },
+    });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('x', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
+      []
+    );
+    expect(res.attach?.seq).toBe(1);
+    expect(res.close).toBeUndefined();
+    expect(rec.sent.map((s) => s.msg)).toEqual([{ type: 'warp_failed', to: 'plaza-2', reason: 'warp_unavailable' }]);
+  });
+
+  it('a failed warp with no reason from the port falls back to warp_unavailable', async () => {
+    const rec = makePort({ warp: () => null });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    await core.onMessage('me', actor('x', { seq: 0 }), JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }), []);
+    expect(rec.sent.map((s) => s.msg)).toEqual([{ type: 'warp_failed', to: 'plaza-2', reason: 'warp_unavailable' }]);
+  });
+
+  it('a successful warp sends no warp_failed', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    await core.onMessage('me', actor('x', { seq: 0 }), JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }), []);
+    expect(rec.sent.some((s) => s.msg.type === 'warp_failed')).toBe(false);
   });
 
   it('a portal_enter without a control token is ignored (no warp attempted)', async () => {
@@ -292,6 +327,22 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     );
     expect(res.attach?.seq).toBe(1); // seq still consumed
     expect(rec.warps).toHaveLength(0);
+    expect(rec.sent.map((s) => s.msg)).toEqual([
+      { type: 'warp_failed', to: 'plaza-2', reason: 'missing control token' },
+    ]);
+  });
+
+  it('a portal_enter with no target reports warp_failed (to: null)', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    await core.onMessage(
+      'me',
+      actor('x', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', seq: 1, controlToken: 'good-control-token' }),
+      []
+    );
+    expect(rec.warps).toHaveLength(0);
+    expect(rec.sent.map((s) => s.msg)).toEqual([{ type: 'warp_failed', to: null, reason: 'unknown_town' }]);
   });
 
   it('drops a stale / non-increasing portal_enter seq', async () => {
@@ -305,6 +356,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     );
     expect(res.attach).toBeUndefined();
     expect(rec.warps).toHaveLength(0);
+    expect(rec.sent).toEqual([]); // a dropped replay is silent — no warp_failed
   });
 
   it('a portal_enter before authentication is refused (hello still required first)', async () => {
