@@ -9,7 +9,7 @@ import { type Companion, RARITY_STARS } from './types.js';
 import { levelFromXp } from './leveling.js';
 import { deriveSpecies, rollWithCCCompat } from './oldBuddy.js';
 import { randomUUID } from 'crypto';
-import { writeFileSync, mkdirSync } from 'fs';
+import { writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { dirname } from 'path';
 import { BUDDY_STATUS_PATH } from './constants.js';
 let statusDirEnsured = false;
@@ -140,6 +140,24 @@ export function writeBuddyStatus(companion: Companion, reaction?: { state: strin
       } : {}),
     }));
   } catch { /* non-fatal */ }
+}
+
+/**
+ * Server-startup reconciliation of the statusline file with the DB.
+ * A muted buddy must show nothing, but a user who muted on an older version
+ * (or whose file was written by a hook after the mute) can still have a stale
+ * file on disk — writeBuddyStatus only declines to write, it never removes.
+ * So: muted -> remove the file; otherwise -> write it as before.
+ */
+export function syncStatusFileOnStartup(): void {
+  const row = companionExists();
+  if (!row) return;
+  if (row.muted === 1) {
+    try { unlinkSync(BUDDY_STATUS_PATH); } catch { /* already gone */ }
+    return;
+  }
+  const companion = loadCompanion(row);
+  if (companion) writeBuddyStatus(companion);
 }
 
 /**

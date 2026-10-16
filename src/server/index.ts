@@ -29,7 +29,7 @@ import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
-import { loadCompanion, writeBuddyStatus, createCompanion } from "../lib/companion.js";
+import { loadCompanion, writeBuddyStatus, createCompanion, syncStatusFileOnStartup } from "../lib/companion.js";
 import { renderCard, hatchAnimation } from "../lib/card.js";
 import { captureSnapshot } from "../lib/snapshot.js";
 import { BUDDY_STATUS_PATH } from "../lib/constants.js";
@@ -878,12 +878,9 @@ When the user addresses ${companion.name} by name, respond briefly in character 
 });
 
 async function main() {
-  // Write status file on startup if a companion exists
-  const existing = db.prepare("SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as any;
-  if (existing) {
-    const companion = loadCompanion(existing);
-    if (companion) writeBuddyStatus(companion);
-  }
+  // Write the status file on startup if a companion exists; if it is muted,
+  // remove any stale file left over from before the mute instead.
+  syncStatusFileOnStartup();
 
   // Prune reasoning sessions older than retention window. Best-effort.
   try { pruneOldSessions(db); } catch { /* non-fatal */ }
