@@ -140,6 +140,87 @@ export function longestChainFrom(
   return nodes.length - 1;
 }
 
+/**
+ * Upper bound on DFS steps (node entries) across ONE detector pass, shared by
+ * every start node through a ChainSearchBudget. Enumerating maximal paths is
+ * exponential on a dense DAG (a 200-claim "ladder" has ~2^100 of them), so
+ * the walk stops when the budget runs out and keeps the best path found so
+ * far. Real sessions are sparse and finish far below it.
+ */
+export const MAX_CHAIN_SEARCH_STEPS = 10_000;
+
+export type ChainSearchBudget = { remaining: number };
+
+export function makeChainSearchBudget(steps: number = MAX_CHAIN_SEARCH_STEPS): ChainSearchBudget {
+  return { remaining: steps };
+}
+
+function isChallengeEdge(e: Edge): boolean {
+  return e.type === 'contradicts' || e.type === 'questions';
+}
+
+/**
+ * Longest MAXIMAL simple path from `start` (following `types` edges) that has
+ * at least `minLen` nodes and no challenge edge between any two of its nodes,
+ * or null if there isn't one.
+ *
+ * longestChainNodesFrom() returns ONE longest path; when that path happened to
+ * be challenged, an unchallenged sibling branch from the same start went
+ * unreported (X10). This one walks every maximal path instead. It prunes a
+ * branch as soon as the next node would close a challenge with the path so
+ * far: the challenge set only grows along a path, so every maximal path
+ * through that node is challenged too. A path counts only when it is maximal
+ * (no further `types` edge to a node not already on it), the same notion of
+ * "chain" the detector has always used.
+ */
+export function longestUnchallengedChainFrom(
+  graph: SessionGraph,
+  start: string,
+  types: EdgeType[],
+  minLen: number,
+  budget: ChainSearchBudget = makeChainSearchBudget(),
+): string[] | null {
+  const path: string[] = [];
+  const onPath = new Set<string>();
+  let best: string[] | null = null;
+
+  // Would adding `node` put a challenge edge between two nodes of the path?
+  const closesChallenge = (node: string): boolean => {
+    for (const e of graph.outgoing.get(node) ?? []) {
+      if (isChallengeEdge(e) && (onPath.has(e.to_claim) || e.to_claim === node)) return true;
+    }
+    for (const e of graph.incoming.get(node) ?? []) {
+      if (isChallengeEdge(e) && onPath.has(e.from_claim)) return true;
+    }
+    return false;
+  };
+
+  const walk = (node: string): void => {
+    if (budget.remaining <= 0) return;
+    budget.remaining--;
+    path.push(node);
+    onPath.add(node);
+
+    const next = new Set<string>();
+    for (const e of graph.outgoing.get(node) ?? []) {
+      if (types.includes(e.type) && !onPath.has(e.to_claim)) next.add(e.to_claim);
+    }
+    if (next.size === 0) {
+      if (path.length >= minLen && (!best || path.length > best.length)) best = [...path];
+    } else {
+      for (const child of next) {
+        if (!closesChallenge(child)) walk(child);
+      }
+    }
+
+    path.pop();
+    onPath.delete(node);
+  };
+
+  if (graph.nodes.has(start) && !closesChallenge(start)) walk(start);
+  return best;
+}
+
 // Does any edge in the graph of `contradicts` or `questions` type connect
 // two nodes in the chain? Used by unchallenged-chain detector.
 export function chainHasChallenge(graph: SessionGraph, chainNodes: string[]): boolean {
