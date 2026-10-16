@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
@@ -9,7 +9,10 @@ import { totalXpForLevel } from '../../lib/leveling.js';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const publicDir = join(repoRoot, 'world', 'public');
 
-const NOW = Date.now();
+// The fixture's "now". Re-anchored before each test (see beforeEach) so the
+// "recent" events stay inside the client's 90s bubble / 15min active windows
+// however long the suite has been running.
+let NOW = Date.now();
 
 function fixtureDistrict() {
   const species = ['Void Cat', 'Duck', 'Axolotl', 'Mushroom', 'Capybara', 'Ghost', 'Robot', 'Penguin'];
@@ -117,10 +120,16 @@ describe('plaza smoke test (headless browser)', () => {
     });
   }, 60_000);
 
+  beforeEach(() => {
+    NOW = Date.now();
+  });
+
+  // Closing a browser with dozens of animating pages can outlast the default
+  // 10s hook timeout on a loaded machine.
   afterAll(async () => {
     await browser?.close();
     server?.close();
-  });
+  }, 30_000);
 
   it('renders the plaza with all citizens, celebrations, and a live ticker', async () => {
     const page = await browser.newPage();
