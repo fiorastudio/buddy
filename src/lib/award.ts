@@ -13,7 +13,7 @@
 
 import type BetterSqlite3 from 'better-sqlite3';
 import { randomUUID } from 'crypto';
-import { XP_REWARDS, levelFromXp, applyBlessing } from './leveling.js';
+import { hasXpReward, xpRewardFor, levelFromXp, applyBlessing } from './leveling.js';
 import { zenyForEvent } from './zeny.js';
 import { isWorldBlessed } from './world/client.js';
 import { checkStreakMilestone } from './streaks.js';
@@ -76,7 +76,7 @@ export function awardXpBatchCore(db: DB, companionId: string, events: Array<stri
   let zenyGained = 0;
   for (const raw of events) {
     const ev: AwardEvent = typeof raw === 'string' ? { type: raw } : raw;
-    const xp = applyBlessing(XP_REWARDS[ev.type] || 1, blessed);
+    const xp = applyBlessing(xpRewardFor(ev.type), blessed);
     insert.run(ev.id ?? randomUUID(), companionId, ev.type, xp, ev.source ?? null, ev.dedupeOf ?? null);
     xpGained += xp;
     zenyGained += applyBlessing(zenyForEvent(ev.type), blessed);
@@ -139,7 +139,7 @@ export function awardWithGates(
 
     // Hook rows get their ids up front so the self-report can point at one.
     const hookEvents: AwardEvent[] = pending
-      .filter((ev) => XP_REWARDS[ev.type] !== undefined)
+      .filter((ev) => hasXpReward(ev.type))
       .map((ev) => ({ type: ev.type, source: 'hook', id: randomUUID() }));
 
     if (isElevated(selfType)) {

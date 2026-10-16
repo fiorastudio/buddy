@@ -6,6 +6,7 @@ import { db, initDb } from '../db/schema.js';
 import { awardXpBatchCore, awardWithGates, HOOK_DEDUPE_WINDOW_MINUTES } from '../lib/award.js';
 import { appendPendingEvent, consumePendingEvents } from '../lib/pending-events.js';
 import { classifySummary, SELF_REPORT_DAILY_CAP } from '../lib/xp-classify.js';
+import { hasXpReward, xpRewardFor } from '../lib/leveling.js';
 
 /**
  * Direct tests of the extracted award chokepoint (src/lib/award.ts). Because
@@ -267,5 +268,51 @@ describe('awardWithGates — 7-day streak milestone (the cross-transaction race)
     awardWithGates(db, ID, 'observe', []);
     expect(countType('streak_7')).toBe(1);
     expect(xp()).toBe(eventSum());
+  });
+});
+
+/**
+ * X7: XP_REWARDS is a plain object, so `XP_REWARDS['__proto__']` is
+ * Object.prototype and `XP_REWARDS['constructor']` is a function. A queued
+ * hook event with such a type passed the `!== undefined` filter, then failed
+ * to bind as xp_gained and threw — aborting the whole award.
+ */
+describe('prototype-key event types (X7)', () => {
+  const PROTO_KEYS = ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf'];
+
+  it('xpRewardFor / hasXpReward only honor own keys', () => {
+    for (const k of PROTO_KEYS) {
+      expect(hasXpReward(k), k).toBe(false);
+      expect(xpRewardFor(k), k).toBe(1);
+    }
+    expect(hasXpReward('commit')).toBe(true);
+    expect(xpRewardFor('commit')).toBe(25);
+    expect(xpRewardFor('pet')).toBe(1);
+  });
+
+  it('drops prototype-key hook events instead of aborting the award', () => {
+    const pending = [...PROTO_KEYS.map((type) => ({ type })), { type: 'commit' }];
+    const { worldEvents, xpResult } = awardWithGates(db, ID, 'observe', pending);
+    expect(worldEvents).toEqual(['observe', 'commit']);
+    expect(xpResult.xpGained).toBeGreaterThan(0);
+    expect(xp()).toBe(eventSum());
+  });
+
+  it('pays a prototype-key type passed straight to the core as the 1-XP fallback', () => {
+    const r = awardXpBatchCore(db, ID, ['constructor']);
+    expect(Number.isFinite(r.xpGained)).toBe(true);
+    expect(xp()).toBe(eventSum());
+  });
+
+  it('drops prototype-key types read from the pending-events file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'buddy-x7-'));
+    try {
+      const queue = join(dir, 'pending-events.jsonl');
+      for (const type of PROTO_KEYS) appendPendingEvent(queue, { type, ts: Date.now() });
+      const { worldEvents } = awardWithGates(db, ID, 'observe', consumePendingEvents(queue));
+      expect(worldEvents).toEqual(['observe']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

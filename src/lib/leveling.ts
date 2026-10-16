@@ -17,6 +17,20 @@ export const XP_REWARDS: Record<string, number> = {
   session: 5,
 };
 
+/** True only for event types listed in XP_REWARDS itself (not '__proto__', 'constructor', …). */
+export function hasXpReward(eventType: string): boolean {
+  return Object.hasOwn(XP_REWARDS, eventType);
+}
+
+/**
+ * XP for an event type, 1 for anything unlisted. Object.hasOwn so a prototype
+ * key from the pending queue ('__proto__', 'constructor') can't return an
+ * object/function that then fails to bind and aborts the whole award (X7).
+ */
+export function xpRewardFor(eventType: string): number {
+  return hasXpReward(eventType) ? XP_REWARDS[eventType] : 1;
+}
+
 // Buddy World blessing: teleported buddies earn +10%.
 export function applyBlessing(xp: number, blessed: boolean): number {
   return blessed ? Math.round(xp * 1.1) : xp;
