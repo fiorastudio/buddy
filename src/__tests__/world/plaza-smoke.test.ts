@@ -360,6 +360,100 @@ describe('plaza smoke test (headless browser)', () => {
     expect(fired!.seq).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
+  // C5: a scripted stand-in for the room socket, installed before plaza.js
+  // runs, so the test drives open/close/messages and sees every frame sent.
+  const FAKE_ROOM_SOCKET = `(() => {
+    window.__WS__ = [];
+    class FakeWS extends EventTarget {
+      constructor(url) { super(); this.url = url; this.readyState = 0; this.sent = []; window.__WS__.push(this); }
+      send(data) { if (this.readyState !== 1) throw new Error('not open'); this.sent.push(JSON.parse(data)); }
+      close(code = 1000) {
+        if (this.readyState === 3) return;
+        this.readyState = 3;
+        this.dispatchEvent(new CloseEvent('close', { code }));
+      }
+      _open() { this.readyState = 1; this.dispatchEvent(new Event('open')); }
+      _recv(msg) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(msg) })); }
+    }
+    window.WebSocket = FakeWS;
+    try { localStorage.setItem('buddyControlToken', 'test-control-token'); } catch {}
+  })()`;
+
+  it('reconnect re-sends my position, replays a gate entered offline, and shows a failed warp', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.evaluateOnNewDocument(FAKE_ROOM_SOCKET);
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== '/v1/me') { void req.continue(); return; }
+      void req.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'buddy-0', district: 'plaza-1' }),
+      });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__WS__.length === 1 && window.__PLAZA__.actorFrames["buddy-0"] !== undefined');
+    type Frame = { type: string; seq?: number; x?: number; y?: number; to?: string; portal?: string };
+    const sentOn = async (i: number) => (await page.evaluate(`window.__WS__[${i}].sent`)) as Frame[];
+    const welcome = `{ type: 'welcome', district: 'plaza-1', self: 'buddy-0', actors: [] }`;
+
+    // Connect, start walking before the room answers: only the hello may go out
+    // (a frame racing the hello would be refused as unauthenticated).
+    await page.evaluate('window.__WS__[0]._open()');
+    await page.evaluate('window.__PLAYER__.moveOwnerTo(320, 300)');
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await sentOn(0)).map((f) => f.type)).toEqual(['hello']);
+    await page.evaluate(`window.__WS__[0]._recv(${welcome})`);
+    expect((await sentOn(0)).map((f) => f.type)).toContain('move_to'); // resync on welcome
+
+    // The connection drops. While it's down, walk into the Payon gate: the
+    // portal_enter can't be sent, so it must be queued, not latched away.
+    await page.evaluate('window.__WS__[0].close(1006)');
+    await page.evaluate('window.__PLAYER__.enterPortalForTest(0)');
+    expect((await page.evaluate('window.__PLAZA__.rtStatus()')) as Record<string, unknown>).toMatchObject({
+      joined: false,
+      pendingPortal: 'prontera-payon',
+    });
+
+    // Reconnect (1s backoff). Again nothing but the hello before the welcome...
+    await page.waitForFunction('window.__WS__.length === 2', { timeout: 5_000 });
+    await page.evaluate('window.__WS__[1]._open()');
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await sentOn(1)).map((f) => f.type)).toEqual(['hello']);
+
+    // ...then the welcome: my real position goes out first (the room just put
+    // me back at spawn), then the queued portal entry, with fresh seqs.
+    const gate = (await page.evaluate(`(() => {
+      const p = window.__PLAZA__.portals[0].rect;
+      return { x: p.x + p.w / 2, y: p.y + p.h / 2 };
+    })()`)) as { x: number; y: number };
+    await page.evaluate(`window.__WS__[1]._recv(${welcome})`);
+    const after = (await sentOn(1)).slice(1);
+    expect(after.map((f) => f.type)).toEqual(['move_to', 'portal_enter']);
+    expect(after[0].x).toBeCloseTo(gate.x, 2);
+    expect(after[0].y).toBeCloseTo(gate.y, 2);
+    expect(after[1]).toMatchObject({ portal: 'prontera-payon', to: 'plaza-2' });
+    expect(after[1].seq!).toBeGreaterThan(after[0].seq!);
+    expect(await page.evaluate('window.__PLAZA__.rtStatus().pendingPortal')).toBeNull();
+
+    // The room can't warp me (Payon is full): the owner is told, not left guessing.
+    await page.evaluate(`window.__WS__[1]._recv({ type: 'warp_failed', to: 'plaza-2', reason: 'town_full' })`);
+    const toast = (await page.evaluate(`(() => {
+      const el = document.querySelector('#toast');
+      return { hidden: el.hidden, text: el.textContent, live: el.getAttribute('aria-live') };
+    })()`)) as { hidden: boolean; text: string; live: string };
+    expect(toast.hidden).toBe(false);
+    expect(toast.text).toContain('Payon is full');
+    expect(toast.live).toBe('polite');
+    expect(await page.evaluate('window.__PLAYER__.lastRedirect')).toBeUndefined(); // stayed put
+
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('click-to-pet spawns a heart emote on a buddy (RO /heart)', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });

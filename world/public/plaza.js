@@ -1139,6 +1139,15 @@
     let backoff = 1000;
     let stopped = false; // a fatal auth close (1008) parks reconnection
     let currentToken = null; // the control token this socket authenticated with
+    // True once the room has welcomed this socket. Intents only go out after
+    // that: a frame that races the hello (still authenticating) is refused as
+    // unauthenticated and closes the socket for good.
+    let joined = false;
+    let pendingPortal = null; // a gate entered while offline, replayed on the next welcome
+
+    function canSend() {
+      return joined && !!socket && socket.readyState === 1;
+    }
 
     function storedToken() {
       try { return localStorage.getItem(LS_KEY); } catch { return null; }
@@ -1208,13 +1217,30 @@
           // The room's public id for me (anon-masked, matching the plaza's own
           // key) is the sprite I control — not necessarily /v1/me's real slug.
           if (msg.self) state.meSlug = msg.self;
+          joined = true;
           applySnapshot(msg.actors);
+          resyncAfterWelcome();
           break;
         case 'join': applySnapshot([msg.actor]); break;
         case 'snapshot': applySnapshot(msg.actors); break;
         case 'leave': { const a = actors.get(msg.slug); if (a) a.remote = false; break; }
         case 'room_redirect': doRedirect(msg); break;
+        case 'warp_failed': showToast(warpFailedText(msg)); break;
       }
+    }
+
+    // Every hello (first connect or reconnect) puts me at the room's spawn. If
+    // I've been driving my sprite, tell the room where it really is so peers
+    // don't see me at the fountain, then replay a gate I walked into while the
+    // socket was down — but only if I'm still standing in it.
+    function resyncAfterWelcome() {
+      const actor = ownerActor();
+      const pending = pendingPortal;
+      pendingPortal = null;
+      if (!actor || !actor.owned) return;
+      const f = toFraction(actor.x, actor.y);
+      sendMoveTo(f.x, f.y);
+      if (pending && actor.inPortal === pending.id) sendPortalEnter(pending);
     }
 
     // Portal warp landed server-side: my buddy now lives in msg.district. A DO
@@ -1245,6 +1271,7 @@
       let ws;
       try { ws = new WebSocket(wsUrl()); } catch { scheduleReconnect(token); return; }
       socket = ws;
+      joined = false;
       ws.addEventListener('open', () => {
         backoff = 1000;
         ws.send(JSON.stringify({ type: 'hello', controlToken: token, slug: state.meSlug || undefined, lastSeq: seq }));
@@ -1255,6 +1282,7 @@
       });
       ws.addEventListener('close', (ev) => {
         socket = null;
+        joined = false;
         // 1008 = policy/auth violation (bad/expired token, wrong room): the
         // token won't get better on retry, so stop hammering the room.
         if (ev && ev.code === 1008) { stopped = true; return; }
@@ -1270,26 +1298,36 @@
 
     // Emit an owner move intent. seq is monotonic so the room drops stale/out-of
     // -order frames. Fire-and-forget: if the socket is down, the local sprite
-    // still walks; peers catch up on the next connected frame.
+    // still walks; the next welcome re-sends where it ended up.
     function sendMoveTo(fx, fy) {
       seq += 1;
       const msg = { type: 'move_to', seq, x: fx, y: fy, clientTs: Date.now() };
       state.lastMoveTo = msg; // test hook
-      if (socket && socket.readyState === 1) { try { socket.send(JSON.stringify(msg)); } catch {} }
+      if (canSend()) { try { socket.send(JSON.stringify(msg)); } catch {} }
     }
 
     // Emit a portal-enter intent when the owner sprite walks into a gate. Reuses
     // the monotonic seq (shared with move_to) so the room drops a duplicate
     // portal_enter. Carries the control token so the room can validate the move
-    // against my own citizen (and only mine). Fire-and-forget like move_to.
+    // against my own citizen (and only mine). NOT fire-and-forget: checkPortal
+    // latches after one attempt, so an attempt made while the socket is down is
+    // queued and replayed on the next welcome instead of silently lost.
     function sendPortalEnter(portal) {
       seq += 1;
       const msg = { type: 'portal_enter', seq, portal: portal.id, to: portal.to, controlToken: currentToken || undefined };
       state.lastPortalEnter = msg; // test hook
-      if (socket && socket.readyState === 1) { try { socket.send(JSON.stringify(msg)); } catch {} }
+      if (canSend()) {
+        try { socket.send(JSON.stringify(msg)); pendingPortal = null; return true; } catch {}
+      }
+      pendingPortal = portal;
+      return false;
     }
 
-    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo, sendPortalEnter };
+    function status() { // test hook
+      return { joined, connected: !!socket && socket.readyState === 1, pendingPortal: pendingPortal ? pendingPortal.id : null };
+    }
+
+    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo, sendPortalEnter, status };
   })();
 
   // The sprite I control, if any (keyed by the plaza's public slug).
@@ -1319,7 +1357,8 @@
   // DRIVEN owner (owned === true, i.e. you've clicked at least once) can warp,
   // so a fresh spawn that happens to sit on a gate never auto-travels. Firing is
   // EDGE-triggered: portal_enter goes out once on entry, not every resident
-  // frame; leaving the rect re-arms it.
+  // frame; leaving the rect re-arms it. If the socket is down at that moment,
+  // RT queues the attempt and replays it on reconnect while I'm still inside.
   function checkPortal(actor) {
     if (!actor || !actor.owned || !portalsHere.length) return;
     const f = RT.toFraction(actor.x, actor.y);
@@ -1355,10 +1394,34 @@
     if (!actor || !portalsHere.length) return null;
     const p = portalsHere[i % portalsHere.length];
     const c = RT.toPixel(p.rect.x + p.rect.w / 2, p.rect.y + p.rect.h / 2);
-    actor.x = c.x; actor.y = c.y; actor.owned = true; actor.inPortal = null;
+    actor.x = c.x; actor.y = c.y; actor.tx = c.x; actor.ty = c.y; // park in the gate
+    actor.owned = true; actor.inPortal = null;
     checkPortal(actor);
     return state.lastPortalEnter || null;
   };
+  state.rtStatus = RT.status;
+
+  // ── room feedback toast (e.g. a failed warp) ──────────────────────────
+  // textContent only: the reason string comes off the wire.
+  const toastEl = document.getElementById('toast');
+  let toastTimer = null;
+  function showToast(text) {
+    state.lastToast = text; // test hook
+    if (!toastEl) return;
+    toastEl.textContent = text;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.hidden = true; toastEl.textContent = ''; }, 5000);
+  }
+  function warpFailedText(msg) {
+    const to = msg && typeof msg.to === 'string' && /^plaza-\d+$/.test(msg.to) ? townFor(msg.to).name : 'that town';
+    switch (msg && msg.reason) {
+      case 'town_full': return `🚧 ${to} is full right now. Try the gate again in a bit.`;
+      case 'no_portal':
+      case 'unknown_town': return `🌀 That gate doesn't lead anywhere from here.`;
+      default: return `🌀 The warp to ${to} didn't go through. Step out and back into the gate to retry.`;
+    }
+  }
 
   canvas.addEventListener('click', (ev) => {
     const rect = canvas.getBoundingClientRect();
