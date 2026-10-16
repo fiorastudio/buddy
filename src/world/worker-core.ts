@@ -15,6 +15,8 @@ import {
   handleBrowserSession,
   handleMe,
   RateLimiter,
+  NEW_CITIZENS_PER_IP_PER_DAY,
+  NEW_CITIZEN_WINDOW_MS,
   type HandlerResult,
 } from '../lib/world/handlers.js';
 import { districtForTown } from '../lib/world/towns.js';
@@ -25,6 +27,8 @@ export interface WorldWorkerConfig {
   db: D1Like;
   baseUrl: string;
   ratePerMinute?: number;
+  // Brand-new citizens one IP may create per day (default NEW_CITIZENS_PER_IP_PER_DAY).
+  newCitizensPerDay?: number;
   now?: () => number;
   // The WorldRoom Durable Object namespace. Absent in older/preview contexts —
   // the live route then reports 503 rather than crashing.
@@ -47,6 +51,10 @@ function json(result: HandlerResult): Response {
 
 export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Request) => Promise<Response> {
   const limiter = new RateLimiter(config.ratePerMinute ?? 60, 60_000);
+  const newCitizenLimiter = new RateLimiter(
+    config.newCitizensPerDay ?? NEW_CITIZENS_PER_IP_PER_DAY,
+    NEW_CITIZEN_WINDOW_MS
+  );
   const now = config.now ?? (() => Date.now());
   let storePromise: Promise<WorldStore> | null = null;
 
@@ -137,7 +145,14 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
         const s = await store();
         switch (url.pathname) {
           case '/v1/teleport':
-            return json(await handleTeleport(payload, s, opts));
+            // Per-IP new-citizen throttle: consulted only when this teleport
+            // would mint a NEW citizen (re-teleports never spend it).
+            return json(
+              await handleTeleport(payload, s, {
+                ...opts,
+                allowNewCitizen: () => newCitizenLimiter.allow(`new:${ip}`, opts.now),
+              })
+            );
           case '/v1/events':
             return json(await handleEvents(payload, s, opts));
           case '/v1/recall':

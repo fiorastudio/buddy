@@ -99,6 +99,37 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(JSON.stringify(world)).not.toContain('tokenhash');
   });
 
+  it('districtCounts counts only visible citizens seen since the cutoff', async () => {
+    await store.teleport('fresh-1', snap({ name: 'Fresh' }), T0, 'plaza-2');
+    await store.teleport('fresh-2', snap({ name: 'Fresher' }), T0 + 10, 'plaza-2');
+    await store.teleport('stale-1', snap({ name: 'Stale' }), T0 - 1, 'plaza-2');
+    await store.teleport('hidden-1', snap({ name: 'Hidden' }), T0, 'plaza-2');
+    await store.recall('hidden-1', false);
+    expect((await store.districtCounts(T0))['plaza-2']).toBe(2); // stale + hidden excluded
+    expect((await store.districtCounts(T0 - 1))['plaza-2']).toBe(3); // cutoff is inclusive
+    // A stale citizen who syncs again (events bump last_seen_at) counts again.
+    const stale = (await store.findByTokenHash('stale-1'))!;
+    await store.recordEvents(stale.id, [{ type: 'commit', ts: T0 + 20 }]);
+    expect((await store.districtCounts(T0))['plaza-2']).toBe(3);
+  });
+
+  it('district() returns residents seen since the cutoff, capped at the most recent, in arrival order', async () => {
+    await store.teleport('a', snap({ name: 'Alpha' }), T0 - 100); // stale at cutoff T0 - 50
+    await store.teleport('b', snap({ name: 'Bravo' }), T0);
+    await store.teleport('c', snap({ name: 'Charlie' }), T0 + 1);
+    await store.teleport('d', snap({ name: 'Delta' }), T0 + 2);
+    const all = await store.district('plaza-1', 0, T0 - 50);
+    expect(all.citizens.map((c) => c.name)).toEqual(['Bravo', 'Charlie', 'Delta']);
+    // Limit keeps the MOST RECENTLY SEEN, but still returns them in created order.
+    const capped = await store.district('plaza-1', 0, T0 - 50, 2);
+    expect(capped.citizens.map((c) => c.name)).toEqual(['Charlie', 'Delta']);
+    // Bravo syncs again and becomes the most recently seen.
+    const bravo = (await store.findByTokenHash('b'))!;
+    await store.recordEvents(bravo.id, [{ type: 'commit', ts: T0 + 3 }]);
+    const after = await store.district('plaza-1', 0, T0 - 50, 2);
+    expect(after.citizens.map((c) => c.name)).toEqual(['Bravo', 'Delta']);
+  });
+
   it('everyone lands in the same place (Prontera) — no capacity sharding', async () => {
     // Districts are named towns now, not overflow shards, so all teleports land
     // together in plaza-1 (Prontera); moving elsewhere is an explicit `warp`.

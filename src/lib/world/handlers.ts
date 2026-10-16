@@ -10,10 +10,19 @@ import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
 import { districtForTown, townForDistrict } from './towns.js';
 import { portalBetween, spawnInto } from './portals.js';
-import { DISTRICT_CAPACITY } from './districts.js';
+import { DISTRICT_CAPACITY, RESIDENT_WINDOW_MS, WORLD_CITIZEN_LIMIT, isCapacityGated } from './districts.js';
 import type { WorldStore, CitizenRow } from './store.js';
 
 export const MAX_EVENT_BATCH = 50;
+
+// New-citizen throttle: how many NEW world tokens one IP may turn into citizens
+// per day (re-teleports of an existing citizen are not counted). An honest
+// machine creates one citizen ever; 20 leaves room for a shared office/NAT
+// onboarding together while stopping a single IP from minting hundreds of
+// self-issued tokens to pack towns (release audit B2). Enforced by the worker
+// with the same best-effort, per-isolate RateLimiter as the request limit.
+export const NEW_CITIZENS_PER_IP_PER_DAY = 20;
+export const NEW_CITIZEN_WINDOW_MS = 86_400_000;
 
 // Browser identity (M1). The control token is scoped to driving your own sprite;
 // it is NOT the world token and can never teleport/recall/write XP.
@@ -35,6 +44,19 @@ export interface HandlerOpts {
   // or the `cf-ipcountry` header). Server-derived from the IP, so it's not
   // client-spoofable. Absent off-Cloudflare (tests, self-host).
   country?: string;
+  // New-citizen throttle hook (worker: per-IP RateLimiter). Called ONLY when a
+  // teleport is about to create a brand-new citizen; returning false refuses it
+  // with 429. Absent = unthrottled (tests, self-host).
+  allowNewCitizen?: () => boolean;
+}
+
+// Does `district` have room for one more resident? The hub is never gated (see
+// districts.ts); satellites count only visible citizens seen within the
+// resident window, so long-gone and recalled buddies don't hold slots forever.
+async function hasRoom(store: WorldStore, district: string, now: number): Promise<boolean> {
+  if (!isCapacityGated(district)) return true;
+  const counts = await store.districtCounts(now - RESIDENT_WINDOW_MS);
+  return (counts[district] ?? 0) < DISTRICT_CAPACITY;
 }
 
 export function hashToken(token: string): string {
@@ -92,6 +114,7 @@ export async function handleTeleport(
   if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
 
   const tokenHash = hashToken(payload.token);
+  const current = await store.findByTokenHash(tokenHash);
 
   // Optional chosen destination: an owner may pick a town by name (or plaza-N)
   // to teleport into, or move to when re-teleporting.
@@ -100,13 +123,18 @@ export async function handleTeleport(
     if (typeof payload.district !== 'string') return bad(400, 'unknown_town');
     const resolved = districtForTown(payload.district);
     if (!resolved) return bad(400, 'unknown_town');
-    // Capacity gate — but never bounce someone who already lives there.
-    const counts = await store.districtCounts();
-    if ((counts[resolved] ?? 0) >= DISTRICT_CAPACITY) {
-      const current = await store.findByTokenHash(tokenHash);
-      if (current?.district !== resolved) return bad(409, 'town_full');
+    // Capacity gate — but never bounce someone who already lives there, and
+    // never gate the hub (Prontera is everyone's landing spot and way home).
+    if (current?.district !== resolved && !(await hasRoom(store, resolved, opts.now))) {
+      return bad(409, 'town_full');
     }
     desiredDistrict = resolved;
+  }
+  // Throttle brand-new citizens per network, checked last (so a refused town
+  // doesn't spend the budget) but BEFORE anything is written, so self-minted
+  // tokens can't be farmed into a town-filling crowd.
+  if (!current && opts.allowNewCitizen && !opts.allowNewCitizen()) {
+    return bad(429, 'too many new buddies from this network; try again later');
   }
   // ACCEPTED RISK: a first teleport's claimed XP is trusted (the server
   // never saw the buddy's local history — that's inherent to opt-in sync
@@ -306,9 +334,9 @@ export async function handlePortalWarp(
   if (!portalBetween(from, target)) return bad(400, 'no_portal');
 
   // Capacity gate. `from !== target` here, so this citizen is genuinely moving
-  // in and legitimately counts against the cap — mirroring handleTeleport.
-  const counts = await store.districtCounts();
-  if ((counts[target] ?? 0) >= DISTRICT_CAPACITY) return bad(409, 'town_full');
+  // in and legitimately counts against the cap — mirroring handleTeleport. The
+  // hub is never gated, so a satellite's portal home ALWAYS works.
+  if (!(await hasRoom(store, target, opts.now))) return bad(409, 'town_full');
 
   // District-ONLY write: the scoped token must never touch xp/level.
   await store.setDistrict(citizen.id, target);
@@ -320,7 +348,14 @@ export async function handleWorld(
   store: WorldStore,
   _opts: HandlerOpts
 ): Promise<HandlerResult> {
-  const view = await store.district(district, _opts.now - 3_600_000);
+  // Residents only (seen within RESIDENT_WINDOW_MS), bounded — this is polled
+  // every 10s by every open plaza, so it must never ship every citizen ever.
+  const view = await store.district(
+    district,
+    _opts.now - 3_600_000,
+    _opts.now - RESIDENT_WINDOW_MS,
+    WORLD_CITIZEN_LIMIT
+  );
   const anonSlugByReal = new Map<string, string>();
 
   const citizens = view.citizens.map((c) => {

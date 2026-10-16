@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS citizens (
   last_seen_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_citizens_district ON citizens(district) WHERE hidden = 0;
+CREATE INDEX IF NOT EXISTS idx_citizens_district_seen ON citizens(district, last_seen_at) WHERE hidden = 0;
 
 CREATE TABLE IF NOT EXISTS world_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
