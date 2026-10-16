@@ -37,6 +37,12 @@ new_sqlite_classes = ["WorldRoom"]
 [vars]
 BASE_URL = "https://buddyworldonline.com"
 
+# Secrets — never in this file. Set once per deployment:
+#   wrangler secret put ANON_SECRET   (any long random string)
+# Keys the anon-buddy mask (handlers.publicSlug). Without it the Worker logs an
+# error and falls back to a PUBLIC dev key, so anon buddies are unmaskable.
+# Changing it re-masks every anon buddy (their public ids change once).
+
 # Nightly analytics rollup (spec: daily_rollups)
 [triggers]
 crons = ["17 0 * * *"]

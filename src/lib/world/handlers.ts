@@ -3,7 +3,7 @@
 // Worker (and any future host) adapts HTTP to these; all logic and
 // validation lives here where it is tested against a real SQLite store.
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { validateSnapshot, type WorldSnapshot } from './validate.js';
 import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
@@ -35,11 +35,88 @@ export interface HandlerOpts {
   // or the `cf-ipcountry` header). Server-derived from the IP, so it's not
   // client-spoofable. Absent off-Cloudflare (tests, self-host).
   country?: string;
+  // Server secret keying the anon mask (see publicSlug). Production sets it
+  // with `wrangler secret put ANON_SECRET`; absent → DEV_ANON_SECRET.
+  anonSecret?: string;
 }
 
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
+
+// The id a citizen is known by in PUBLIC surfaces (/v1/world, announcements,
+// live rooms): the real slug, or a stable `anon-xxxxxx` mask when anon. One
+// definition so the room's wire identity can never drift from the plaza's.
+//
+// The mask is an HMAC keyed by a SERVER SECRET (B10). Slugs are public (every
+// non-anon buddy shows one, and an anon buddy showed its own before toggling),
+// so an unkeyed hash let anyone precompute slug → mask and unmask anon buddies.
+export const DEV_ANON_SECRET = 'buddy-world-dev-anon-secret--set-ANON_SECRET-in-production';
+export function publicSlug(c: { slug: string; anon: boolean }, secret?: string): string {
+  if (!c.anon) return c.slug;
+  const mac = createHmac('sha256', secret || DEV_ANON_SECRET).update(c.slug).digest('hex');
+  return `anon-${mac.slice(0, 6)}`;
+}
+
+// The plaza's activity thresholds (world/public/plaza.js ACTIVE_WINDOW_MS /
+// IDLE_SIT_MS): a glow under 15 min, a long-AFK sit from 3 h.
+const ANON_ACTIVE_MS = 15 * 60_000;
+const ANON_SIT_MS = 3 * 3_600_000;
+
+// An anon buddy's last_seen_at, coarsened to the three states the plaza
+// renders (active / idle / long-AFK) instead of a millisecond timestamp that
+// can be matched against the owner's activity elsewhere. Each bucket sits well
+// inside its band, so a client clock a few minutes off renders the same.
+export function coarseLastSeen(lastSeenAt: number, now: number): number {
+  const minute = now - (now % 60_000);
+  const age = now - lastSeenAt;
+  if (age < ANON_ACTIVE_MS) return minute;
+  if (age < ANON_SIT_MS) return minute - 3_600_000;
+  return minute - 24 * 3_600_000;
+}
+
+// The highest stat, ties to the first in the canonical order — the plaza's
+// behavior pick (dominantStat) needs only which one leads, not the numbers.
+const STAT_ORDER = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'] as const;
+function peakStat(stats: Record<string, number> | null | undefined): string {
+  let peak: string = STAT_ORDER[0];
+  for (const k of STAT_ORDER) if ((stats?.[k] ?? 0) > (stats?.[peak] ?? 0)) peak = k;
+  return peak;
+}
+
+// The public view of an ANON citizen: an allow-list of what the plaza renders,
+// at the coarsest grain that still renders it. Dropped: created_at, exact xp,
+// the five exact stats, hat, skin, rarity, the eye glyph — together a
+// fingerprint that matched the masked buddy back to its public self. Kept:
+// species/level/mood/avatar/shiny (sprite and nameplate), the leading stat
+// (wander behavior), coarse activity. New columns stay private by default.
+function anonView(c: Omit<CitizenRow, 'id'>, opts: HandlerOpts) {
+  return {
+    slug: publicSlug(c, opts.anonSecret),
+    name: `a wild ${c.species}`,
+    species: c.species,
+    level: c.level,
+    mood: c.mood,
+    shiny: c.shiny,
+    avatar: c.avatar,
+    eye: '·',
+    stats: { [peakStat(c.stats as unknown as Record<string, number>)]: 1 },
+    anon: true,
+    country: null,
+    district: c.district,
+    last_seen_at: coarseLastSeen(c.last_seen_at, opts.now),
+  };
+}
+
+// Privacy changes made over HTTP must reach sockets already live in a room
+// (a Durable Object). The host injects this; the handlers stay host-agnostic
+// and it is simply absent (no-op) where there are no rooms (tests, self-host).
+//   evict   — recall/purge: drop the citizen's live socket(s) for good.
+//   relabel — anon toggle: re-key the live actor under its new public slug.
+export type RoomNotice =
+  | { kind: 'evict'; citizenId: string }
+  | { kind: 'relabel'; citizenId: string; slug: string };
+export type RoomNotifier = (notice: RoomNotice) => Promise<void>;
 
 // Sanitize an origin country to a bare ISO 3166-1 alpha-2 code, or null.
 // Cloudflare uses `XX`/`T1` sentinels for unknown/Tor — those normalize away
@@ -165,22 +242,37 @@ export async function handleEvents(
 
 export async function handleRecall(
   payload: { token?: unknown; purge?: unknown },
-  store: WorldStore
+  store: WorldStore,
+  notifyRooms?: RoomNotifier
 ): Promise<HandlerResult> {
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
-  const ok = await store.recall(hashToken(payload.token), payload.purge === true);
-  if (!ok) return bad(401, 'unknown token');
+  const tokenHash = hashToken(payload.token);
+  // Resolve the id BEFORE the write: a purge deletes the row.
+  const citizen = await store.findByTokenHash(tokenHash);
+  const ok = await store.recall(tokenHash, payload.purge === true);
+  if (!ok || !citizen) return bad(401, 'unknown token');
+  // The store already revoked every control token; this kicks the socket(s)
+  // that are connected right now, which never re-authenticate on their own.
+  await notifyRooms?.({ kind: 'evict', citizenId: citizen.id });
   return { status: 200, body: { recalled: true, purged: payload.purge === true } };
 }
 
 export async function handleAnon(
   payload: { token?: unknown; anon?: unknown },
-  store: WorldStore
+  store: WorldStore,
+  notifyRooms?: RoomNotifier,
+  opts: Pick<HandlerOpts, 'anonSecret'> = {}
 ): Promise<HandlerResult> {
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
-  const ok = await store.setAnon(hashToken(payload.token), payload.anon === true);
+  const anon = payload.anon === true;
+  const tokenHash = hashToken(payload.token);
+  const ok = await store.setAnon(tokenHash, anon);
   if (!ok) return bad(401, 'unknown token');
-  return { status: 200, body: { anon: payload.anon === true } };
+  const citizen = await store.findByTokenHash(tokenHash);
+  // A live socket keeps the identity it joined with; re-key it to the new
+  // public slug (masked exactly like /v1/world) so `anon on` takes effect now.
+  if (citizen) await notifyRooms?.({ kind: 'relabel', citizenId: citizen.id, slug: publicSlug({ ...citizen, anon }, opts.anonSecret) });
+  return { status: 200, body: { anon } };
 }
 
 // browser-link: the owner proves control with the REAL world token and gets a
@@ -265,8 +357,11 @@ export async function handleMe(
 // capacity gate (409 when the destination is full) with the same "never bounce
 // someone already there" exception, and is IDEMPOTENT: a buddy already in the
 // destination gets success, not a capacity failure. Updates D1 `district` only.
+// `citizenId` is the live socket's owner (the room passes it): the token must
+// resolve to that same citizen, so a socket can't warp a buddy it doesn't own
+// with someone else's token (B15).
 export async function handlePortalWarp(
-  payload: { controlToken?: unknown; to?: unknown },
+  payload: { controlToken?: unknown; to?: unknown; citizenId?: string },
   store: WorldStore,
   opts: HandlerOpts
 ): Promise<HandlerResult> {
@@ -275,6 +370,9 @@ export async function handlePortalWarp(
   }
   const found = await store.findCitizenByBrowserToken(hashToken(payload.controlToken), opts.now);
   if (!found) return bad(401, 'invalid control token');
+  if (payload.citizenId !== undefined && found.citizen.id !== payload.citizenId) {
+    return bad(403, 'not_your_buddy');
+  }
   // Scope belt-and-braces: a control token minted for anything other than
   // portal_warp cannot drive this path (today all tokens carry both scopes).
   if (!found.scope.split(',').includes('portal_warp')) return bad(403, 'insufficient scope');
@@ -327,10 +425,11 @@ export async function handleWorld(
     // Internal moderation/accounting fields never leave the server.
     const { flagged: _f, hidden: _h, xp_bucket: _b, ...pub } = c;
     if (!pub.anon) return pub;
-    const masked = `anon-${hashToken(pub.slug).slice(0, 6)}`;
-    anonSlugByReal.set(pub.slug, masked);
-    // Anon = minimal identity: no real name, no country flag.
-    return { ...pub, name: `a wild ${pub.species}`, slug: masked, country: null };
+    // Anon = minimal identity: no real name, no country flag, nothing that
+    // fingerprints the buddy back to its public self (anonView).
+    const view = anonView(c, _opts);
+    anonSlugByReal.set(c.slug, view.slug);
+    return view;
   });
 
   const events = view.events.map((e) =>
@@ -364,7 +463,7 @@ export async function handleAnnouncements(
     if (!r.anon) return { ...base, name: r.name, slug: r.slug };
     // Anon = minimal identity: broadcast as "a wild <species>", masked slug —
     // the same masking handleWorld applies to the per-town event stream.
-    return { ...base, name: `a wild ${r.species}`, slug: `anon-${hashToken(r.slug).slice(0, 6)}` };
+    return { ...base, name: `a wild ${r.species}`, slug: publicSlug(r, _opts.anonSecret) };
   });
   return { status: 200, body: { announcements } };
 }
