@@ -359,3 +359,58 @@ describe('room-core pure helpers', () => {
     expect(dirty).toEqual(['b', 'c']);
   });
 });
+
+// B9: an HTTP-side recall/purge/anon change must take effect on a socket that
+// is ALREADY live — it never re-authenticates on its own.
+describe('room-core server-initiated identity changes (recall / anon)', () => {
+  it('a successful hello surfaces the owner id for the adapter, but never on the wire', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'anon-1a2b3c', district: DISTRICT, citizenId: 'cit-123' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, JSON.stringify({ type: 'hello', controlToken: 'good-control-token' }), []);
+    expect(res.citizenId).toBe('cit-123');
+    expect(res.attach).toEqual({ slug: 'anon-1a2b3c', x: 0.5, y: 0.5, seq: 0 }); // no citizenId in ActorState
+    const wire = JSON.stringify([...rec.sent.map((s) => s.msg), ...rec.broadcasts.map((b) => b.msg)]);
+    expect(wire).not.toContain('cit-123');
+  });
+
+  it('evict: peers hear one leave, the socket is detached and closed 1008 (no reconnect)', () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = core.evict('me', actor('shadowpaw-ab12', { x: 0.3, y: 0.4, seq: 7 }));
+    expect(res.detach).toBe(true);
+    expect(res.attach).toBeUndefined();
+    expect(res.close?.code).toBe(1008);
+    expect(rec.broadcasts).toEqual([{ msg: { type: 'leave', slug: 'shadowpaw-ab12' }, except: 'me' }]);
+    expect(rec.sent).toEqual([{ socket: 'me', msg: { type: 'error', error: 'recalled' } }]);
+  });
+
+  it('relabel (anon on): peers see the real slug leave and the masked one join; owner is re-welcomed', () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const peers = [{ socket: 'peerA', state: actor('mistcoil-99') }];
+    const res = core.relabel('me', actor('shadowpaw-ab12', { x: 0.3, y: 0.4, seq: 7 }), 'anon-1a2b3c', peers);
+
+    // Position and seq carry over; only the public id changes.
+    expect(res.attach).toEqual({ slug: 'anon-1a2b3c', x: 0.3, y: 0.4, seq: 7 });
+    expect(res.close).toBeUndefined();
+    expect(rec.broadcasts.map((b) => [b.msg.type, b.except])).toEqual([
+      ['leave', 'me'],
+      ['join', 'me'],
+    ]);
+    expect((rec.broadcasts[0].msg as Extract<ServerMsg, { type: 'leave' }>).slug).toBe('shadowpaw-ab12');
+    expect((rec.broadcasts[1].msg as Extract<ServerMsg, { type: 'join' }>).actor.slug).toBe('anon-1a2b3c');
+    const welcome = rec.sent.find((s) => s.socket === 'me')!.msg as Extract<ServerMsg, { type: 'welcome' }>;
+    expect(welcome).toEqual({ type: 'welcome', district: DISTRICT, self: 'anon-1a2b3c', actors: [actor('mistcoil-99')] });
+    // Nothing that follows the swap carries the real slug.
+    expect(JSON.stringify([welcome, rec.broadcasts[1].msg])).not.toContain('shadowpaw');
+  });
+
+  it('relabel to the same slug is a no-op (no churn, nothing sent)', () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = core.relabel('me', actor('shadowpaw-ab12'), 'shadowpaw-ab12', []);
+    expect(res).toEqual({});
+    expect(rec.sent).toHaveLength(0);
+    expect(rec.broadcasts).toHaveLength(0);
+  });
+});

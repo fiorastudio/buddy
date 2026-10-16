@@ -13,6 +13,12 @@
 // in M2 just needs a well-defined starting point to broadcast.
 export const ROOM_SPAWN = { x: 0.5, y: 0.5 } as const;
 
+// Internal worker -> room channel for HTTP-side privacy changes (RoomNotice in
+// handlers.ts). The worker forwards a CLIENT request to a room only as a
+// websocket upgrade on /v1/live/<town>, so a non-upgrade POST to this path can
+// only originate from the worker itself.
+export const ROOM_NOTICE_PATH = '/__internal/notice';
+
 // Result of authenticating a hello's control token. `slug` is the PUBLIC id
 // (already anon-masked by the adapter, exactly like handleWorld) so this module
 // never sees a real anon slug. `district` is the buddy's town — it must match
@@ -20,6 +26,10 @@ export const ROOM_SPAWN = { x: 0.5, y: 0.5 } as const;
 export interface AuthResult {
   slug: string;
   district: string;
+  // Server-side owner id. NEVER put on the wire (it is not part of ActorState);
+  // the adapter stores it beside the actor so an HTTP-side recall/anon change
+  // can find this citizen's live socket.
+  citizenId?: string;
 }
 
 // A live actor as seen on the wire. Public id only; positions default to spawn.
@@ -83,6 +93,9 @@ export interface HandleResult {
   // close handler eventually fires. The departure `leave` is already broadcast,
   // so the ensuing close no-ops (a null actor has nothing to announce).
   detach?: boolean;
+  // The authenticated owner (hello success only) — for the adapter to persist
+  // privately alongside `attach`, never broadcast.
+  citizenId?: string;
 }
 
 // Fractional map coordinate: finite and within the unit square.
@@ -176,7 +189,7 @@ export class RoomCore<S> {
         actors: peers.map((p) => p.state),
       });
       this.port.broadcast({ type: 'join', actor: state }, socket);
-      return { attach: state };
+      return { attach: state, citizenId: auth.citizenId };
     }
 
     // Authenticated frames. M2 is presence-only; movement (move_to, using
@@ -235,6 +248,36 @@ export class RoomCore<S> {
         // Unknown/not-yet-supported verb: ignore rather than disconnect.
         return {};
     }
+  }
+
+  // Server-initiated removal: the owner recalled or purged this buddy over HTTP.
+  // Peers hear one `leave`; the socket is detached at once (out of every
+  // presence path) and closed with 1008 so the client stops reconnecting —
+  // its control token is revoked, so a retry would fail auth anyway.
+  evict(socket: S, attachment: ActorState): HandleResult {
+    this.port.broadcast({ type: 'leave', slug: attachment.slug }, socket);
+    this.port.send(socket, { type: 'error', error: 'recalled' });
+    return { detach: true, close: { code: CLOSE_POLICY, reason: 'recalled' } };
+  }
+
+  // The owner toggled anon over HTTP: re-key the live actor under its new
+  // public slug in place. Peers see the old id leave and the new one join, so
+  // nothing broadcast from here on carries the real slug (an observer watching
+  // at that instant can correlate the swap, as with /v1/world — anon governs
+  // what is published going forward). The owner gets a fresh welcome so its
+  // client learns the id it now controls. Position and seq carry over.
+  relabel(socket: S, attachment: ActorState, slug: string, peers: Peer<S>[]): HandleResult {
+    if (slug === attachment.slug) return {};
+    const state: ActorState = { ...attachment, slug };
+    this.port.broadcast({ type: 'leave', slug: attachment.slug }, socket);
+    this.port.send(socket, {
+      type: 'welcome',
+      district: this.district,
+      self: slug,
+      actors: peers.map((p) => p.state),
+    });
+    this.port.broadcast({ type: 'join', actor: state }, socket);
+    return { attach: state };
   }
 
   // A socket dropped. If it had joined, tell the room it left.
