@@ -3,7 +3,7 @@ import { writeFileSync, readFileSync, mkdirSync, unlinkSync, existsSync } from '
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
-  ERROR_REGEX,
+  looksLikeError,
   handlePostToolUse,
   hasActiveReaction,
   writeConcernedReaction,
@@ -14,65 +14,94 @@ import {
 // Error Regex
 // ---------------------------------------------------------------------------
 
-describe('ERROR_REGEX', () => {
+describe('looksLikeError', () => {
   describe('true positives — should match', () => {
     it('matches "exit code 1"', () => {
-      expect(ERROR_REGEX.test('Command failed with exit code 1')).toBe(true);
+      expect(looksLikeError('Command failed with exit code 1')).toBe(true);
     });
 
     it('matches "exit code 2"', () => {
-      expect(ERROR_REGEX.test('Process exited with exit code 2')).toBe(true);
+      expect(looksLikeError('Process exited with exit code 2')).toBe(true);
     });
 
     it('matches "Error: ENOENT"', () => {
-      expect(ERROR_REGEX.test('Error: ENOENT: no such file or directory')).toBe(true);
+      expect(looksLikeError('Error: ENOENT: no such file or directory')).toBe(true);
     });
 
     it('matches "EACCES"', () => {
-      expect(ERROR_REGEX.test('Error: EACCES: permission denied')).toBe(true);
+      expect(looksLikeError('Error: EACCES: permission denied')).toBe(true);
     });
 
     it('matches "FAILED"', () => {
-      expect(ERROR_REGEX.test('Tests: 3 FAILED, 10 passed')).toBe(true);
+      expect(looksLikeError('Tests: 3 FAILED, 10 passed')).toBe(true);
     });
 
     it('matches "panicked at"', () => {
-      expect(ERROR_REGEX.test("thread 'main' panicked at 'index out of bounds'")).toBe(true);
+      expect(looksLikeError("thread 'main' panicked at 'index out of bounds'")).toBe(true);
     });
 
     it('matches "error:" with word boundary', () => {
-      expect(ERROR_REGEX.test('src/main.rs:5 error: expected expression')).toBe(true);
+      expect(looksLikeError('src/main.rs:5 error: expected expression')).toBe(true);
     });
 
     it('matches case-insensitive "Error:"', () => {
-      expect(ERROR_REGEX.test('TypeError: Cannot read properties')).toBe(true);
+      expect(looksLikeError('TypeError: Cannot read properties')).toBe(true);
     });
   });
 
   describe('false positives — should NOT match', () => {
     it('rejects "error handling added"', () => {
       // "error" followed by space, not colon — no word boundary match on "error:"
-      expect(ERROR_REGEX.test('Added error handling for edge cases')).toBe(false);
+      expect(looksLikeError('Added error handling for edge cases')).toBe(false);
     });
 
     it('rejects "0 errors"', () => {
-      expect(ERROR_REGEX.test('Build completed: 0 errors, 0 warnings')).toBe(false);
+      expect(looksLikeError('Build completed: 0 errors, 0 warnings')).toBe(false);
     });
 
     it('rejects "no failures"', () => {
-      expect(ERROR_REGEX.test('All tests passed with no failures')).toBe(false);
+      expect(looksLikeError('All tests passed with no failures')).toBe(false);
     });
 
     it('rejects "exit code 0"', () => {
-      expect(ERROR_REGEX.test('Process exited with exit code 0')).toBe(false);
+      expect(looksLikeError('Process exited with exit code 0')).toBe(false);
     });
 
     it('rejects normal output', () => {
-      expect(ERROR_REGEX.test('npm install completed successfully')).toBe(false);
+      expect(looksLikeError('npm install completed successfully')).toBe(false);
     });
 
     it('rejects "errorCount" (no colon after error)', () => {
-      expect(ERROR_REGEX.test('errorCount: 0')).toBe(false);
+      expect(looksLikeError('errorCount: 0')).toBe(false);
+    });
+  });
+
+  // X8: detection was case-sensitive in the wrong places.
+  describe('case handling (X8)', () => {
+    it('matches uppercase and mixed-case error markers', () => {
+      for (const s of [
+        'ERROR: Could not find a version that satisfies the requirement foo',
+        'Error: Cannot find module \'x\'',
+        'Exit code 1',
+        'Process exited with code 2',
+        'npm ERR! code ELIFECYCLE',
+        'fatal: not a git repository (or any of the parent directories): .git',
+        'Uncaught FetchError: request failed',
+      ]) {
+        expect(looksLikeError(s), s).toBe(true);
+      }
+    });
+
+    it('does not match isError: false / lowercase "0 failed"', () => {
+      for (const s of [
+        '{"isError": false, "content": []}',
+        'isError: false',
+        'test result: ok. 12 passed; 0 failed; 0 ignored',
+        'no tests failed',
+        'Exit code 0',
+      ]) {
+        expect(looksLikeError(s), s).toBe(false);
+      }
     });
   });
 });

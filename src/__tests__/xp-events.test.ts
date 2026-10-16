@@ -23,6 +23,39 @@ describe('classifySummary (self-report channel)', () => {
     expect(classifySummary('')).toBe('observe');
   });
 
+  // X8: deploy (60 XP) used to fire on the noun / any "release" / "publish".
+  it('does not read deploy nouns, unrelated releases, or negations as deploys', () => {
+    for (const s of [
+      'updated the deploy script',
+      'wrote the release notes',
+      'released the mutex before the await',
+      'deploys run on merge via CI',
+      'drafted docs on how to publish',
+      'published the blog post',
+      "haven't deployed yet",
+      'not deployed to prod yet',
+      'the change has not been shipped to prod',
+      'deploying to prod now',
+    ]) {
+      expect(classifySummary(s), s).not.toBe('deploy');
+    }
+    expect(classifySummary('fixed the deploy script crash')).toBe('bug_fix');
+  });
+
+  it('still classifies completed deploys / releases / publishes', () => {
+    for (const s of [
+      'deployed the worker',
+      'Deployed v2 to staging',
+      'shipped the fix to production',
+      'released v2.0.1',
+      'released a new version of the CLI',
+      'published the package to npm',
+      'published 1.4.0 to PyPI',
+    ]) {
+      expect(classifySummary(s), s).toBe('deploy');
+    }
+  });
+
   it('prefers the richest event when several match', () => {
     // deploy (60) > bug_fix (35) > tests_passed (20) > commit (25)? No —
     // priority is by reward: deploy > bug_fix > commit > tests_passed.
@@ -55,6 +88,21 @@ describe('detectCommandEvent (ground-truth channel)', () => {
 
   it('does not fire tests_passed when tests fail even with exit 0 wrappers', () => {
     expect(detectCommandEvent('Bash', 'npx vitest run', '2 failed | 10 passed', 0)).toBeNull();
+  });
+
+  // X8: "0 failed" is a pass; "0 passed" / real failures are not.
+  it('treats a zero failure count as a pass', () => {
+    expect(detectCommandEvent('Bash', 'cargo test', 'test result: ok. 12 passed; 0 failed; 0 ignored', 0)).toBe('tests_passed');
+    expect(detectCommandEvent('Bash', 'npx jest', 'Tests:       0 failed, 12 passed, 12 total', 0)).toBe('tests_passed');
+    expect(detectCommandEvent('Bash', 'pytest', '5 passed, 0 errors in 0.4s', 0)).toBe('tests_passed');
+  });
+
+  it('still rejects non-zero failures, failure banners, and empty runs', () => {
+    expect(detectCommandEvent('Bash', 'cargo test', 'test result: FAILED. 11 passed; 1 failed', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'npx jest', 'Tests: 10 failed, 2 passed', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'pytest', '4 passed, 1 error in 0.4s', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'pytest', 'FAILED tests/test_x.py::test_y - 3 passed', 0)).toBeNull();
+    expect(detectCommandEvent('Bash', 'npx mocha', '0 passing', 0)).toBeNull();
   });
 
   it('returns null for non-Bash tools and ordinary commands', () => {

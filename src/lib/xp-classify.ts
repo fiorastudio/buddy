@@ -11,8 +11,17 @@ import { XP_REWARDS } from './leveling.js';
 
 export type XpEventType = 'observe' | 'session' | 'commit' | 'tests_passed' | 'bug_fix' | 'deploy';
 
+// Deploy is the richest self-report (60 XP), so it needs a completed act, not
+// the noun: "deploy script", "release notes", "released the lock", "deploys on
+// merge", "publish docs" used to pay as deploys (X8). Past tense only, a
+// target for ship/publish, a version for release — and not when negated
+// ("haven't deployed yet", "not shipped to prod").
+const DEPLOY_DONE = String.raw`(?:deployed|shipped\b.*\bto (?:prod|production)|released v?\d|released (?:a )?(?:new )?version|published\b.*\b(?:npm|pypi|crates\.io|package|registry))`;
+const NOT_NEGATED = String.raw`(?<!(?:\b(?:not|never|without)|n't)\s+(?:(?:been|yet|actually|ever)\s+)?)`;
+const DEPLOY_SUMMARY = new RegExp(String.raw`\b` + NOT_NEGATED + DEPLOY_DONE + String.raw`\b`, 'i');
+
 const SUMMARY_CLASSIFIERS: Array<[XpEventType, RegExp]> = [
-  ['deploy', /\b(deploy(ed|ing|s)?|ship(ped|ping)?( .*)?to prod|released?|publish(ed)? .*(npm|package|release))\b/i],
+  ['deploy', DEPLOY_SUMMARY],
   ['bug_fix', /\b(fix(ed|ing)?|squash(ed)?|resolv(ed|ing)|patch(ed)?)\b.*\b(bug|crash|race|leak|regression|error|issue|flaky|null pointer|exception)\b|\b(bug|crash|regression)\b.*\bfix/i],
   ['commit', /\bcommit(ted|ting)?\b/i],
   ['tests_passed', /\btests?\b.*\b(pass(ing|ed)?|green)\b|\ball (tests? )?(pass(ing|ed)?|green)\b/i],
@@ -76,8 +85,12 @@ const DEPLOY_COMMANDS = [
 const TEST_RUNNER_COMMAND = new RegExp(
   PREFIX + String.raw`(vitest|jest|mocha|pytest|tox|go\s+test|cargo\s+test|npm\s+(t|test)\b|bun\s+test|rspec|phpunit)`
 );
-const TEST_PASS_OUTPUT = /(\d+)\s+pass(ed|ing)/i;
-const TEST_FAIL_OUTPUT = /(\d+)\s+fail(ed|ing)|\bFAILED\b/i;
+// Counts must be non-zero: "0 failed" is a pass (cargo: "12 passed; 0 failed")
+// and "0 passed" is not. The old /i on \bFAILED\b also matched the lowercase
+// word in "0 failed", so a clean cargo/jest-style summary never paid (X8).
+const TEST_PASS_OUTPUT = /\b[1-9]\d*\s+pass(ed|ing)\b/i;
+const TEST_FAIL_OUTPUT = /\b[1-9]\d*\s+(fail(ed|ing|ures?)?|errors?)\b/i;
+const TEST_FAIL_BANNER = /\bFAILED\b/; // uppercase only: pytest/cargo/go banners
 
 function shellSegments(cmd: string): string[] {
   // Strip quoted strings before splitting so a quoted operator like
@@ -104,7 +117,8 @@ export function detectCommandEvent(
   if (
     segments.some((s) => TEST_RUNNER_COMMAND.test(s)) &&
     TEST_PASS_OUTPUT.test(out) &&
-    !TEST_FAIL_OUTPUT.test(out)
+    !TEST_FAIL_OUTPUT.test(out) &&
+    !TEST_FAIL_BANNER.test(out)
   ) {
     return 'tests_passed';
   }
