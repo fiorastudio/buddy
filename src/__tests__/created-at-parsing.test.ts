@@ -18,7 +18,9 @@ describe('parseCreatedAt', () => {
   it('agrees with the old parse only when the machine is on UTC', () => {
     const raw = '2026-04-12 21:48:08';
     const offsetMs = new Date(Date.parse('2026-04-12T21:48:08Z')).getTimezoneOffset() * 60_000;
-    expect(parseCreatedAt(raw) - new Date(raw).getTime()).toBe(-offsetMs);
+    // `0 - offsetMs`, not `-offsetMs`: on a UTC machine (every CI runner)
+    // the offset is 0 and `-0` fails toBe's Object.is check against +0.
+    expect(parseCreatedAt(raw) - new Date(raw).getTime()).toBe(0 - offsetMs);
   });
 
   it('round-trips the ISO form written by the rescue importer', () => {
