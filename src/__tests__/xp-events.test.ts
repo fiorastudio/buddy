@@ -6,6 +6,7 @@ import { classifySummary, detectCommandEvent } from '../lib/xp-classify.js';
 import { appendPendingEvent, consumePendingEvents } from '../lib/pending-events.js';
 import { XP_REWARDS, applyBlessing } from '../lib/leveling.js';
 import { currentStreakFromDays, checkStreakMilestone } from '../lib/streaks.js';
+import { zenyForEvent } from '../lib/zeny.js';
 
 describe('classifySummary (self-report channel)', () => {
   it('classifies deploys, bug fixes, commits, and test wins', () => {
@@ -152,6 +153,33 @@ describe('checkStreakMilestone', () => {
   it('does not fire on non-milestone days', () => {
     const db = dbWith([2, 1], 1);
     expect(checkStreakMilestone(db, 'c1', 1)).toBe(false);
+  });
+
+  // X9: the day query had a 400-day lookback, so every streak was truncated
+  // at the window edge and long streaks stopped hitting milestones.
+  const priorDays = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+
+  it('fires on day 406 (58 weeks) — past the old 400-day window', () => {
+    expect(checkStreakMilestone(dbWith(priorDays(405), 1), 'c1', 1)).toBe(true);
+  });
+
+  it('fires on day 399 and does not fire on day 400 or 405', () => {
+    expect(checkStreakMilestone(dbWith(priorDays(398), 1), 'c1', 1)).toBe(true);
+    expect(checkStreakMilestone(dbWith(priorDays(399), 1), 'c1', 1)).toBe(false);
+    expect(checkStreakMilestone(dbWith(priorDays(404), 1), 'c1', 1)).toBe(false);
+  });
+
+  it('a gap long ago still ends the streak (no window does not mean no gaps)', () => {
+    // 406 days of activity with day 300 missing: current streak is 299, not 406.
+    const days = priorDays(405).filter((d) => d !== 300);
+    expect(checkStreakMilestone(dbWith(days, 1), 'c1', 1)).toBe(false);
+  });
+});
+
+describe('streak_7 reward (X9: documented, not an XP_REWARDS entry)', () => {
+  it('pays the 500z milestone bonus and only the 1-XP fallback', () => {
+    expect(Object.hasOwn(XP_REWARDS, 'streak_7')).toBe(false);
+    expect(zenyForEvent('streak_7')).toBe(500);
   });
 });
 
