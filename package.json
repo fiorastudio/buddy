@@ -41,18 +41,18 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "better-sqlite3": "^12.8.0"
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.5.2",
+    "better-sqlite3": "^12.8.0",
+    "puppeteer": "^24.40.0",
+    "typescript": "^6.0.2"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.1",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^25.5.2",
     "gif-encoder-2": "^1.0.5",
     "gifenc": "^1.0.3",
     "pngjs": "^7.0.0",
-    "puppeteer": "^24.40.0",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   }
 }

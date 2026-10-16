@@ -109,7 +109,11 @@ if ($needClone) {
 Push-Location "$INSTALL_DIR"
 
 Write-Host "  Installing dependencies..."
-npm install --quiet 2>$null
+# Runtime deps plus the TypeScript build toolchain only. --omit=dev skips the
+# test tooling (vitest, wrangler/workerd), which is large and whose
+# postinstall scripts fail on some platforms. It also prunes test tooling an
+# older installer left behind.
+npm install --omit=dev --quiet 2>$null
 
 # Verify native module ABI matches current node. A stale binary from a prior
 # install with a different node version will crash at runtime.
