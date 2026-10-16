@@ -113,4 +113,31 @@ describe('validateSnapshot', () => {
     expect(validateSnapshot({ ...validSnapshot(), shiny: 'yes' }).ok).toBe(false);
     expect(validateSnapshot({ ...validSnapshot(), xp: 1e300, level: 50 }).ok).toBe(false);
   });
+
+  // Release audit B14: name hygiene lives in the shared gate so every path
+  // (teleport, warp, /v1/events) applies it.
+  it('rejects profane names', () => {
+    expect(validateSnapshot({ ...validSnapshot(), name: 'sh1tlord' })).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/filter/),
+    });
+  });
+
+  it('strips control and bidi characters from names', () => {
+    const name = '‮Sh\u0000adow⁦paw⁩‏\u0085\u001b[31m';
+    const result = validateSnapshot({ ...validSnapshot(), name });
+    expect(result.ok && result.snapshot.name).toBe('Shadowpaw[31m');
+    for (const ch of ['‪', '‫', '‬', '‭', '‮', '⁦', '⁧', '⁨', '⁩', '؜', '‎', '\u007f', '\u009f', '\t', '\n']) {
+      const r = validateSnapshot({ ...validSnapshot(), name: `Sh${ch}adowpaw` });
+      expect(r.ok && r.snapshot.name, JSON.stringify(ch)).toBe('Shadowpaw');
+    }
+    // Emoji sequences (ZWJ) are not bidi/control and survive.
+    const emoji = validateSnapshot({ ...validSnapshot(), name: 'Pixel 🧑‍💻' });
+    expect(emoji.ok && emoji.snapshot.name).toBe('Pixel 🧑‍💻');
+  });
+
+  it('rejects a name that is only invisible characters', () => {
+    expect(validateSnapshot({ ...validSnapshot(), name: '‮⁦\u0000 ' }).ok).toBe(false);
+  });
 });
+

@@ -5,7 +5,6 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { validateSnapshot, type WorldSnapshot } from './validate.js';
-import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
 import { districtForTown, townForDistrict } from './towns.js';
@@ -137,7 +136,6 @@ export async function handleTeleport(
   const valid = validateSnapshot(payload.snapshot);
   if (!valid.ok) return bad(400, valid.reason);
   const snap = valid.snapshot;
-  if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
 
   const tokenHash = hashToken(payload.token);
   const current = await store.findByTokenHash(tokenHash);

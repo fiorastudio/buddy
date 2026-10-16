@@ -465,6 +465,50 @@ describe('snapshot bounds (release audit B4)', () => {
   });
 });
 
+describe('one snapshot gate for every path (release audit B14)', () => {
+  let store: SqliteWorldStore;
+  beforeEach(() => {
+    store = new SqliteWorldStore(new Database(':memory:'));
+  });
+
+  it('teleport and warp (re-teleport) reject a profane name', async () => {
+    const tp = await handleTeleport({ token: 'secret-token', snapshot: snap({ name: 'fuckface' }) }, store, OPTS);
+    expect(tp).toMatchObject({ status: 400, body: { error: 'name rejected by filter' } });
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    const warp = await handleTeleport(
+      { token: 'secret-token', snapshot: snap({ name: 'fuckface' }), district: 'Payon' },
+      store,
+      OPTS
+    );
+    expect(warp.status).toBe(400);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Shadowpaw');
+  });
+
+  it('/v1/events rejects a rename to a profane name and writes nothing', async () => {
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    const res = await handleEvents(
+      { token: 'secret-token', events: [{ type: 'commit', ts: T0 }], snapshot: snap({ name: 'b1tch' }) },
+      store,
+      LATER
+    );
+    expect(res).toMatchObject({ status: 400, body: { error: 'name rejected by filter' } });
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Shadowpaw');
+    expect((await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER)).events).toHaveLength(0);
+  });
+
+  it('teleport and /v1/events store names with bidi/control characters stripped', async () => {
+    await handleTeleport({ token: 'secret-token', snapshot: snap({ name: '‮Shadowpaw' }) }, store, OPTS);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Shadowpaw');
+    const res = await handleEvents(
+      { token: 'secret-token', events: [], snapshot: snap({ name: 'Night⁦paw\u0007' }) },
+      store,
+      LATER
+    );
+    expect(res.status).toBe(200);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Nightpaw');
+  });
+});
+
 describe('browser identity handlers', () => {
   let store: SqliteWorldStore;
   const TOKEN = 'real-world-token-abcdef';

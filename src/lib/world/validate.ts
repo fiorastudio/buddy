@@ -5,6 +5,7 @@
 import { levelFromXp } from '../leveling.js';
 import { RARITIES, EYES, HATS } from '../types.js';
 import { SPECIES_LIST } from '../species.js';
+import { isNameClean } from './identity.js';
 
 export const WORLD_MOODS = ['happy', 'content', 'neutral', 'curious', 'grumpy', 'exhausted'] as const;
 
@@ -54,17 +55,33 @@ export function pickAvatar(avatar: unknown): string | null {
   return typeof avatar === 'string' && AVATAR_RE.test(avatar) ? avatar : null;
 }
 
+// Invisible characters that can disguise or reorder a name on screen:
+// C0/C1 controls and DEL, the bidi embeddings/overrides (U+202A-202E) and
+// isolates (U+2066-2069), and the implicit direction marks (LRM/RLM/ALM).
+// They are stripped, not rejected, so a stray one from a terminal paste
+// doesn't break sync (release audit B14).
+const INVISIBLE_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+export function cleanName(name: string): string {
+  return name.replace(INVISIBLE_RE, '').trim();
+}
+
 function oneOf(list: readonly string[], v: unknown): v is string {
   return typeof v === 'string' && list.includes(v);
 }
 
+// The ONE snapshot gate: teleport (and warp, which re-teleports) and
+// /v1/events all call this and store only the snapshot it returns.
 export function validateSnapshot(input: unknown): ValidationResult {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, reason: 'snapshot must be an object' };
   }
   const snap = input as Record<string, unknown>;
-  const name = snap.name;
-  if (typeof name !== 'string' || name.trim().length === 0) {
+  if (typeof snap.name !== 'string') {
+    return { ok: false, reason: 'name must be a non-empty string' };
+  }
+  const name = cleanName(snap.name);
+  if (name.length === 0) {
     return { ok: false, reason: 'name must be a non-empty string' };
   }
   if (name.length > MAX_NAME_LENGTH) {
@@ -75,6 +92,11 @@ export function validateSnapshot(input: unknown): ValidationResult {
   // client's textContent-only construction).
   if (/[<>&"'`]/.test(name)) {
     return { ok: false, reason: 'name contains disallowed characters' };
+  }
+  // The profanity filter lives here, not in one handler, so every path that
+  // writes a name (teleport, warp, /v1/events) applies it.
+  if (!isNameClean(name)) {
+    return { ok: false, reason: 'name rejected by filter' };
   }
   if (!oneOf(SPECIES_LIST, snap.species)) {
     return { ok: false, reason: `unknown species: ${String(snap.species).slice(0, 40)}` };
