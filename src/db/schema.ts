@@ -20,8 +20,10 @@ export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 
-export function initDb() {
-  db.exec(`
+// `conn` defaults to the shared connection; tests pass their own to exercise a
+// legacy-shaped DB file without touching the module-level one.
+export function initDb(conn: Database.Database = db) {
+  conn.exec(`
     CREATE TABLE IF NOT EXISTS companions (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -87,42 +89,91 @@ export function initDb() {
 
   // Migration: add observer_mode column (safe for existing DBs)
   try {
-    db.exec(`ALTER TABLE companions ADD COLUMN observer_mode TEXT DEFAULT 'both'`);
+    conn.exec(`ALTER TABLE companions ADD COLUMN observer_mode TEXT DEFAULT 'both'`);
   } catch { /* column already exists */ }
 
   // Migration: add cc_rescue flag for CC-imported buddies (uses Bun wyhash for stats)
   try {
-    db.exec(`ALTER TABLE companions ADD COLUMN cc_rescue INTEGER DEFAULT 0`);
+    conn.exec(`ALTER TABLE companions ADD COLUMN cc_rescue INTEGER DEFAULT 0`);
   } catch { /* column already exists */ }
 
   // Migration: mute is its own flag rather than a value parked in `mood`.
   // calculateMood never returns 'muted', so every mood recompute overwrote it.
   try {
-    db.exec(`ALTER TABLE companions ADD COLUMN muted INTEGER DEFAULT 0`);
+    conn.exec(`ALTER TABLE companions ADD COLUMN muted INTEGER DEFAULT 0`);
   } catch { /* column already exists */ }
 
-  // Backfill: anyone currently muted under the old scheme stays muted.
-  try {
-    db.exec(`UPDATE companions SET muted = 1 WHERE mood = 'muted'`);
-  } catch { /* column not present yet on a failed migration */ }
-
   // Migration: add stat columns for growth
-  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_debugging INTEGER`); } catch {}
-  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_patience INTEGER`); } catch {}
-  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_chaos INTEGER`); } catch {}
-  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_wisdom INTEGER`); } catch {}
-  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_snark INTEGER`); } catch {}
-  try { db.exec(`ALTER TABLE companions ADD COLUMN stat_points_available INTEGER DEFAULT 0`); } catch {}
+  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_debugging INTEGER`); } catch {}
+  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_patience INTEGER`); } catch {}
+  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_chaos INTEGER`); } catch {}
+  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_wisdom INTEGER`); } catch {}
+  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_snark INTEGER`); } catch {}
+  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_points_available INTEGER DEFAULT 0`); } catch {}
 
   // Migration: Zeny (RO currency) earned from coding events
-  try { db.exec(`ALTER TABLE companions ADD COLUMN zeny INTEGER DEFAULT 0`); } catch {}
-  // Backfill any explicit NULLs so the self-referential `zeny = zeny + ?` award
-  // (lib/award.ts) never resolves to NULL and wipe the balance. DEFAULT 0 only
-  // covers rows created after this column existed; an imported/legacy row can
-  // still carry NULL. Belt-and-suspenders with the COALESCE in the award.
-  try { db.exec(`UPDATE companions SET zeny = 0 WHERE zeny IS NULL`); } catch {}
-  try { db.exec(`UPDATE companions SET xp = 0 WHERE xp IS NULL`); } catch {}
-
+  try { conn.exec(`ALTER TABLE companions ADD COLUMN zeny INTEGER DEFAULT 0`); } catch {}
   // Reasoning-layer migration (claims/edges tables + guard_mode column).
-  initReasoningSchema(db);
+  initReasoningSchema(conn);
+
+  // One-time data backfills, gated by PRAGMA user_version.
+  runVersionedMigrations(conn);
+}
+
+/**
+ * One-time data migrations, keyed by `PRAGMA user_version`.
+ *
+ * initDb() runs on every MCP server start AND on every UserPromptSubmit hook
+ * (guard mode), i.e. on the user's critical path. The DDL above is safe to
+ * repeat without writing: `CREATE ... IF NOT EXISTS` on an existing object is a
+ * no-op, and an ALTER on a duplicate column fails at prepare time, before
+ * SQLite takes the write lock. A data UPDATE is different — it takes the write
+ * lock even when it matches 0 rows, and with busy_timeout=5000 that can stall
+ * the prompt behind another session's award transaction. So every data
+ * backfill lives here and runs once per DB file; steady-state initDb() writes
+ * nothing.
+ *
+ * To add one, append `{ version: <last + 1>, up }`. Never edit, renumber or
+ * reorder a shipped entry — a DB that recorded its version won't re-run it.
+ * Keep each `up` idempotent anyway: every DB created before this mechanism
+ * existed starts at user_version 0 and replays all of them once.
+ */
+export const MIGRATIONS: ReadonlyArray<{ version: number; up: (conn: Database.Database) => void }> = [
+  {
+    version: 1,
+    up: (conn) => {
+      // Mute moved out of `mood` into its own column: anyone muted under the
+      // old scheme stays muted.
+      conn.exec(`UPDATE companions SET muted = 1 WHERE mood = 'muted'`);
+      // Explicit NULLs, so the self-referential `zeny = zeny + ?` award never
+      // resolves to NULL and wipes the balance. DEFAULT 0 only covers rows
+      // created after the column existed; a legacy/imported row can still carry
+      // NULL. Belt-and-suspenders with the COALESCE in lib/award.ts, which
+      // covers any NULL that appears after this has run.
+      conn.exec(`UPDATE companions SET zeny = 0 WHERE zeny IS NULL`);
+      conn.exec(`UPDATE companions SET xp = 0 WHERE xp IS NULL`);
+    },
+  },
+];
+
+export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
+
+function userVersion(conn: Database.Database): number {
+  return conn.pragma('user_version', { simple: true }) as number;
+}
+
+function runVersionedMigrations(conn: Database.Database): void {
+  // Fast path: user_version is read from the DB header — no write lock.
+  if (userVersion(conn) >= SCHEMA_VERSION) return;
+
+  // Slow path, once per DB: take the write lock up front (IMMEDIATE) and
+  // re-read the version under it, so two processes starting together don't
+  // both replay a backfill. user_version is written transactionally with them.
+  conn.transaction(() => {
+    const current = userVersion(conn);
+    for (const m of MIGRATIONS) {
+      if (m.version > current) m.up(conn);
+    }
+    if (current < SCHEMA_VERSION) conn.pragma(`user_version = ${SCHEMA_VERSION}`);
+  }).immediate();
 }
