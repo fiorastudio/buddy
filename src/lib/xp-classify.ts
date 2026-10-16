@@ -5,7 +5,8 @@
 // PostToolUse hook saw (command string + output + exit code).
 // Self-report: classifySummary keyword-matches the buddy_observe summary,
 // covering events with no command signature (bug_fix) and hosts without
-// hooks. resolveEventType arbitrates when both channels fire.
+// hooks. awardWithGates (lib/award.ts) arbitrates when both channels fire,
+// against the xp_events ledger so it holds across concurrent sessions.
 
 import { XP_REWARDS } from './leveling.js';
 
@@ -31,15 +32,6 @@ export function classifySummary(summary: string): XpEventType {
     if (re.test(s)) return type;
   }
   return 'observe';
-}
-
-/**
- * Arbitrate the two channels: when the hook already recorded an event of
- * the same type this window, the self-report demotes to a plain observe
- * so one real-world action never awards twice.
- */
-export function resolveEventType(selfReported: XpEventType, pendingTypes: ReadonlySet<string>): XpEventType {
-  return pendingTypes.has(selfReported) ? 'observe' : selfReported;
 }
 
 // The self-report channel is honor-system (summaries are model/user
