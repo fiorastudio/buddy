@@ -1,4 +1,6 @@
 import { existsSync, rmSync, writeFileSync } from 'fs';
+import { homedir } from 'os';
+import { join, resolve } from 'path';
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { db, initDb } from '../db/schema.js';
 import { calculateMood } from '../lib/species.js';
@@ -26,6 +28,15 @@ function seed(muted = 0) {
 function muted(): number {
   const row = db.prepare('SELECT muted FROM companions WHERE id = ?').get(ID) as { muted: number };
   return row.muted;
+}
+
+// These tests write and delete BUDDY_STATUS_PATH. vitest.config.ts points
+// CLAUDE_CONFIG_DIR at a temp dir; refuse to run if that ever regresses, so we
+// never delete the developer's real statusline file. Checked at module load
+// (not in a hook) so no beforeEach/afterAll cleanup can run against it.
+const REAL_STATUS_PATH = resolve(join(homedir(), '.claude', 'buddy-status.json'));
+if (resolve(BUDDY_STATUS_PATH) === REAL_STATUS_PATH) {
+  throw new Error(`refusing to run: BUDDY_STATUS_PATH is the real statusline file (${REAL_STATUS_PATH})`);
 }
 
 beforeEach(() => {
