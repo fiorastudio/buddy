@@ -277,6 +277,48 @@ describe('plaza smoke test (headless browser)', () => {
     expect(second.queued).toBe(1); // exactly the new deploy — id:1 de-duped, not re-queued
   }, 60_000);
 
+  it('caps the broadcast queue with a "+N more" line and bounds the seen-set (C8)', async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && typeof window.__PLAZA__.ingestAnnouncementsForTest === "function"');
+    type Ingest = { broadcastType: string; queued: number; queuedTexts: string[]; seenKeys: number };
+    // A feed page of celebrations with ids [from, to), newest first like the server.
+    const feed = (from: number, to: number) =>
+      `Array.from({ length: ${to - from} }, (_, i) => {
+        const id = ${to - 1} - i;
+        return { id, slug: 'b' + id, name: 'Buddy' + id, type: 'deploy', ts: id, town: 'Prontera' };
+      })`;
+
+    // One shows; a burst of 50 more arrives while it holds the banner.
+    await page.evaluate(`window.__PLAZA__.ingestAnnouncementsForTest(${feed(0, 1)})`);
+    const burst = (await page.evaluate(`window.__PLAZA__.ingestAnnouncementsForTest(${feed(1, 51)})`)) as Ingest;
+    expect(burst.queued).toBe(5); // 4 celebrations + one summary line, not 50
+    expect(burst.queuedTexts.slice(0, 4).map((t) => t.match(/Buddy\d+/)![0])).toEqual([
+      'Buddy1', 'Buddy2', 'Buddy3', 'Buddy4', // oldest first, in order
+    ]);
+    expect(burst.queuedTexts[4]).toContain('+46 more celebrations');
+
+    // More arrivals fold into the same summary rather than growing the queue.
+    const later = (await page.evaluate(`window.__PLAZA__.ingestAnnouncementsForTest(${feed(51, 61)})`)) as Ingest;
+    expect(later.queued).toBe(5);
+    expect(later.queuedTexts[4]).toContain('+56 more celebrations');
+    expect(later.broadcastType).toBe('deploy'); // the first one is still on screen
+
+    // Hundreds of distinct celebrations over a long session: the seen-set stays bounded...
+    for (let start = 61; start < 661; start += 30) {
+      await page.evaluate(`window.__PLAZA__.ingestAnnouncementsForTest(${feed(start, start + 30)})`);
+    }
+    const settled = (await page.evaluate(`window.__PLAZA__.ingestAnnouncementsForTest(${feed(631, 661)})`)) as Ingest;
+    expect(settled.seenKeys).toBeLessThanOrEqual(200);
+    // ...and the current feed is still remembered: re-sending it queues nothing new.
+    expect(settled.queued).toBe(5);
+    expect(settled.queuedTexts[4]).toContain('+656 more celebrations');
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('honors prefers-reduced-motion', async () => {
     const page = await browser.newPage();
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);

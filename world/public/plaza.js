@@ -217,6 +217,8 @@
     return {
       broadcastType: state.broadcast ? state.broadcast.type : null,
       queued: broadcastQueue.length,
+      queuedTexts: broadcastQueue.map(broadcastText),
+      seenKeys: seenAnnounceKeys.size,
       visible: !broadcastEl.hidden,
       text: broadcastEl.textContent,
     };
@@ -1618,6 +1620,9 @@
   // broadcast-worthy.
   const BROADCAST_ICON = '📢';
   function broadcastPhrase(a) {
+    if (a[OVERFLOW]) {
+      return `+${a.count} more celebration${a.count === 1 ? '' : 's'} around Buddy World!`;
+    }
     const name = a.name || a.slug || 'A buddy';
     if (a.type === 'level_up') return a.level ? `${name} has reached Level ${a.level}!` : `${name} leveled up!`;
     if (a.type === 'deploy') return `${name} shipped to production!`;
@@ -1662,19 +1667,44 @@
   }
 
   // Sequential queue: one broadcast at a time, each held for its scroll (or a
-  // static beat under reduced motion) before the next plays.
+  // static beat under reduced motion) before the next plays. Each one holds the
+  // banner for ~9s, so the queue is bounded: past MAX_BROADCAST_QUEUE - 1
+  // waiting celebrations, the rest fold into one trailing "+N more" line instead
+  // of building a backlog that would take minutes (or forever) to drain.
+  const MAX_BROADCAST_QUEUE = 5;
   const broadcastQueue = [];
+  // Marked with a module-private symbol, so no feed row (plain JSON) can pose as one.
+  const OVERFLOW = Symbol('overflow');
+  let overflowEntry = null; // the trailing "+N more" line while it's queued
+  function enqueueBroadcast(a) {
+    if (overflowEntry && broadcastQueue[broadcastQueue.length - 1] === overflowEntry) {
+      overflowEntry.count += 1;
+      return;
+    }
+    if (broadcastQueue.length < MAX_BROADCAST_QUEUE - 1) {
+      broadcastQueue.push(a);
+      return;
+    }
+    overflowEntry = { [OVERFLOW]: true, type: 'more', count: 1 };
+    broadcastQueue.push(overflowEntry);
+  }
   let broadcastTimer = null;
   function pumpBroadcasts() {
     if (broadcastTimer) return; // one is already on screen
     const a = broadcastQueue.shift();
     if (!a) { hideBroadcast(); return; }
+    if (a === overflowEntry) overflowEntry = null; // later arrivals queue normally again
     showBroadcast(a);
     const hold = REDUCED_MOTION ? 4500 : 9500; // ~marquee duration (index.html: 9s)
     broadcastTimer = setTimeout(() => { broadcastTimer = null; pumpBroadcasts(); }, hold);
   }
 
-  let seenAnnounceKeys = new Set();
+  // The feed is the newest ~30 celebrations, so the seen-set only has to
+  // remember a window a little wider than that. Keys still in the feed are
+  // refreshed each poll; the oldest beyond the cap are forgotten, so a tab left
+  // open for days doesn't grow the set without limit.
+  const MAX_SEEN_ANNOUNCE_KEYS = 200;
+  const seenAnnounceKeys = new Set();
   let firstAnnounceLoad = true;
   // Fold the newest-first feed into the banner. The FIRST poll only seeds the
   // seen-set (a fresh viewer doesn't get a burst of the last hour of history);
@@ -1688,12 +1718,16 @@
       // same-type events); fall back to the composite only if a feed row
       // somehow lacks an id, so nothing silently re-broadcasts.
       const key = a.id != null ? `e${a.id}` : `${a.slug}:${a.type}:${a.ts}`;
-      if (seenAnnounceKeys.has(key)) continue;
-      seenAnnounceKeys.add(key);
-      fresh.push(a);
+      const seen = seenAnnounceKeys.delete(key);
+      seenAnnounceKeys.add(key); // (re)insert as newest: still in the feed
+      if (!seen) fresh.push(a);
+    }
+    for (const key of seenAnnounceKeys) {
+      if (seenAnnounceKeys.size <= MAX_SEEN_ANNOUNCE_KEYS) break;
+      seenAnnounceKeys.delete(key); // insertion order: oldest first
     }
     if (firstAnnounceLoad) { firstAnnounceLoad = false; return; }
-    for (const a of fresh.reverse()) broadcastQueue.push(a);
+    for (const a of fresh.reverse()) enqueueBroadcast(a);
     pumpBroadcasts();
   }
 
