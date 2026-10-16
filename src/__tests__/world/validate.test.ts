@@ -92,7 +92,7 @@ describe('validateSnapshot', () => {
     expect(validateSnapshot({ ...validSnapshot(), stats: { ...validSnapshot().stats, wisdom: -1 } }).ok).toBe(false);
   });
 
-  it('accepts chibi-1..chibi-8 avatars, or none, and rejects anything else', () => {
+  it('keeps chibi-1..chibi-8 avatars and drops anything else (never a 400)', () => {
     for (let i = 1; i <= 8; i++) {
       expect(validateSnapshot({ ...validSnapshot(), avatar: `chibi-${i}` }).ok).toBe(true);
     }
@@ -100,10 +100,9 @@ describe('validateSnapshot', () => {
     expect(none.ok && none.snapshot.avatar).toBe(undefined);
     expect(validateSnapshot({ ...validSnapshot(), avatar: null }).ok).toBe(true);
     for (const avatar of ['chibi-0', 'chibi-9', 'chibi-10', 'chibi-1 ', 'x'.repeat(5000), 3, { a: 1 }, '']) {
-      expect(validateSnapshot({ ...validSnapshot(), avatar }), String(avatar).slice(0, 20)).toMatchObject({
-        ok: false,
-        reason: expect.stringMatching(/avatar/),
-      });
+      const r = validateSnapshot({ ...validSnapshot(), avatar });
+      expect(r.ok, String(avatar).slice(0, 20)).toBe(true);
+      expect(r.ok && 'avatar' in r.snapshot, String(avatar).slice(0, 20)).toBe(false);
     }
   });
 
