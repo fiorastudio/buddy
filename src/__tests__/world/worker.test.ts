@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createWorldFetchHandler } from '../../world/worker-core.js';
+import { createWorldFetchHandler, MAX_BODY_BYTES } from '../../world/worker-core.js';
+import { MAX_EVENT_BATCH, WORLD_EVENT_TYPES } from '../../lib/world/schema-sql.js';
+import { EYES, HATS } from '../../lib/types.js';
+import { SPECIES_LIST } from '../../lib/species.js';
 import { sqliteAsD1 } from './d1-shim.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
@@ -175,6 +178,138 @@ describe('world worker fetch handler', () => {
   it('GET /v1/me without a Bearer control token is 401', async () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/me'));
     expect(res.status).toBe(401);
+  });
+});
+
+// Release audit B16: rate limit before parsing, bounded body, object-only JSON.
+describe('world worker request bodies', () => {
+  const URL_EVENTS = 'https://world.example.com/v1/events';
+  const longest = (xs: readonly string[]) => xs.reduce((a, b) => (Buffer.byteLength(b) > Buffer.byteLength(a) ? b : a));
+
+  function handler(ratePerMinute = 1000) {
+    return createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      ratePerMinute,
+    });
+  }
+
+  it('the largest legitimate request fits well inside the cap', async () => {
+    const h = handler();
+    const token = 'f'.repeat(32); // generateToken(): 32 hex chars
+    expect((await h(new Request('https://world.example.com/v1/teleport', {
+      method: 'POST',
+      body: JSON.stringify({ token, snapshot: snap() }),
+    }))).status).toBe(200);
+    // Worst case: a full batch of the longest event type, a max-length name of
+    // 3-byte characters, and the longest species/hat/eye.
+    const body = JSON.stringify({
+      token,
+      events: Array.from({ length: MAX_EVENT_BATCH }, () => ({
+        type: longest(WORLD_EVENT_TYPES),
+        ts: Number.MAX_SAFE_INTEGER,
+      })),
+      snapshot: snap({ name: '鬼'.repeat(32), species: longest(SPECIES_LIST), hat: longest(HATS), eye: longest(EYES) }),
+    });
+    expect(Buffer.byteLength(body)).toBeLessThan(MAX_BODY_BYTES / 4);
+    const res = await h(new Request(URL_EVENTS, { method: 'POST', body }));
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a body over the cap with 413 (no content-length needed)', async () => {
+    const body = JSON.stringify({ token: TOKEN, events: [], pad: 'x'.repeat(MAX_BODY_BYTES) });
+    const res = await handler()(new Request(URL_EVENTS, { method: 'POST', body }));
+    expect(res.status).toBe(413);
+  });
+
+  it('rejects a declared content-length over the cap without reading the body', async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new TextEncoder().encode('{}'));
+        controller.close();
+      },
+    }, { highWaterMark: 0 }); // no eager pull: only a real read pulls
+    const req = new Request(URL_EVENTS, {
+      method: 'POST',
+      headers: { 'content-length': String(MAX_BODY_BYTES + 1) },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    const res = await handler()(req);
+    expect(res.status).toBe(413);
+    expect(pulled).toBe(0); // never read: the header check rejects first
+  });
+
+  it('stops reading an endless chunked body as soon as it passes the cap', async () => {
+    let sent = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = new Uint8Array(1024).fill(0x20); // whitespace: valid JSON padding
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const req = new Request(URL_EVENTS, { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
+    const res = await handler()(req);
+    expect(res.status).toBe(413);
+    expect(cancelled).toBe(true);
+    expect(sent).toBeLessThan(MAX_BODY_BYTES * 2);
+  });
+
+  it('a lying (too small) content-length does not lift the cap', async () => {
+    const body = JSON.stringify({ token: TOKEN, events: [], pad: 'x'.repeat(MAX_BODY_BYTES) });
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body));
+        controller.close();
+      },
+    });
+    const req = new Request(URL_EVENTS, {
+      method: 'POST',
+      headers: { 'content-length': '10' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    expect((await handler()(req)).status).toBe(413);
+  });
+
+  it('rejects JSON that is not an object with 400', async () => {
+    const h = handler();
+    for (const body of ['[]', '"token"', 'null', '42', 'true', '[{"token":"x"}]']) {
+      const res = await h(new Request(URL_EVENTS, { method: 'POST', body }));
+      expect(res.status, body).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/object/);
+    }
+  });
+
+  it('rejects an empty body with 400', async () => {
+    const res = await handler()(new Request(URL_EVENTS, { method: 'POST' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('applies the IP rate limit before reading or parsing the body', async () => {
+    const h = handler(2);
+    const ok = () =>
+      h(new Request(URL_EVENTS, { method: 'POST', body: JSON.stringify({ token: TOKEN, events: [] }) }));
+    await ok();
+    await ok();
+    let pulled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled = true;
+        controller.enqueue(new TextEncoder().encode('{not json'));
+        controller.close();
+      },
+    }, { highWaterMark: 0 });
+    const limited = await h(new Request(URL_EVENTS, { method: 'POST', body: stream, duplex: 'half' } as RequestInit));
+    expect(limited.status).toBe(429);
+    expect(pulled).toBe(false);
   });
 });
 
