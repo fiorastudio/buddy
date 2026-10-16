@@ -11,6 +11,7 @@ import {
   loadWorldConfig,
   saveWorldConfig,
   deleteWorldConfig,
+  isInWorld,
   DEFAULT_WORLD_CONFIG_PATH,
   DEFAULT_API_URL,
   type WorldConfig,
@@ -53,6 +54,18 @@ function makeSync(cfg: WorldConfig, deps: WorldCliDeps): WorldSync {
   return new WorldSync(cfg, deps.fetchFn ? { fetchFn: deps.fetchFn } : {});
 }
 
+const PURGE_HINT = 'Delete everything server-side: buddy-world recall --purge';
+
+// Not in the world: either never teleported, or recalled (hidden, data kept).
+function notInWorld(cfg: WorldConfig | null): string[] {
+  if (!cfg?.recalled) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
+  return [
+    'Your buddy is not in the world (recalled). Its world data is still kept on the server.',
+    'Come back: buddy-world teleport',
+    PURGE_HINT,
+  ];
+}
+
 export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<string[]> {
   const configPath = deps.configPath ?? DEFAULT_WORLD_CONFIG_PATH;
   const apiUrl = deps.apiUrl ?? DEFAULT_API_URL;
@@ -69,7 +82,10 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       const avatarIdx = rest.indexOf('--avatar');
       const avatar = avatarIdx >= 0 ? rest[avatarIdx + 1] : undefined;
 
-      const existing = loadWorldConfig(configPath);
+      // A recalled config keeps its token: teleporting back reuses it (the
+      // server un-hides the same citizen), but coming back asks again.
+      const saved = loadWorldConfig(configPath);
+      const existing = isInWorld(saved) ? saved : null;
       if (!existing) {
         out.push(...PRIVACY_NOTE);
         const confirm = deps.confirm ?? (async () => true);
@@ -79,8 +95,8 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
         }
       }
 
-      const avatarChoice = avatar ?? existing?.avatar ?? 'chibi-1';
-      const cfg: WorldConfig = existing ?? { token: generateToken(), apiUrl };
+      const avatarChoice = avatar ?? saved?.avatar ?? 'chibi-1';
+      const { recalled: _recalled, ...cfg }: WorldConfig = saved ?? { token: generateToken(), apiUrl };
       const sync = makeSync(cfg, deps);
       let res;
       try {
@@ -104,7 +120,7 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
     // state — the server records the new town, and the buddy shows up there.
     case 'warp': {
       const cfg = loadWorldConfig(configPath);
-      if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
+      if (!isInWorld(cfg) || !cfg.slug) return notInWorld(cfg);
       const companion = deps.loadCompanion();
       if (!companion) return ['No buddy found. Hatch one first!'];
 
@@ -138,7 +154,7 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
 
     case 'status': {
       const cfg = loadWorldConfig(configPath);
-      if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
+      if (!isInWorld(cfg) || !cfg.slug) return notInWorld(cfg);
       return [`Your buddy is in ${cfg.district ?? 'the plaza'}: ${cfg.url}`];
     }
 
@@ -147,7 +163,7 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
     // URL carries only a short-lived, single-use code.
     case 'link': {
       const cfg = loadWorldConfig(configPath);
-      if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
+      if (!isInWorld(cfg) || !cfg.slug) return notInWorld(cfg);
       const res = await makeSync(cfg, deps).mintBrowserLink();
       if (!res) return ['Could not mint a control link (network?). Try again later.'];
       out.push('🔗 Personal plaza link — opens YOUR buddy to drive. Keep it private; it expires soon.');
@@ -157,7 +173,7 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
 
     case 'anon': {
       const cfg = loadWorldConfig(configPath);
-      if (!cfg) return ['Not teleported yet. Run: buddy-world teleport'];
+      if (!isInWorld(cfg)) return notInWorld(cfg);
       const on = rest[0] === 'on';
       if (rest[0] !== 'on' && rest[0] !== 'off') return USAGE;
       const ok = await makeSync(cfg, deps).setAnon(on);
@@ -170,14 +186,42 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       const cfg = loadWorldConfig(configPath);
       if (!cfg) return ['Not teleported — nothing to recall.'];
       const purge = rest.includes('--purge');
-      const ok = await makeSync(cfg, deps).recall(purge);
-      if (!ok) {
+      if (cfg.recalled && !purge) {
+        return ['Your buddy is already recalled. Its world data is still kept on the server.', PURGE_HINT];
+      }
+      const outcome = await makeSync(cfg, deps).recallOutcome(purge);
+      if (outcome === 'unknown_token') {
+        // The server has no citizen for this token: its data is already gone
+        // (purged before, or never created). The token can't purge anything
+        // any more, so drop it rather than leave a dead credential behind.
+        deleteWorldConfig(configPath);
+        return [
+          'Buddy World has no data for this buddy — it was already purged (or never arrived).',
+          `Removed the leftover token from ${configPath}. Welcome home.`,
+        ];
+      }
+      if (outcome !== 'recalled') {
         // Never delete the only token on an unconfirmed server call — the
         // user would lose the ability to purge their data later.
-        return ['Could not reach Buddy World to recall — your token is kept so you can try again.'];
+        return outcome === 'unreachable'
+          ? ['Could not reach Buddy World to recall — your token is kept so you can try again.']
+          : ['Buddy World did not confirm the recall — your token is kept so you can try again later.'];
       }
-      deleteWorldConfig(configPath);
-      return [`Your buddy has been recalled${purge ? ' and all server data purged' : ''}. Welcome home.`];
+      if (purge) {
+        deleteWorldConfig(configPath);
+        return ['Your buddy has been recalled and all server data purged. Welcome home.'];
+      }
+      // Plain recall only hides the buddy; its data stays on the server. Keep
+      // the token (the only credential that can purge it later) and drop the
+      // public location.
+      const { token, apiUrl: savedApiUrl, avatar } = cfg;
+      saveWorldConfig({ token, apiUrl: savedApiUrl, ...(avatar ? { avatar } : {}), recalled: true }, configPath);
+      return [
+        'Your buddy has been recalled and is hidden from Buddy World. Welcome home.',
+        `Its world data is still kept on the server; your token stays in ${configPath} so you can still:`,
+        `  ${PURGE_HINT}`,
+        '  Come back later: buddy-world teleport',
+      ];
     }
 
     default:

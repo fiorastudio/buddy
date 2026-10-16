@@ -19,6 +19,13 @@ export interface WorldConfig {
   url?: string;
   district?: string;
   avatar?: string;
+  /**
+   * Set by a plain `recall`: the buddy is hidden server-side but its data is
+   * kept, so the token stays here — it is the only credential that can later
+   * `recall --purge` that data or teleport back. A recalled config is NOT in
+   * the world: no sync, no blessing, no slug/url/district.
+   */
+  recalled?: boolean;
 }
 
 export const DEFAULT_WORLD_CONFIG_PATH = join(homedir(), '.buddy', 'world.json');
@@ -36,6 +43,11 @@ export function loadWorldConfig(file: string = DEFAULT_WORLD_CONFIG_PATH): World
   } catch {
     return null;
   }
+}
+
+/** True when the config belongs to a buddy currently in the world (not recalled). */
+export function isInWorld(cfg: WorldConfig | null): cfg is WorldConfig {
+  return cfg !== null && cfg.recalled !== true;
 }
 
 export function saveWorldConfig(cfg: WorldConfig, file: string = DEFAULT_WORLD_CONFIG_PATH): void {
@@ -87,6 +99,8 @@ export function buildWorldSnapshot(c: Companion, avatar?: string): WorldSnapshot
 }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+export type RecallOutcome = 'recalled' | 'unknown_token' | 'unreachable' | 'refused';
 
 export interface WorldSyncOpts {
   fetchFn?: FetchLike;
@@ -174,8 +188,29 @@ export class WorldSync {
   }
 
   async recall(purge: boolean): Promise<boolean> {
+    return (await this.recallOutcome(purge)) === 'recalled';
+  }
+
+  /**
+   * Like recall(), but says why it failed. 'unknown_token' means the server
+   * answered 401 "unknown token": it has no citizen for this token (already
+   * purged, or never created), so there is nothing left to hide or purge.
+   * Anything else that isn't a 200 — no answer, a 5xx, a 404 from a host
+   * that isn't Buddy World — proves nothing about the data.
+   */
+  async recallOutcome(purge: boolean): Promise<RecallOutcome> {
     const res = await this.post('/v1/recall', { token: this.cfg.token, purge });
-    return res?.status === 200;
+    if (!res) return 'unreachable';
+    if (res.status === 200) return 'recalled';
+    if (res.status === 401) {
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (body.error === 'unknown token') return 'unknown_token';
+      } catch {
+        // not the world server's JSON: unconfirmed
+      }
+    }
+    return 'refused';
   }
 
   async setAnon(anon: boolean): Promise<boolean> {
@@ -205,9 +240,11 @@ let cfgCache: { cfg: WorldConfig | null; at: number; path: string | undefined } 
 const CFG_CACHE_MS = 30_000;
 
 // Config reads happen on the MCP request path: hydrate at most once per 30s.
+// A recalled config counts as "not in the world" (never synced or blessed).
 function cachedConfig(path: string | undefined, nowMs: number): WorldConfig | null {
   if (!cfgCache || cfgCache.path !== path || nowMs - cfgCache.at > CFG_CACHE_MS) {
-    cfgCache = { cfg: loadWorldConfig(path), at: nowMs, path };
+    const cfg = loadWorldConfig(path);
+    cfgCache = { cfg: isInWorld(cfg) ? cfg : null, at: nowMs, path };
   }
   return cfgCache.cfg;
 }
