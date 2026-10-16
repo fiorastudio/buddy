@@ -44,6 +44,9 @@ export type ServerMsg =
   | { type: 'snapshot'; district: string; serverTs: number; actors: PublicActor[] }
   | { type: 'pong'; serverTs: number }
   | { type: 'room_redirect'; district: string; url: string; spawn: { x: number; y: number } }
+  // A portal_enter that did NOT warp (town_full, no_portal, …). Sent only to the
+  // owner, who stays put on an open socket; the client shows it as a toast.
+  | { type: 'warp_failed'; to: string | null; reason: string }
   | { type: 'error'; error: string };
 
 // Result of the portal-warp semantic (the adapter runs handlePortalWarp against
@@ -200,11 +203,22 @@ export class RoomCore<S> {
         const { seq, to, controlToken } = msg as { seq?: unknown; to?: unknown; controlToken?: unknown };
         if (typeof seq !== 'number' || !isFreshSeq(attachment.seq, seq)) return {};
         const consume: HandleResult = { attach: { ...attachment, seq } };
-        if (typeof to !== 'string') return consume;
-        if (typeof controlToken !== 'string' || controlToken.length < 8) return consume;
+        // Every fresh-but-failed attempt tells the owner why, so the client can
+        // say so instead of leaving them standing silently on the gate.
+        const fail = (reason: string): HandleResult => {
+          this.port.send(socket, { type: 'warp_failed', to: typeof to === 'string' ? to : null, reason });
+          return consume;
+        };
+        if (typeof to !== 'string') return fail('unknown_town');
+        if (typeof controlToken !== 'string' || controlToken.length < 8) return fail('missing control token');
 
-        const warp = await this.port.warp(controlToken, to);
-        if (!warp || !warp.ok || !warp.district || !warp.url) return consume;
+        let warp: WarpOutcome | null;
+        try {
+          warp = await this.port.warp(controlToken, to);
+        } catch {
+          warp = null; // D1 hiccup: report it, keep the socket
+        }
+        if (!warp || !warp.ok || !warp.district || !warp.url) return fail(warp?.error ?? 'warp_unavailable');
 
         // Success: tell the OTHER occupants I left this town (excluding self so
         // my socket only hears the redirect), then redirect ME to the new one.

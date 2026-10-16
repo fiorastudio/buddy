@@ -217,6 +217,23 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     c.close();
   });
 
+  it('a portal_enter that cannot warp tells the owner why (warp_failed) and keeps the socket', async () => {
+    const controlToken = await mintControlToken('ws-warpfail-token');
+    const c = await connect('plaza-1');
+    c.send({ type: 'hello', controlToken });
+    await c.next(); // welcome
+
+    // A town off the map: handlePortalWarp rejects it, nothing moves in D1.
+    c.send({ type: 'portal_enter', seq: 1, portal: 'bogus', to: 'plaza-99', controlToken });
+    const failed = await c.next();
+    expect(failed).toEqual({ type: 'warp_failed', to: 'plaza-99', reason: 'unknown_town' });
+
+    // Still connected and still here: a ping on the same socket is answered.
+    c.send({ type: 'ping' });
+    expect((await c.next()).type).toBe('pong');
+    c.close();
+  });
+
   // Runs last: it warps its citizen out of plaza-1, so it must not perturb the
   // shared plaza-1 room state the presence/hibernation tests above assert on.
   it('a portal_enter warps the buddy in D1, redirects the owner, and peers see exactly one leave', async () => {
