@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { db, initDb } from '../db/schema.js';
 import { awardXpBatchCore, awardWithGates, HOOK_DEDUPE_WINDOW_MINUTES } from '../lib/award.js';
 import { appendPendingEvent, consumePendingEvents } from '../lib/pending-events.js';
-import { classifySummary } from '../lib/xp-classify.js';
+import { classifySummary, SELF_REPORT_DAILY_CAP } from '../lib/xp-classify.js';
 
 /**
  * Direct tests of the extracted award chokepoint (src/lib/award.ts). Because
@@ -93,6 +93,51 @@ describe('awardWithGates', () => {
     const { worldEvents } = awardWithGates(db, ID, 'deploy', []);
     expect(worldEvents[0]).toBe('observe'); // downgraded
     expect(xp()).toBe(eventSum());
+  });
+});
+
+/**
+ * X2: the damper used to count every elevated row of the day regardless of
+ * source, so after 8 hook-verified test runs every self-reported bug_fix paid
+ * as a plain observe. Only self-reports may use up the self-report cap.
+ */
+describe('awardWithGates — damper counts self-reports only (X2)', () => {
+  it('hook-verified events do not use up the self-report cap', () => {
+    // A day of green test runs, all seen by the PostToolUse hook.
+    for (let i = 0; i < SELF_REPORT_DAILY_CAP + 2; i++) {
+      awardWithGates(db, ID, 'observe', [{ type: 'tests_passed' }]);
+    }
+    expect(countType('tests_passed')).toBe(SELF_REPORT_DAILY_CAP + 2);
+
+    const { worldEvents } = awardWithGates(db, ID, 'bug_fix', []);
+    expect(worldEvents[0]).toBe('bug_fix'); // still pays as a bug fix
+    expect(xp()).toBe(eventSum());
+  });
+
+  it('self-reports still hit the cap, whatever the hook did', () => {
+    for (let i = 0; i < 5; i++) awardWithGates(db, ID, 'observe', [{ type: 'commit' }]);
+    for (let i = 0; i < SELF_REPORT_DAILY_CAP; i++) {
+      expect(awardWithGates(db, ID, 'bug_fix', []).worldEvents[0]).toBe('bug_fix');
+    }
+    expect(awardWithGates(db, ID, 'bug_fix', []).worldEvents[0]).toBe('observe');
+    expect(countType('bug_fix')).toBe(SELF_REPORT_DAILY_CAP);
+    expect(xp()).toBe(eventSum());
+  });
+
+  it('records the source of every row it writes', () => {
+    awardWithGates(db, ID, 'bug_fix', [{ type: 'commit' }]);
+    const rows = db.prepare(
+      'SELECT event_type, source FROM xp_events WHERE companion_id = ? ORDER BY rowid',
+    ).all(ID);
+    expect(rows).toEqual([
+      { event_type: 'bug_fix', source: 'self' },
+      { event_type: 'commit', source: 'hook' },
+    ]);
+  });
+
+  it('legacy rows with no recorded source count as self-reports', () => {
+    for (let i = 0; i < SELF_REPORT_DAILY_CAP; i++) seedPastEvent(`legacy-${i}`, 'tests_passed', 20, 0);
+    expect(awardWithGates(db, ID, 'bug_fix', []).worldEvents[0]).toBe('observe');
   });
 });
 

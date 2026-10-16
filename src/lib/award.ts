@@ -148,11 +148,18 @@ export function awardWithGates(
       if (dedupeOf) selfType = 'observe';
     }
 
-    // Honor-system damper: summary-classified elevated events cap per day;
-    // hook-verified events below are exempt.
+    // Honor-system damper: summary-classified elevated events cap per day.
+    // Only self-reports count toward the cap — hook-verified events are
+    // neither dampened nor allowed to use up the self-report budget (X2), so
+    // a day of green test runs doesn't turn every bug_fix into an observe.
+    // Legacy rows (source NULL, written before provenance existed) count as
+    // self-reports: the conservative reading for the day of the upgrade.
     if (isElevated(selfType)) {
       const elevated = (db.prepare(
-        "SELECT COUNT(*) AS n FROM xp_events WHERE companion_id = ? AND date(created_at) = date('now') AND event_type IN ('commit','tests_passed','bug_fix','deploy')"
+        `SELECT COUNT(*) AS n FROM xp_events
+          WHERE companion_id = ? AND date(created_at) = date('now')
+            AND event_type IN ('commit','tests_passed','bug_fix','deploy')
+            AND COALESCE(source, 'self') = 'self'`
       ).get(companionId) as any)?.n ?? 0;
       if (shouldDampenSelfReport(elevated)) selfType = 'observe';
     }

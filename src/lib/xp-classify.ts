@@ -36,7 +36,8 @@ export function classifySummary(summary: string): XpEventType {
 
 // The self-report channel is honor-system (summaries are model/user
 // controlled), so its elevated awards are capped per day. Ground-truth
-// hook events are never dampened. 8/day covers honest heavy use; a
+// hook events are never dampened and don't count toward the cap
+// (xp_events.source = 'hook'). 8/day covers honest heavy use; a
 // summary-spam loop degrades to plain observes after that.
 export const SELF_REPORT_DAILY_CAP = 8;
 
