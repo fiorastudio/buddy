@@ -13,6 +13,7 @@
   },
   "files": [
     "dist",
+    "!dist/world/**",
     "README.md",
     "LICENSE"
   ],
@@ -26,8 +27,9 @@
     "test:watch": "vitest",
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "eval:reinject": "node scripts/reinject-eval.mjs",
-    "version": "npm run build && git add -f dist/",
-    "prepack": "npm run build",
+    "version": "npm run build",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "npm run clean && npm run build",
     "release:patch": "npm version patch",
     "release:minor": "npm version minor",
     "release:major": "npm version major",
