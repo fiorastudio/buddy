@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { classifySummary, detectCommandEvent } from '../lib/xp-classify.js';
-import { appendPendingEvent, consumePendingEvents } from '../lib/pending-events.js';
+import { appendPendingEvent, consumePendingEvents, withPendingEvents } from '../lib/pending-events.js';
 import { XP_REWARDS, applyBlessing } from '../lib/leveling.js';
 import { currentStreakFromDays, checkStreakMilestone } from '../lib/streaks.js';
 
@@ -84,6 +84,60 @@ describe('pending events file (hook → server handoff)', () => {
     appendPendingEvent(file, { type: 'commit', ts: 3000 });
     require('node:fs').appendFileSync(file, 'not json\n');
     expect(consumePendingEvents(file, 4000)).toEqual([{ type: 'commit', ts: 3000 }]);
+  });
+});
+
+describe('withPendingEvents (X6: consume only after the award commits)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'buddy-pending-x6-'));
+  let n = 0;
+  const fresh = () => join(dir, `q${n++}.jsonl`);
+  const leftovers = (file: string) =>
+    readdirSync(dir).filter((f) => f.startsWith(basename(file) + '.') && f.endsWith('.consuming'));
+
+  it('drops the batch once the award returns', () => {
+    const file = fresh();
+    appendPendingEvent(file, { type: 'commit', ts: 1000 });
+    const got = withPendingEvents((events) => events, file, 2000);
+    expect(got).toEqual([{ type: 'commit', ts: 1000 }]);
+    expect(consumePendingEvents(file, 2000)).toEqual([]);
+    expect(leftovers(file)).toEqual([]);
+  });
+
+  it('puts the batch back when the award throws, and rethrows', () => {
+    const file = fresh();
+    appendPendingEvent(file, { type: 'commit', ts: 1000 });
+    appendPendingEvent(file, { type: 'deploy', ts: 1500 });
+    const busy = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+    expect(() => withPendingEvents(() => { throw busy; }, file, 2000)).toThrow(busy);
+    expect(leftovers(file)).toEqual([]);
+    expect(consumePendingEvents(file, 2000)).toEqual([
+      { type: 'commit', ts: 1000 },
+      { type: 'deploy', ts: 1500 },
+    ]);
+  });
+
+  it('keeps events a hook appended while the failed award was running', () => {
+    const file = fresh();
+    appendPendingEvent(file, { type: 'commit', ts: 1000 });
+    expect(() =>
+      withPendingEvents(() => {
+        appendPendingEvent(file, { type: 'tests_passed', ts: 1100 }); // concurrent hook
+        throw new Error('boom');
+      }, file, 2000),
+    ).toThrow('boom');
+    const events = consumePendingEvents(file, 2000);
+    expect(events).toHaveLength(2);
+    expect(events).toEqual(expect.arrayContaining([
+      { type: 'commit', ts: 1000 },
+      { type: 'tests_passed', ts: 1100 },
+    ]));
+  });
+
+  it('leaves a concurrent hook append alone when the award succeeds', () => {
+    const file = fresh();
+    appendPendingEvent(file, { type: 'commit', ts: 1000 });
+    withPendingEvents(() => appendPendingEvent(file, { type: 'deploy', ts: 1100 }), file, 2000);
+    expect(consumePendingEvents(file, 2000)).toEqual([{ type: 'deploy', ts: 1100 }]);
   });
 });
 
