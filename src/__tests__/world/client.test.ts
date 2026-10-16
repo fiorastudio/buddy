@@ -60,6 +60,15 @@ describe('world config persistence', () => {
     expect(loadWorldConfig(file)).toBeNull();
   });
 
+  it('a recalled config (token kept, buddy hidden) is not blessed', () => {
+    saveWorldConfig({ token: generateToken(), apiUrl: 'https://api.example.com', slug: 'x-1' }, file);
+    expect(isWorldBlessed(file)).toBe(true);
+    saveWorldConfig({ token: generateToken(), apiUrl: 'https://api.example.com', recalled: true }, file);
+    expect(isWorldBlessed(file)).toBe(false); // saving invalidates the cache immediately
+    expect(loadWorldConfig(file)?.recalled).toBe(true); // the token itself is still loadable
+    deleteWorldConfig(file);
+  });
+
   it('invalidates the blessing cache immediately when deleted', () => {
     saveWorldConfig({ token: generateToken(), apiUrl: 'https://api.example.com' }, file);
     expect(isWorldBlessed(file)).toBe(true);
@@ -134,6 +143,21 @@ describe('autoSyncWorld (MCP server glue)', () => {
     await expect(
       autoSyncWorld(companion(), 'observe', { configPath: '/nonexistent/world.json' })
     ).resolves.toBeUndefined();
+  });
+
+  it('never syncs a recalled config', async () => {
+    const { autoSyncWorld, saveWorldConfig, generateToken } = await import('../../lib/world/client.js');
+    const dir = mkdtempSync(join(tmpdir(), 'buddy-autosync-recalled-'));
+    const file = join(dir, 'world.json');
+    saveWorldConfig({ token: generateToken(), apiUrl: 'https://world.example.com', recalled: true }, file);
+    let fetched = 0;
+    const fetchFn = async () => {
+      fetched++;
+      return new Response('{}', { status: 200 });
+    };
+    await autoSyncWorld(companion(), 'commit', { configPath: file, fetchFn, now: () => T0, instant: true });
+    await autoSyncWorld(companion(), 'level_up', { configPath: file, fetchFn, now: () => T0 + 120_000 });
+    expect(fetched).toBe(0);
   });
 
   it('syncs events through to the world once opted in', async () => {

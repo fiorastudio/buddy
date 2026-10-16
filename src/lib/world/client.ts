@@ -19,6 +19,13 @@ export interface WorldConfig {
   url?: string;
   district?: string;
   avatar?: string;
+  /**
+   * Set by a plain `recall`: the buddy is hidden server-side but its data is
+   * kept, so the token stays here — it is the only credential that can later
+   * `recall --purge` that data or teleport back. A recalled config is NOT in
+   * the world: no sync, no blessing, no slug/url/district.
+   */
+  recalled?: boolean;
 }
 
 export const DEFAULT_WORLD_CONFIG_PATH = join(homedir(), '.buddy', 'world.json');
@@ -36,6 +43,11 @@ export function loadWorldConfig(file: string = DEFAULT_WORLD_CONFIG_PATH): World
   } catch {
     return null;
   }
+}
+
+/** True when the config belongs to a buddy currently in the world (not recalled). */
+export function isInWorld(cfg: WorldConfig | null): cfg is WorldConfig {
+  return cfg !== null && cfg.recalled !== true;
 }
 
 export function saveWorldConfig(cfg: WorldConfig, file: string = DEFAULT_WORLD_CONFIG_PATH): void {
@@ -205,9 +217,11 @@ let cfgCache: { cfg: WorldConfig | null; at: number; path: string | undefined } 
 const CFG_CACHE_MS = 30_000;
 
 // Config reads happen on the MCP request path: hydrate at most once per 30s.
+// A recalled config counts as "not in the world" (never synced or blessed).
 function cachedConfig(path: string | undefined, nowMs: number): WorldConfig | null {
   if (!cfgCache || cfgCache.path !== path || nowMs - cfgCache.at > CFG_CACHE_MS) {
-    cfgCache = { cfg: loadWorldConfig(path), at: nowMs, path };
+    const cfg = loadWorldConfig(path);
+    cfgCache = { cfg: isInWorld(cfg) ? cfg : null, at: nowMs, path };
   }
   return cfgCache.cfg;
 }
