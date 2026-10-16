@@ -14,7 +14,7 @@ import {
   hashToken,
   RateLimiter,
 } from '../../lib/world/handlers.js';
-import { DISTRICT_CAPACITY } from '../../lib/world/districts.js';
+import { DISTRICT_CAPACITY, RESIDENT_WINDOW_MS, WORLD_CITIZEN_LIMIT } from '../../lib/world/districts.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
 
@@ -156,6 +156,34 @@ describe('world handlers', () => {
     expect(body.citizens[0]).not.toHaveProperty('flagged');
     expect(body.citizens[0]).not.toHaveProperty('hidden');
     expect(body.citizens[0]).not.toHaveProperty('xp_bucket');
+  });
+
+  it('world view lists only recent residents, not every citizen ever (B2)', async () => {
+    const stale = T0 - RESIDENT_WINDOW_MS - 1;
+    await handleTeleport({ token: 'old-timer-0123456789', snapshot: snap({ name: 'Oldtimer' }) }, store, { ...OPTS, now: stale });
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    // An idle-but-recent buddy (2 days quiet) is still a resident (the plaza
+    // draws it sitting), so the window must comfortably exceed the 3h idle tier.
+    await handleTeleport({ token: 'idle-one-0123456789', snapshot: snap({ name: 'Idler' }) }, store, { ...OPTS, now: T0 - 2 * 86_400_000 });
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const names = (res.body as { citizens: Array<{ name: string }> }).citizens.map((c) => c.name).sort();
+    expect(names).toEqual(['Idler', 'Shadowpaw']);
+  });
+
+  it('world view is bounded to the most recently seen residents', async () => {
+    const total = WORLD_CITIZEN_LIMIT + 5;
+    for (let i = 0; i < total; i++) {
+      // Citizen i was last seen at T0 - (total - i) ms: higher i = more recent.
+      await handleTeleport({ token: `crowd-${i}-0123456789`, snapshot: snap({ name: `Crowd${i}` }) }, store, {
+        ...OPTS,
+        now: T0 - (total - i),
+      });
+    }
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const names = new Set((res.body as { citizens: Array<{ name: string }> }).citizens.map((c) => c.name));
+    expect(names.size).toBe(WORLD_CITIZEN_LIMIT);
+    for (let i = 0; i < 5; i++) expect(names.has(`Crowd${i}`)).toBe(false); // the 5 least-recent drop off
+    expect(names.has(`Crowd${total - 1}`)).toBe(true);
   });
 
   it('recall hides the citizen and purge removes it', async () => {
@@ -395,14 +423,16 @@ describe('browser identity handlers', () => {
     expect(after.xp).toBe(before.xp);
   });
 
-  // Fill a town to a given visible population using ordinary teleports.
-  async function fill(district: string, n: number) {
+  // Fill a town to a given visible population using ordinary teleports, all
+  // last seen at `now` (default T0 = "just now" for the tests below).
+  async function fill(district: string, n: number, now = T0) {
     for (let i = 0; i < n; i++) {
-      await handleTeleport(
-        { token: `filler-${district}-${i}-000000`, snapshot: snap({ name: `Fill${i}` }), district },
+      const res = await handleTeleport(
+        { token: `filler-${district}-${now}-${i}-000000`, snapshot: snap({ name: `Fill${i}` }), district },
         store,
-        OPTS
+        { ...OPTS, now }
       );
+      expect(res.status).toBe(200);
     }
   }
 
@@ -482,9 +512,66 @@ describe('browser identity handlers', () => {
     await fill('plaza-2', DISTRICT_CAPACITY); // town is full of visible buddies
     expect((await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS)).status).toBe(409);
     // Recall (hide) one occupant — capacity must now reflect the visible count.
-    await handleRecall({ token: 'filler-plaza-2-0-000000', purge: false }, store);
+    await handleRecall({ token: `filler-plaza-2-${T0}-0-000000`, purge: false }, store);
     const res = await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS);
     expect(res.status).toBe(200); // the hidden buddy no longer occupies a slot
+  });
+
+  // Release audit B2: capacity used to count every citizen EVER created, so a
+  // town filled up for good and stayed full.
+  it('capacity counts only RECENT residents: long-gone citizens free their slots', async () => {
+    const { controlToken } = await link(); // owner in plaza-1
+    // 80 buddies moved into Payon once, then their owners went quiet for longer
+    // than the resident window. They no longer occupy the town.
+    await fill('plaza-2', DISTRICT_CAPACITY, T0 - RESIDENT_WINDOW_MS - 1);
+    expect((await handlePortalWarp({ controlToken, to: 'Payon' }, store, OPTS)).status).toBe(200);
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.district).toBe('plaza-2');
+    // A named teleport into the same town is admitted too.
+    const tp = await handleTeleport({ token: 'newcomer-0123456789', snapshot: snap(), district: 'Payon' }, store, OPTS);
+    expect(tp.status).toBe(200);
+  });
+
+  it('a long-gone citizen who syncs again counts toward capacity again', async () => {
+    const { controlToken } = await link();
+    await fill('plaza-2', DISTRICT_CAPACITY - 1); // 79 recent
+    await fill('plaza-2', 1, T0 - RESIDENT_WINDOW_MS - 1); // +1 stale: still room for one
+    // The stale owner comes back and syncs (events bump last_seen_at).
+    const stale = `filler-plaza-2-${T0 - RESIDENT_WINDOW_MS - 1}-0-000000`;
+    expect((await handleEvents({ token: stale, events: [{ type: 'commit', ts: T0 }] }, store, OPTS)).status).toBe(200);
+    // Now 80 residents: full.
+    expect((await handlePortalWarp({ controlToken, to: 'Payon' }, store, OPTS)).status).toBe(409);
+  });
+
+  it('the hub is never full: newcomers always land and satellites can always portal home', async () => {
+    const { controlToken } = await link();
+    // Owner walks out to Payon while Prontera is quiet.
+    expect((await handlePortalWarp({ controlToken, to: 'Payon' }, store, OPTS)).status).toBe(200);
+    // Prontera packs past the satellite cap (fill() asserts each named
+    // teleport into the hub succeeds: the hub is not capacity-gated).
+    await fill('plaza-1', DISTRICT_CAPACITY + 5);
+    // A brand-new buddy still lands in the hub...
+    const fresh = await handleTeleport({ token: 'latecomer-0123456789', snapshot: snap() }, store, OPTS);
+    expect(fresh.status).toBe(200);
+    expect((fresh.body as { district: string }).district).toBe('plaza-1');
+    // ...and the satellite resident's one portal home never 409s.
+    const home = await handlePortalWarp({ controlToken, to: 'Prontera' }, store, OPTS);
+    expect(home.status).toBe(200);
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.district).toBe('plaza-1');
+  });
+
+  it('teleport refuses a NEW citizen when the per-network throttle says no (429); nothing is created', async () => {
+    let calls = 0;
+    const throttled = { ...OPTS, allowNewCitizen: () => ++calls <= 2 };
+    expect((await handleTeleport({ token: 'minted-0-0123456789', snapshot: snap() }, store, throttled)).status).toBe(200);
+    expect((await handleTeleport({ token: 'minted-1-0123456789', snapshot: snap() }, store, throttled)).status).toBe(200);
+    const third = await handleTeleport({ token: 'minted-2-0123456789', snapshot: snap(), district: 'Payon' }, store, throttled);
+    expect(third.status).toBe(429);
+    expect(await store.findByTokenHash(hashToken('minted-2-0123456789'))).toBeNull();
+    // Existing citizens are never throttled: a re-teleport/warp still works and
+    // doesn't consult the new-citizen budget.
+    const again = await handleTeleport({ token: TOKEN, snapshot: snap(), district: 'Payon' }, store, throttled);
+    expect(again.status).toBe(200);
+    expect(calls).toBe(3); // only the three NEW attempts consulted it
   });
 
   it('an expired control token cannot portal-warp', async () => {
