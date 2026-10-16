@@ -277,3 +277,32 @@ describe('D1WorldStore.recordEvents atomicity', () => {
     expect((await store.findByTokenHash('tokenhash-1'))!.last_seen_at).toBe(T0);
   });
 });
+
+// Rows written before the B4 bounds (or by anything that skipped validation)
+// are still served in canonical shape: exactly five stats, a known avatar or null.
+describe.each([
+  ['SqliteWorldStore', async (raw: Database.Database) => new SqliteWorldStore(raw) as WorldStore],
+  ['D1WorldStore', async (raw: Database.Database) => (await D1WorldStore.create(sqliteAsD1(raw))) as WorldStore],
+])('%s serves canonical stats/avatar', (_name, makeStore) => {
+  it('drops stray stat keys and unknown avatars on read and on write', async () => {
+    const raw = new Database(':memory:');
+    const store = await makeStore(raw);
+    const padded = {
+      ...snap(),
+      avatar: 'not-a-chibi',
+      stats: { ...snap().stats, essay: 'y'.repeat(1000) },
+    } as unknown as WorldSnapshot;
+    await store.teleport('tokenhash-1', padded, T0);
+    const stored = raw.prepare('SELECT stats, avatar FROM citizens').get() as { stats: string; avatar: string | null };
+    expect(Object.keys(JSON.parse(stored.stats)).sort()).toEqual(['chaos', 'debugging', 'patience', 'snark', 'wisdom']);
+    expect(stored.avatar).toBeNull();
+
+    raw.prepare('UPDATE citizens SET stats = ?, avatar = ?').run(
+      JSON.stringify({ ...snap().stats, junk: 'z'.repeat(1000), chaos: 9999 }),
+      'x'.repeat(1000)
+    );
+    const row = (await store.findByTokenHash('tokenhash-1'))!;
+    expect(row.stats).toEqual({ ...snap().stats, chaos: 100 });
+    expect(row.avatar).toBeNull();
+  });
+});

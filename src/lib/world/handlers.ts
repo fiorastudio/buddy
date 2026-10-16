@@ -132,9 +132,11 @@ export async function handleTeleport(
   if (typeof payload.token !== 'string' || payload.token.length < 8) {
     return bad(400, 'missing or malformed token');
   }
-  const snap = payload.snapshot as WorldSnapshot;
-  const valid = validateSnapshot(snap);
+  // Store only the rebuilt snapshot (known fields, bounded values), never the
+  // raw payload.
+  const valid = validateSnapshot(payload.snapshot);
   if (!valid.ok) return bad(400, valid.reason);
+  const snap = valid.snapshot;
   if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
 
   const tokenHash = hashToken(payload.token);
@@ -204,9 +206,9 @@ export async function handleEvents(
   }
   let snap: WorldSnapshot | undefined;
   if (payload.snapshot) {
-    snap = payload.snapshot as WorldSnapshot;
-    const valid = validateSnapshot(snap);
+    const valid = validateSnapshot(payload.snapshot);
     if (!valid.ok) return bad(400, valid.reason);
+    snap = valid.snapshot;
   }
 
   // Writes. The store records the events all-or-nothing, so a failure there

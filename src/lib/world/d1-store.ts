@@ -13,7 +13,7 @@ import {
 } from './schema-sql.js';
 import { makeSlug } from './identity.js';
 import { HUB_DISTRICT, WORLD_CITIZEN_LIMIT } from './districts.js';
-import type { WorldSnapshot } from './validate.js';
+import { pickStats, pickAvatar, type WorldSnapshot } from './validate.js';
 import type {
   WorldStore,
   CitizenRow,
@@ -47,14 +47,14 @@ function rowToCitizen(row: Record<string, unknown>): CitizenRow {
     level: row.level as number,
     xp: row.xp as number,
     mood: row.mood as string,
-    stats: JSON.parse(row.stats as string),
+    stats: pickStats(JSON.parse(row.stats as string)),
     rarity: row.rarity as string,
     shiny: !!row.shiny,
     hat: row.hat as string,
     eye: row.eye as string,
     anon: !!row.anon,
     skin: row.skin as string,
-    avatar: (row.avatar as string) ?? null,
+    avatar: pickAvatar(row.avatar),
     country: (row.country as string) ?? null,
     district: row.district as string,
     hidden: !!row.hidden,
@@ -96,7 +96,7 @@ export class D1WorldStore implements WorldStore {
       const district = desiredDistrict ?? (existing.district as string);
       await this.db
         .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ?, country = COALESCE(?, country) WHERE id = ?')
-        .bind(snap.avatar ?? null, district, country ?? null, existing.id)
+        .bind(pickAvatar(snap.avatar), district, country ?? null, existing.id)
         .run();
       return { created: false, slug: existing.slug as string, district };
     }
@@ -123,12 +123,12 @@ export class D1WorldStore implements WorldStore {
         snap.level,
         snap.xp,
         snap.mood,
-        JSON.stringify(snap.stats),
+        JSON.stringify(pickStats(snap.stats)),
         snap.rarity,
         snap.shiny ? 1 : 0,
         snap.hat,
         snap.eye,
-        snap.avatar ?? null,
+        pickAvatar(snap.avatar),
         country ?? null,
         district,
         nowMs,
@@ -164,7 +164,7 @@ export class D1WorldStore implements WorldStore {
         snap.level,
         snap.xp,
         snap.mood,
-        JSON.stringify(snap.stats),
+        JSON.stringify(pickStats(snap.stats)),
         snap.rarity,
         snap.shiny ? 1 : 0,
         snap.hat,

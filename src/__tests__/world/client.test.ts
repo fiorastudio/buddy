@@ -43,7 +43,7 @@ function companion(): Companion {
 describe('buildWorldSnapshot', () => {
   it('maps a Companion to a snapshot that passes validation', () => {
     const snap = buildWorldSnapshot(companion(), 'chibi-2');
-    expect(validateSnapshot(snap)).toEqual({ ok: true });
+    expect(validateSnapshot(snap)).toEqual({ ok: true, snapshot: snap });
     expect(snap.stats.debugging).toBe(60);
     expect(snap.avatar).toBe('chibi-2');
   });

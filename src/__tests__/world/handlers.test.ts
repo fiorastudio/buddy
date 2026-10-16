@@ -417,6 +417,54 @@ describe('world handlers', () => {
   });
 });
 
+describe('snapshot bounds (release audit B4)', () => {
+  let store: SqliteWorldStore;
+  beforeEach(() => {
+    store = new SqliteWorldStore(new Database(':memory:'));
+  });
+
+  const padded = () =>
+    ({
+      ...snap(),
+      bio: 'x'.repeat(5000),
+      stats: { ...snap().stats, essay: 'y'.repeat(5000) },
+    }) as unknown as WorldSnapshot;
+
+  it('teleport stores and serves only the five stats and known fields', async () => {
+    expect((await handleTeleport({ token: 'secret-token', snapshot: padded() }, store, OPTS)).status).toBe(200);
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const [c] = (res.body as { citizens: Array<Record<string, unknown>> }).citizens;
+    expect(Object.keys(c.stats as object).sort()).toEqual(['chaos', 'debugging', 'patience', 'snark', 'wisdom']);
+    expect(c).not.toHaveProperty('bio');
+    expect(JSON.stringify(res.body)).not.toMatch(/xxxxx|yyyyy/);
+  });
+
+  it('events snapshot stores only the five stats', async () => {
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    const res = await handleEvents({ token: 'secret-token', events: [], snapshot: padded() }, store, LATER);
+    expect(res.status).toBe(200);
+    const row = await store.findByTokenHash(hashToken('secret-token'));
+    expect(Object.keys(row!.stats).sort()).toEqual(['chaos', 'debugging', 'patience', 'snark', 'wisdom']);
+  });
+
+  it('rejects an unknown avatar on teleport and on events, writing nothing', async () => {
+    const bad = snap({ avatar: '<svg onload=alert(1)>' + 'z'.repeat(5000) });
+    const tp = await handleTeleport({ token: 'secret-token', snapshot: bad }, store, OPTS);
+    expect(tp.status).toBe(400);
+    expect(await store.findByTokenHash(hashToken('secret-token'))).toBeNull();
+
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    const ev = await handleEvents(
+      { token: 'secret-token', events: [{ type: 'commit', ts: T0 }], snapshot: bad },
+      store,
+      LATER
+    );
+    expect(ev.status).toBe(400);
+    expect((await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER)).events).toHaveLength(0);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBe('chibi-3');
+  });
+});
+
 describe('browser identity handlers', () => {
   let store: SqliteWorldStore;
   const TOKEN = 'real-world-token-abcdef';
