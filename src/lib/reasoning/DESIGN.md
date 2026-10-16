@@ -49,8 +49,8 @@ model to emit claims + edges as part of its NEXT observe call. See
 
 Consequences:
 
-- Buddy has **zero outbound dependencies**. No API key, no network, no
-  billing surface.
+- The reasoning layer has **zero outbound dependencies**. No API key, no
+  network, no billing surface.
 - There's a **one-turn lag**: claims describe the turn that just ended,
   detectors run on claims from all prior turns. Fine — detectors need
   graph depth anyway, and cold-start gating covers the early frames.
@@ -385,7 +385,9 @@ warns that the host may not be honoring the extraction prompt.
 
 Claims are plaintext snippets (≤240 chars each after sanitization),
 stored locally in `~/.buddy/buddy.db`. They never leave the user's
-machine — buddy has no network code. Purge via `buddy_forget`, scope
+machine — the reasoning layer has no network code, and the opt-in Buddy
+World sync (`src/lib/world/client.ts`) sends only game state and event
+types, never claims. Purge via `buddy_forget`, scope
 `session` (current workspace+day) or `all` (everything).
 
 The sanitizer in `sanitize.ts` strips structural prompt-injection
