@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  # Release branches are integration branches too: commits land there
+  # directly and via merged PRs, so test every push, not only PRs. (The
+  # release/2.0 head went untested because no open PR covered it.)
   push:
-    branches: [master]
+    branches: [master, 'release/**']
+  # No branch filter: PRs into any base branch get CI.
   pull_request:
   workflow_dispatch: # Allow manual trigger
 
@@ -62,3 +66,8 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+      # The world worker's Durable Object integration test runs inside workerd
+      # (@cloudflare/vitest-pool-workers) and is excluded from `npm test` —
+      # without this step it never ran in CI.
+      - run: npm run test:workers
