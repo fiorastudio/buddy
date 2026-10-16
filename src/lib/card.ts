@@ -9,6 +9,7 @@ import { formatZeny } from './zeny.js';
 import { earnedCards, CARD_CATALOG } from './cards.js';
 import { colorFor, type TerminalCapabilities } from './color.js';
 import { RESET } from './ansi.js';
+import { displayWidth, padEndWidth, truncateToWidth } from './display-width.js';
 
 /**
  * Render a bordered ASCII stat card for a companion.
@@ -27,11 +28,13 @@ export function renderCard(companion: Companion, caps?: TerminalCapabilities): s
   const topBorder = '.' + '_'.repeat(cardWidth - 2) + '.';
   const bottomBorder = "'" + '_'.repeat(cardWidth - 2) + "'";
   const emptyLine = '| ' + ' '.repeat(inner) + ' |';
-  const ln = (text: string) => '| ' + text.padEnd(inner) + ' |';
+  // Pad/clip by terminal display width, not .length: emoji (🛡️ is 3 code units,
+  // 2 columns) and CJK names would otherwise push the right border out of line.
+  const ln = (text: string) => '| ' + padEndWidth(truncateToWidth(text, inner), inner) + ' |';
 
   const headerLeft = `${stars} ${companion.rarity.toUpperCase()}`;
   const headerRight = companion.species.toUpperCase();
-  const headerGap = inner - headerLeft.length - headerRight.length;
+  const headerGap = inner - displayWidth(headerLeft) - displayWidth(headerRight);
   const headerLine = ln(headerLeft + ' '.repeat(Math.max(1, headerGap)) + headerRight);
 
   const bioLines: string[] = [];
@@ -40,7 +43,7 @@ export function renderCard(companion: Companion, caps?: TerminalCapabilities): s
     const words = bioText.split(' ');
     let cur = '';
     for (const w of words) {
-      if (cur.length + w.length + 1 > inner - 2 && cur) {
+      if (displayWidth(cur) + displayWidth(w) + 1 > inner - 2 && cur) {
         bioLines.push(ln(' ' + cur));
         cur = w;
       } else {
