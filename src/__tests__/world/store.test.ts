@@ -3,10 +3,15 @@ import Database from 'better-sqlite3';
 import { SqliteWorldStore, type WorldStore } from '../../lib/world/store.js';
 import { D1WorldStore } from '../../lib/world/d1-store.js';
 import { sqliteAsD1 } from './d1-shim.js';
+import { ANNOUNCE_MAX_PER_CITIZEN } from '../../lib/world/schema-sql.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
 
 const T0 = 1_800_000_000_000; // fixed epoch ms for determinism
+const DAY = 86_400_000;
+// [sinceMs, untilMs] window comfortably around T0 for district/announcement reads.
+const SINCE = T0 - DAY;
+const UNTIL = T0 + DAY;
 
 function snap(overrides: Partial<WorldSnapshot> = {}): WorldSnapshot {
   return {
@@ -77,7 +82,7 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     await store.teleport('tokenhash-1', snap(), T0);
     const citizen = (await store.findByTokenHash('tokenhash-1'))!;
     await store.updateSnapshot(citizen.id, snap({ level: 6, xp: totalXpForLevel(6) + 1 }), T0 + 10_000);
-    const world = await store.district('plaza-1', T0);
+    const world = await store.district('plaza-1', T0, UNTIL);
     expect(world.events.some((e) => e.type === 'level_up')).toBe(true);
   });
 
@@ -86,7 +91,7 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     await store.teleport('tokenhash-2', snap({ name: 'Quackers', species: 'Duck' }), T0);
 
     await store.recall('tokenhash-1', false);
-    let world = await store.district('plaza-1', 0);
+    let world = await store.district('plaza-1', 0, UNTIL);
     expect(world.citizens).toHaveLength(1);
 
     await store.recall('tokenhash-2', true);
@@ -95,7 +100,7 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
 
   it('district listing excludes token hashes', async () => {
     await store.teleport('tokenhash-1', snap(), T0);
-    const world = await store.district('plaza-1', 0);
+    const world = await store.district('plaza-1', 0, UNTIL);
     expect(JSON.stringify(world)).not.toContain('tokenhash');
   });
 
@@ -120,7 +125,7 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     ]);
     await store.recordEvents(b.id, [{ type: 'deploy', ts: T0 + 3000 }]); // newest, other town
 
-    const feed = await store.announcements(10);
+    const feed = await store.announcements(10, SINCE, UNTIL);
     expect(feed.map((r) => r.type)).toEqual(['deploy', 'level_up']); // newest first, commit excluded
     // Cross-town: the feed spans districts, carrying each buddy's own town.
     expect(feed[0].district).toBe('plaza-2');
@@ -137,10 +142,10 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
       { type: 'deploy', ts: T0 + 2000 },
       { type: 'streak_7', ts: T0 + 3000 },
     ]);
-    expect(await store.announcements(2)).toHaveLength(2); // limit respected
+    expect(await store.announcements(2, SINCE, UNTIL)).toHaveLength(2); // limit respected
 
     await store.recall('tok-a', false); // hide the only citizen
-    expect(await store.announcements(10)).toHaveLength(0); // hidden → no broadcast
+    expect(await store.announcements(10, SINCE, UNTIL)).toHaveLength(0); // hidden → no broadcast
   });
 
   it('announcements gives every event a distinct id, even two of the same type at the same ms', async () => {
@@ -150,7 +155,7 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
       { type: 'level_up', ts: T0 + 1000 },
       { type: 'level_up', ts: T0 + 1000 }, // same type, same millisecond
     ]);
-    const feed = await store.announcements(10);
+    const feed = await store.announcements(10, SINCE, UNTIL);
     expect(feed).toHaveLength(2); // both surface — not collapsed
     const ids = feed.map((r) => r.id);
     expect(new Set(ids).size).toBe(2); // distinct, stable keys for the client
@@ -161,9 +166,47 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     await store.setAnon('tok-a', true);
     const a = (await store.findByTokenHash('tok-a'))!;
     await store.recordEvents(a.id, [{ type: 'level_up', ts: T0 + 1000 }]);
-    const feed = await store.announcements(10);
+    const feed = await store.announcements(10, SINCE, UNTIL);
     expect(feed[0].anon).toBe(true);
     expect(feed[0].species).toBe('Duck');
+  });
+
+  it('announcements and district events ignore rows outside [sinceMs, untilMs] (future rows cannot pin)', async () => {
+    await store.teleport('tok-a', snap({ name: 'Alice' }), T0);
+    await store.teleport('tok-b', snap({ name: 'Bob' }), T0);
+    const a = (await store.findByTokenHash('tok-a'))!;
+    const b = (await store.findByTokenHash('tok-b'))!;
+    // A legacy/forged row dated far in the future, plus one too old for the window.
+    await store.recordEvents(a.id, [
+      { type: 'deploy', ts: 8.6e15 },
+      { type: 'deploy', ts: T0 - 2 * DAY },
+    ]);
+    await store.recordEvents(b.id, [{ type: 'deploy', ts: T0 - 1000 }]);
+
+    const feed = await store.announcements(10, T0 - DAY, T0);
+    expect(feed.map((r) => r.name)).toEqual(['Bob']);
+    const world = await store.district('plaza-1', T0 - DAY, T0);
+    expect(world.events.map((e) => e.ts)).toEqual([T0 - 1000]);
+  });
+
+  it('announcements caps each citizen at ANNOUNCE_MAX_PER_CITIZEN so one buddy cannot fill the banner', async () => {
+    await store.teleport('tok-a', snap({ name: 'Spammer' }), T0);
+    await store.teleport('tok-b', snap({ name: 'Bob' }), T0);
+    const a = (await store.findByTokenHash('tok-a'))!;
+    const b = (await store.findByTokenHash('tok-b'))!;
+    await store.recordEvents(b.id, [{ type: 'deploy', ts: T0 + 1 }]);
+    await store.recordEvents(
+      a.id,
+      Array.from({ length: 30 }, (_, i) => ({ type: 'deploy', ts: T0 + 100 + i }))
+    );
+
+    const feed = await store.announcements(30, SINCE, UNTIL);
+    const spam = feed.filter((r) => r.name === 'Spammer');
+    expect(spam).toHaveLength(ANNOUNCE_MAX_PER_CITIZEN);
+    // The cap keeps the spammer's NEWEST rows, still newest-first overall.
+    expect(spam.map((r) => r.ts)).toEqual(Array.from({ length: ANNOUNCE_MAX_PER_CITIZEN }, (_, i) => T0 + 129 - i));
+    expect(feed.map((r) => r.name)).toContain('Bob');
+    expect(feed[feed.length - 1].name).toBe('Bob');
   });
 
   it('rollup aggregates a day of events per citizen', async () => {

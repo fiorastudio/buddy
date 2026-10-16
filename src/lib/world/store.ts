@@ -5,7 +5,13 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Database } from 'better-sqlite3';
-import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, ANNOUNCE_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
+import {
+  WORLD_SCHEMA_SQL,
+  WORLD_EVENT_TYPES,
+  ANNOUNCE_EVENT_TYPES,
+  ANNOUNCE_MAX_PER_CITIZEN,
+  type WorldEventType,
+} from './schema-sql.js';
 import { makeSlug } from './identity.js';
 import type { WorldSnapshot } from './validate.js';
 
@@ -75,11 +81,15 @@ export interface WorldStore {
   updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number, xpBucket?: number): Promise<void>;
   recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number>;
   recall(tokenHash: string, purge: boolean): Promise<boolean>;
-  district(name: string, sinceMs: number): Promise<DistrictView>;
+  // Events are windowed to [sinceMs, untilMs]. Handlers pass the server clock
+  // as untilMs, so a row whose ts lies in the future can't sit on top forever.
+  district(name: string, sinceMs: number, untilMs: number): Promise<DistrictView>;
   // GLOBAL celebration feed (M6): the most recent celebration-class events
   // (ANNOUNCE_EVENT_TYPES) across ALL districts, newest first, from visible
-  // citizens only. Returns raw identity; the handler masks anon buddies.
-  announcements(limit: number): Promise<AnnouncementRow[]>;
+  // citizens only, ts within [sinceMs, untilMs], and at most
+  // ANNOUNCE_MAX_PER_CITIZEN rows per citizen so one buddy can't fill the
+  // banner. Returns raw identity; the handler masks anon buddies.
+  announcements(limit: number, sinceMs: number, untilMs: number): Promise<AnnouncementRow[]>;
   // Live per-town population, counting ONLY visible (hidden=0) citizens so the
   // capacity gate matches what district()/handleWorld actually render.
   districtCounts(): Promise<Record<string, number>>;
@@ -262,7 +272,7 @@ export class SqliteWorldStore implements WorldStore {
     return true;
   }
 
-  async district(name: string, sinceMs: number): Promise<DistrictView> {
+  async district(name: string, sinceMs: number, untilMs: number): Promise<DistrictView> {
     const citizenRows = this.db
       .prepare('SELECT * FROM citizens WHERE district = ? AND hidden = 0 ORDER BY created_at')
       .all(name) as Array<Record<string, unknown>>;
@@ -271,10 +281,10 @@ export class SqliteWorldStore implements WorldStore {
       .prepare(
         `SELECT c.slug AS citizen_slug, e.type, e.ts
          FROM world_events e JOIN citizens c ON c.id = e.citizen_id
-         WHERE c.district = ? AND c.hidden = 0 AND e.ts >= ?
+         WHERE c.district = ? AND c.hidden = 0 AND e.ts >= ? AND e.ts <= ?
          ORDER BY e.ts DESC LIMIT 200`
       )
-      .all(name, sinceMs) as Array<Record<string, unknown>>;
+      .all(name, sinceMs, untilMs) as Array<Record<string, unknown>>;
 
     return {
       citizens: citizenRows.map((row) => {
@@ -289,16 +299,20 @@ export class SqliteWorldStore implements WorldStore {
     };
   }
 
-  async announcements(limit: number): Promise<AnnouncementRow[]> {
+  async announcements(limit: number, sinceMs: number, untilMs: number): Promise<AnnouncementRow[]> {
     const placeholders = ANNOUNCE_EVENT_TYPES.map(() => '?').join(', ');
+    // ROW_NUMBER per citizen enforces ANNOUNCE_MAX_PER_CITIZEN.
     const rows = this.db
       .prepare(
-        `SELECT e.id, c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts
-         FROM world_events e JOIN citizens c ON c.id = e.citizen_id
-         WHERE c.hidden = 0 AND e.type IN (${placeholders})
-         ORDER BY e.ts DESC, e.id DESC LIMIT ?`
+        `SELECT id, slug, name, species, anon, level, district, type, ts FROM (
+           SELECT e.id, c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts,
+             ROW_NUMBER() OVER (PARTITION BY e.citizen_id ORDER BY e.ts DESC, e.id DESC) AS rn
+           FROM world_events e JOIN citizens c ON c.id = e.citizen_id
+           WHERE c.hidden = 0 AND e.type IN (${placeholders}) AND e.ts >= ? AND e.ts <= ?
+         ) WHERE rn <= ?
+         ORDER BY ts DESC, id DESC LIMIT ?`
       )
-      .all(...ANNOUNCE_EVENT_TYPES, limit) as Array<Record<string, unknown>>;
+      .all(...ANNOUNCE_EVENT_TYPES, sinceMs, untilMs, ANNOUNCE_MAX_PER_CITIZEN, limit) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: row.id as number,
       slug: row.slug as string,
