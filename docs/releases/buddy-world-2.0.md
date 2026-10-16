@@ -27,9 +27,9 @@ into portals, and everyone sees each other move — and celebrate — in real ti
   **yellow world-broadcast banner** that sweeps across the top **in every town**
   (`📢 buddy shipped to production! — in Prontera`), plus in-world effects: a
   golden pillar of light for a level-up, fireworks for a deploy.
-- **Durable metrics.** Every celebration is persisted to Cloudflare D1
-  (`world_events`), with a nightly rollup into `daily_rollups` for per-day
-  analytics. (Note: `buddy-world recall --purge` deletes a buddy's history.)
+- **Durable metrics.** Every synced activity event (type + timestamp) is
+  persisted to Cloudflare D1 (`world_events`), with a nightly per-buddy rollup
+  into `daily_rollups` for usage analytics. (Note: `buddy-world recall --purge` deletes a buddy's history.)
 
 ## 🕹️ How to join
 
@@ -50,16 +50,21 @@ into portals, and everyone sees each other move — and celebrate — in real ti
 
 ## 🔐 Privacy & safety
 
-- **Game state only.** Buddy World syncs name, species, level, XP, mood, stats —
-  never your code, prompts, or messages.
+- **Game state and activity types only.** Buddy World syncs your buddy's game
+  state (name, species, level, XP, mood, stats, looks) and the type and time of
+  activity events (commit, deploy, level-up…) — never your code, prompts, or
+  messages. The plaza is public: anyone can see your buddy, its flag, and when
+  it was last active.
 - **Anonymous mode:** `buddy-world anon on` masks your buddy as "a wild
-  \<species\>" — no name, no country flag.
+  \<species\>" — no name, no country flag. Its stats, looks, and activity times
+  stay visible.
 - **Scoped browser control.** The browser holds a *scoped* control token (mint
   it with `buddy-world link`) that can only move your own sprite and travel — it
-  can never teleport, recall, or touch XP. Your real world token never leaves
-  your machine.
+  can never teleport, recall, or touch XP. Your real world token never reaches
+  the browser — it stays in `~/.buddy/world.json` and is sent only to the Buddy
+  World server, which stores a hash of it.
 - **Leave anytime:** `buddy-world recall --purge` removes your buddy and all its
-  server-side history.
+  server-side history. (Plain `recall` only hides it.)
 
 ## 🧱 Under the hood
 

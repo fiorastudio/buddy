@@ -231,7 +231,7 @@ Kudos nudges are slightly favored — after 3 caution findings with zero kudos, 
 
 ### Privacy
 
-Everything stays local. Claim snippets (240 chars each, plaintext) live in `~/.buddy/buddy.db`. Buddy has no network code — nothing leaves your machine. Sessions older than 30 days auto-prune on startup.
+Guard mode is fully local. Claim snippets (240 chars each, plaintext) live in `~/.buddy/buddy.db`, and Buddy never sends them anywhere — not even to [Buddy World](#buddy-world-privacy), the one opt-in feature that talks to a server. Sessions older than 30 days auto-prune on startup.
 
 - `buddy_forget` — purge reasoning data (`session` or `all`)
 - `buddy_reasoning_status` — inspect stored claims, sessions, finding history
@@ -386,7 +386,7 @@ can also move between towns straight from the CLI:
 buddy-world warp payon      # travel to another town
 buddy-world towns           # list the towns
 buddy-world status          # your buddy's world status
-buddy-world recall --purge  # leave and delete everything server-side
+buddy-world recall --purge  # leave and delete your buddy's data from the server
 ```
 
 ### What's in it
@@ -395,20 +395,28 @@ buddy-world recall --purge  # leave and delete everything server-side
   live positions over WebSockets; your buddy is in the same place on every screen.
 - **Portal travel** — six towns in a hub-and-spoke layout (Prontera at the center);
   warping is a place you walk into, not a button.
-- **Country flags** on teleport (coarse country-level only — no city or IP; hidden
-  in anonymous mode).
+- **Country flags** on teleport (country-level only, from Cloudflare's lookup of
+  your connection — your IP and city aren't stored; hidden from other visitors in
+  anonymous mode).
 - **Per-town original music**, and RO-style celebrations: a **golden pillar** for a
   level-up, **fireworks** for a deploy, all mirrored in the global broadcast banner.
-- **Durable metrics** — every celebration is logged to D1 (`world_events`) with a
-  nightly rollup into `daily_rollups`.
+- **Durable metrics** — every synced activity event (type + timestamp) is logged
+  to D1 (`world_events`), with a nightly per-buddy rollup into `daily_rollups` for
+  usage analytics.
 
-### Privacy
+### Buddy World privacy
 
-Buddy World syncs **game state only** (name, species, level, XP, mood, stats) —
-never your code, prompts, or messages. Use `buddy-world anon on` for an anonymous
-buddy (no name, no flag). The browser only ever holds a **scoped control token**
-(from `buddy-world link`) that can move your sprite and travel — never teleport,
-recall, or write XP; your real world token never leaves your machine.
+Buddy World is **opt-in** — nothing is sent until you run `buddy-world teleport` and say yes. After that, Buddy syncs:
+
+- **Your buddy's game state** — name, species, level, XP, mood, stats, rarity, shiny, hat, eyes, and avatar.
+- **Activity events** — the *type* and time of events like `commit`, `tests_passed`, `deploy`, and `level_up`, rolled up nightly into per-buddy daily counts so we can see how Buddy World is used. Never the content: no code, commit messages, prompts, chats, file or repo names, memories, or guard-mode claims.
+- **A country flag** — a two-letter country code Cloudflare derives from your connection. Your IP address and city are not stored.
+
+**The plaza is public.** Anyone can see your buddy's name, stats, flag, town, recent celebrations, and when it was last active. `buddy-world anon on` hides the name and flag (your buddy shows as "a wild \<species\>"); everything else stays visible.
+
+The browser only holds a **scoped control token** (from `buddy-world link`, kept in localStorage for up to 30 days) that can move your sprite and travel — never teleport, recall, or write XP. Your real world token stays in `~/.buddy/world.json`, is sent only to the Buddy World server, and is stored there only as a hash.
+
+**Leaving:** `buddy-world recall --purge` deletes your buddy and its history from the server. Plain `buddy-world recall` only hides your buddy — its data stays on the server, so purge if you want it gone.
 
 > Full release notes: [`docs/releases/buddy-world-2.0.md`](docs/releases/buddy-world-2.0.md)
 
@@ -682,7 +690,7 @@ Guard mode is Buddy's structural reasoning layer. It spots unverified assumption
 
 Buddy mainly reacts to short summaries you pass through tools like `buddy_observe`, plus its own saved state. It does not scan your files or project directory.
 
-Local companion state lives in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. If guard mode is on, Buddy also stores extracted claim snippets (≤240 chars each, plaintext) for structural reasoning analysis, pruned after 30 days and purgeable via `buddy_forget`. Nothing leaves your machine.
+Local companion state lives in `~/.buddy/buddy.db` — species, level, XP, mood, personality bio, and memories. If guard mode is on, Buddy also stores extracted claim snippets (≤240 chars each, plaintext) for structural reasoning analysis, pruned after 30 days and purgeable via `buddy_forget`. All of this stays on your machine unless you opt into Buddy World (`buddy-world teleport`), which syncs your buddy's game state and activity event types — never your code, prompts, messages, memories, bio, or claim snippets. See [Buddy World privacy](#buddy-world-privacy).
 
 ### Is Buddy tied to one client?
 
@@ -690,7 +698,7 @@ No. Buddy is an MCP server, not a one-client hack. It works with any MCP-capable
 
 ### Can I remove it later?
 
-Yes. Run the uninstall script (`uninstall.sh` or `uninstall.ps1`) to remove Buddy and its configuration, or use `buddy_respawn` to release your companion and clear its data while keeping the server installed.
+Yes. Run the uninstall script (`uninstall.sh` or `uninstall.ps1`) to remove Buddy and its configuration, or use `buddy_respawn` to release your companion and clear its data while keeping the server installed. If you teleported into Buddy World, the uninstaller runs `buddy-world recall --purge` for you; if it can't reach the server, it keeps `~/.buddy/world.json` so you can purge later. `buddy_respawn` doesn't remove your buddy from Buddy World.
 
 ## 🛠️ Development
 
