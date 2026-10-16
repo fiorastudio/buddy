@@ -43,6 +43,14 @@
     #broadcast { justify-content: center; }
     #broadcast .broadcast-msg { padding-left: 0; animation: none !important; }
   }
+  /* Room feedback (e.g. a failed warp): a brief centered notice under the banners. */
+  #toast {
+    position: fixed; top: 72px; left: 50%; transform: translateX(-50%); z-index: 13;
+    max-width: calc(100% - 32px);
+    background: rgba(15, 12, 41, 0.95); border: 1px solid var(--gold); border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; color: #ffe082; text-align: center;
+  }
+  #toast[hidden] { display: none; }
   #plaza { display: block; }
   #cta {
     position: fixed; bottom: 12px; right: 14px; z-index: 10;
@@ -76,6 +84,7 @@
 <body>
   <div id="ticker" aria-live="polite"><span class="brand">⛲ BUDDY WORLD</span></div>
   <div id="broadcast" role="status" aria-live="polite" hidden></div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
   <canvas id="plaza" role="img" aria-label="Buddy World plaza"></canvas>
   <ul id="sr-citizens" class="visually-hidden" aria-label="Buddies currently in the plaza"></ul>
   <div id="cta">no buddy yet? <a href="https://github.com/fiorastudio/buddy" target="_blank" rel="noopener">adopt your own →</a></div>
