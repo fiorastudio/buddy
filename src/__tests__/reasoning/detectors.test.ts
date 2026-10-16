@@ -198,6 +198,87 @@ describe('detectUnchallengedChain', () => {
     // Should terminate and not throw.
     expect(() => detectUnchallengedChain(g)).not.toThrow();
   });
+
+  // X10: only the single longest path from each start was checked. If that
+  // path was challenged, an unchallenged sibling branch went unreported.
+  it('fires on an unchallenged branch when the longest branch is challenged', () => {
+    //   s → a → b → c   (c questions b: challenged, length 4)
+    //   s → x → y       (unchallenged, length 3)
+    const g = withFiller([
+      { id: 's', basis: 'assumption', text: 'S_CLAIM' },
+      { id: 'a', basis: 'deduction' }, { id: 'b', basis: 'deduction' }, { id: 'c', basis: 'deduction' },
+      { id: 'x', basis: 'deduction' }, { id: 'y', basis: 'deduction' },
+    ], [
+      { from: 's', to: 'a', type: 'depends_on' },
+      { from: 'a', to: 'b', type: 'depends_on' },
+      { from: 'b', to: 'c', type: 'depends_on' },
+      { from: 'c', to: 'b', type: 'questions' },
+      { from: 's', to: 'x', type: 'supports' },
+      { from: 'x', to: 'y', type: 'depends_on' },
+    ]);
+    const findings = detectUnchallengedChain(g);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].anchor_claim_id).toBe('s');
+    expect(findings[0].claim_text).toBe('S_CLAIM');
+    expect(findings[0].chain_length).toBe(3);
+  });
+
+  it('fires on an unchallenged branch that rejoins below the challenge', () => {
+    // Diamond: s → a → t → u and s → b → t → u. The challenge (b questions s)
+    // sits on the s-b path only; s → a → t → u is clean and as long.
+    const g = withFiller([
+      { id: 's', basis: 'assumption' }, { id: 'b', basis: 'deduction' },
+      { id: 'a', basis: 'deduction' }, { id: 't', basis: 'deduction' }, { id: 'u', basis: 'deduction' },
+    ], [
+      { from: 's', to: 'b', type: 'depends_on' },
+      { from: 's', to: 'a', type: 'depends_on' },
+      { from: 'b', to: 't', type: 'depends_on' },
+      { from: 'a', to: 't', type: 'depends_on' },
+      { from: 't', to: 'u', type: 'depends_on' },
+      { from: 'b', to: 's', type: 'questions' },
+    ]);
+    const findings = detectUnchallengedChain(g);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].anchor_claim_id).toBe('s');
+    expect(findings[0].chain_length).toBe(4);
+  });
+
+  it('still does not fire when every maximal path is challenged', () => {
+    const g = withFiller([
+      { id: 's', basis: 'assumption' }, { id: 'a', basis: 'deduction' }, { id: 'b', basis: 'deduction' },
+      { id: 'c', basis: 'deduction' }, { id: 'x', basis: 'deduction' }, { id: 'y', basis: 'deduction' },
+    ], [
+      { from: 's', to: 'a', type: 'depends_on' },
+      { from: 'a', to: 'b', type: 'depends_on' },
+      { from: 'b', to: 'c', type: 'depends_on' },
+      { from: 'c', to: 'b', type: 'questions' },
+      { from: 's', to: 'x', type: 'depends_on' },
+      { from: 'x', to: 'y', type: 'depends_on' },
+      { from: 'y', to: 's', type: 'contradicts' },
+    ]);
+    // s → a → b is unchallenged but not maximal (it continues to c), so it
+    // is not a chain of its own.
+    expect(detectUnchallengedChain(g)).toHaveLength(0);
+  });
+
+  it('stays bounded on a dense branching graph', () => {
+    // 2-wide ladder, 100 layers deep: ~2^99 maximal paths from the start, all
+    // challenged at the bottom, so nothing short-circuits the search early.
+    const claims: FixtureClaim[] = [{ id: 'top', basis: 'assumption' }];
+    const edges: FixtureEdge[] = [];
+    let prev = ['top'];
+    for (let layer = 0; layer < 100; layer++) {
+      const cur = [`L${layer}a`, `L${layer}b`];
+      for (const id of cur) claims.push({ id, basis: 'deduction' });
+      for (const p of prev) for (const c of cur) edges.push({ from: p, to: c, type: 'depends_on' });
+      prev = cur;
+    }
+    for (const p of prev) edges.push({ from: p, to: 'top', type: 'questions' });
+    const g = withFiller(claims, edges);
+    const start = Date.now();
+    expect(detectUnchallengedChain(g)).toHaveLength(0);
+    expect(Date.now() - start).toBeLessThan(REASONING_CONFIG.DETECTOR_BUDGET_MS * 3);
+  });
 });
 
 // ── Echo chamber ────────────────────────────────────────────────────────────

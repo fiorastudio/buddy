@@ -20,7 +20,8 @@ import {
   downstreamCount,
   nodesByBasis,
   longestChainNodesFrom,
-  chainHasChallenge,
+  longestUnchallengedChainFrom,
+  makeChainSearchBudget,
   chainHasMidChainChallenge,
 } from './graph.js';
 
@@ -46,9 +47,12 @@ export function detectLoadBearingVibes(graph: SessionGraph): Finding[] {
 // Anchors on the HEAD of the chain — the premise — because that's the
 // actionable target ("stress-test this assumption"). Dedupe by head so
 // multiple chains rooted at the same claim collapse to one finding.
-export function detectUnchallengedChain(graph: SessionGraph, scratch: ChainScratch = makeChainScratch()): Finding[] {
+export function detectUnchallengedChain(graph: SessionGraph): Finding[] {
   const out: Finding[] = [];
   const minLen = REASONING_CONFIG.UNCHALLENGED_CHAIN_MIN_LENGTH;
+  // One search budget for the whole pass, so a dense graph with many start
+  // nodes stays within the detector time budget.
+  const budget = makeChainSearchBudget();
   for (const node of graph.nodes.values()) {
     // Only start from a maximal chain — a node nothing else depends on.
     // Otherwise a challenged chain still fires via its own unchallenged
@@ -57,9 +61,11 @@ export function detectUnchallengedChain(graph: SessionGraph, scratch: ChainScrat
     // tail of one we already considered. Was masked until #129 lowered the
     // minimum length to 3 and made short suffixes long enough to qualify.
     if (downstreamCount(graph, node.id) > 0) continue;
-    const chain = longestChainNodesFrom(graph, node.id, ['supports', 'depends_on'], scratch);
-    if (chain.length < minLen) continue;
-    if (chainHasChallenge(graph, chain)) continue;
+    // Every maximal path from here, not just the longest one: when the
+    // longest path was challenged, an unchallenged sibling branch of the
+    // required length went unreported (X10).
+    const chain = longestUnchallengedChainFrom(graph, node.id, ['supports', 'depends_on'], minLen, budget);
+    if (!chain) continue;
     const headId = chain[0];
     const headNode = graph.nodes.get(headId)!;
     out.push({
@@ -224,7 +230,7 @@ export function runAllDetectors(graph: SessionGraph): Finding[] {
   const scratch = makeChainScratch();
   return dropSubsumed([
     ...detectLoadBearingVibes(graph),
-    ...detectUnchallengedChain(graph, scratch),
+    ...detectUnchallengedChain(graph),
     ...detectEchoChamber(graph),
     ...detectUnverifiedHedge(graph),
     ...detectWellSourcedLoadBearer(graph),
