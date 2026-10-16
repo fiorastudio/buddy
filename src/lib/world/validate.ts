@@ -12,7 +12,7 @@ export const WORLD_MOODS = ['happy', 'content', 'neutral', 'curious', 'grumpy', 
 export const MAX_NAME_LENGTH = 32;
 
 // The owner avatars the plaza can draw (plaza.js AVATARS has 8 entries and the
-// CLI documents `--avatar chibi-1..8`). Anything else is rejected rather than
+// CLI documents `--avatar chibi-1..8`). Anything else is dropped rather than
 // stored and shipped to every viewer.
 export const AVATAR_RE = /^chibi-[1-8]$/;
 
@@ -133,11 +133,6 @@ export function validateSnapshot(input: unknown): ValidationResult {
   if (snap.shiny !== undefined && typeof snap.shiny !== 'boolean') {
     return { ok: false, reason: 'shiny must be a boolean' };
   }
-  // Optional: absent/null means "keep whatever is stored" (or none).
-  if (snap.avatar !== undefined && snap.avatar !== null && pickAvatar(snap.avatar) === null) {
-    return { ok: false, reason: 'unknown avatar (expected chibi-1..chibi-8)' };
-  }
-
   const snapshot: WorldSnapshot = {
     name,
     species: snap.species as string,
@@ -150,6 +145,11 @@ export function validateSnapshot(input: unknown): ValidationResult {
     hat: snap.hat as string,
     eye: snap.eye as string,
   };
+  // Avatar is cosmetic and optional, so an unknown one is DROPPED (treated as
+  // absent), not rejected: a 400 on /v1/events makes the client resend without
+  // the snapshot and then give up on it, so one bad avatar saved in a user's
+  // world.json would silently stop their level/XP sync. Absent means "keep
+  // whatever is stored" on a re-teleport, and no avatar for a new citizen.
   const avatar = pickAvatar(snap.avatar);
   if (avatar) snapshot.avatar = avatar;
   return { ok: true, snapshot };
