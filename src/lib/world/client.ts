@@ -103,6 +103,7 @@ export interface WorldSyncOpts {
 export class WorldSync {
   private queued: Array<{ type: string; ts: number }> = [];
   private lastFlush = 0;
+  private stopped = false;
   private fetchFn: FetchLike;
   private now: () => number;
   private debounceMs: number;
@@ -151,7 +152,18 @@ export class WorldSync {
     return (await res.json()) as { slug: string; url: string; district: string };
   }
 
+  /**
+   * The server answered that this buddy is recalled (hidden). Nothing it
+   * queues can ever be delivered, so the sync has stopped: queued events were
+   * dropped and later ones are ignored. Teleporting back un-hides the buddy;
+   * the MCP glue then starts a fresh WorldSync.
+   */
+  get recalled(): boolean {
+    return this.stopped;
+  }
+
   queue(type: string): void {
+    if (this.stopped) return;
     this.queued.push({ type, ts: this.now() });
     this.capQueue();
   }
@@ -173,6 +185,16 @@ export class WorldSync {
     return !res || res.status >= 500 || res.status === 408 || res.status === 429;
   }
 
+  // 409 {"error":"recalled"}: the server refuses writes for a hidden buddy.
+  private static async isRecalled(res: Response): Promise<boolean> {
+    if (res.status !== 409) return false;
+    try {
+      return ((await res.json()) as { error?: unknown }).error === 'recalled';
+    } catch {
+      return false;
+    }
+  }
+
   /** Debounce-aware flush; awaitable but designed to be fire-and-forget. */
   async maybeFlush(snapshot?: WorldSnapshot): Promise<void> {
     if (this.now() - this.lastFlush < this.debounceMs) return;
@@ -184,6 +206,7 @@ export class WorldSync {
    * window). Returns true when that batch's events were delivered. Never throws.
    */
   async flush(snapshot?: WorldSnapshot): Promise<boolean> {
+    if (this.stopped) return false;
     const events = this.queued.splice(0, MAX_EVENT_BATCH);
     let res = await this.post('/v1/events', {
       token: this.cfg.token,
@@ -203,6 +226,11 @@ export class WorldSync {
     if (WorldSync.isTransient(res)) {
       this.queued = events.concat(this.queued); // requeue for the next window
       this.capQueue();
+    } else if (res && (await WorldSync.isRecalled(res))) {
+      // Recalled server-side (maybe by another process): drop everything and
+      // stop — no amount of retrying delivers events for a hidden buddy.
+      this.queued = [];
+      this.stopped = true;
     } else {
       // Rejected outright (4xx): it can never succeed, so drop the batch rather
       // than wedge the queue behind it. Start a new debounce window too, so a
@@ -275,12 +303,22 @@ export async function autoSyncWorld(
       processSync = new WorldSync(cfg, deps);
       processSyncToken = cfg.token;
     }
-    processSync.queue(eventType);
+    const sync = processSync;
+    sync.queue(eventType);
     const snapshot = buildWorldSnapshot(companion, cfg.avatar);
     if (deps.instant || INSTANT_WORLD_EVENTS.has(eventType as never)) {
-      await processSync.flush(snapshot);
+      await sync.flush(snapshot);
     } else {
-      await processSync.maybeFlush(snapshot);
+      await sync.maybeFlush(snapshot);
+    }
+    if (sync.recalled && processSync === sync) {
+      // The server says this buddy was recalled even though the cached
+      // world.json still says otherwise. Treat it as out of the world (no
+      // sync, no blessing) until the cache next reloads world.json; a buddy
+      // that has since teleported back then gets a fresh WorldSync.
+      processSync = null;
+      processSyncToken = null;
+      cfgCache = { cfg: null, at: now, path: deps.configPath };
     }
   } catch {
     // never let plaza problems reach the buddy

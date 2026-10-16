@@ -881,6 +881,78 @@ describe('recall / anon reach live rooms', () => {
   });
 });
 
+// A recalled (hidden) citizen keeps its token, but only recall/purge and a
+// re-teleport may use it until the owner comes back.
+describe('a recalled citizen refuses writes until it teleports back', () => {
+  let db: Database.Database;
+  let store: SqliteWorldStore;
+  let notices: RoomNotice[];
+  const notify = async (n: RoomNotice) => {
+    notices.push(n);
+  };
+  const TOKEN = 'recalled-token-abcdef';
+
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    store = new SqliteWorldStore(db);
+    notices = [];
+    await handleTeleport({ token: TOKEN, snapshot: snap() }, store, OPTS);
+    expect((await handleRecall({ token: TOKEN, purge: false }, store)).status).toBe(200);
+  });
+
+  const citizen = async () => (await store.findByTokenHash(hashToken(TOKEN)))!;
+  const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+  it('/v1/events answers 409 recalled and writes neither events nor the snapshot', async () => {
+    const before = await citizen();
+    const res = await handleEvents(
+      { token: TOKEN, events: [{ type: 'commit', ts: T0 + 1 }], snapshot: snap({ xp: before.xp + 5, mood: 'grumpy' }) },
+      store,
+      { ...OPTS, now: T0 + 60_000 }
+    );
+    expect(res).toEqual({ status: 409, body: { error: 'recalled' } });
+    expect(count('world_events')).toBe(0);
+    const after = await citizen();
+    expect(after.xp).toBe(before.xp);
+    expect(after.mood).toBe(before.mood);
+    expect(after.last_seen_at).toBe(before.last_seen_at);
+    expect(after.hidden).toBe(true);
+  });
+
+  it('/v1/anon answers 409 recalled, changes nothing and notifies no room', async () => {
+    const res = await handleAnon({ token: TOKEN, anon: true }, store, notify);
+    expect(res).toEqual({ status: 409, body: { error: 'recalled' } });
+    expect((await citizen()).anon).toBe(false);
+    expect(notices).toEqual([]);
+  });
+
+  it('/v1/browser-link answers 409 recalled and mints no code', async () => {
+    const res = await handleBrowserLink({ token: TOKEN }, store, OPTS);
+    expect(res).toEqual({ status: 409, body: { error: 'recalled' } });
+    expect(count('link_codes')).toBe(0);
+  });
+
+  it('an unknown token is still a 401, not a 409', async () => {
+    expect((await handleEvents({ token: 'nobody-0000000000', events: [] }, store, OPTS)).status).toBe(401);
+    expect((await handleAnon({ token: 'nobody-0000000000', anon: true }, store)).status).toBe(401);
+  });
+
+  it('recall --purge still works for a recalled citizen', async () => {
+    expect((await handleRecall({ token: TOKEN, purge: true }, store)).status).toBe(200);
+    expect(await store.findByTokenHash(hashToken(TOKEN))).toBeNull();
+  });
+
+  it('teleporting back un-hides the citizen and writes are accepted again', async () => {
+    expect((await handleTeleport({ token: TOKEN, snapshot: snap() }, store, OPTS)).status).toBe(200);
+    expect((await citizen()).hidden).toBe(false);
+    const ev = await handleEvents({ token: TOKEN, events: [{ type: 'commit', ts: T0 }] }, store, OPTS);
+    expect(ev).toEqual({ status: 200, body: { accepted: 1 } });
+    expect((await handleAnon({ token: TOKEN, anon: true }, store, notify)).status).toBe(200);
+    expect((await citizen()).anon).toBe(true);
+    expect((await handleBrowserLink({ token: TOKEN }, store, OPTS)).status).toBe(200);
+  });
+});
+
 // B10: an anon buddy must not be re-identifiable from public payloads.
 describe('anon masking is keyed and anon payloads are minimal (B10)', () => {
   let store: SqliteWorldStore;

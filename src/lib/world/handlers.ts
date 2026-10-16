@@ -178,6 +178,18 @@ function bad(status: number, error: string): HandlerResult {
   return { status, body: { error } };
 }
 
+// A recalled citizen is hidden until its owner teleports back. Until then the
+// world token may still recall/purge or teleport (which un-hides), but nothing
+// else may write for it: a stale MCP process (its world.json cache lives up to
+// 30s) or a script would otherwise keep recording events, snapshots, anon
+// toggles and browser-link codes for a buddy its owner took out of the world.
+// 409, not 401: the token is valid, and the client must not mistake this for
+// "data gone" and drop its only credential.
+export const RECALLED_ERROR = 'recalled';
+function recalled(): HandlerResult {
+  return bad(409, RECALLED_ERROR);
+}
+
 // The ONLY path that may write xp/level to an existing citizen: refills the
 // persisted budget, spends it on the claimed delta, re-derives level from
 // granted XP, and flags anything that exceeded the budget.
@@ -272,6 +284,7 @@ export async function handleEvents(
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
   const citizen = await store.findByTokenHash(hashToken(payload.token));
   if (!citizen) return bad(401, 'unknown token');
+  if (citizen.hidden) return recalled();
 
   // Validate the WHOLE request before writing anything. A rejected request
   // must leave no trace: the client may resend the same events (without the
@@ -323,12 +336,14 @@ export async function handleAnon(
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
   const anon = payload.anon === true;
   const tokenHash = hashToken(payload.token);
+  const citizen = await store.findByTokenHash(tokenHash);
+  if (!citizen) return bad(401, 'unknown token');
+  if (citizen.hidden) return recalled();
   const ok = await store.setAnon(tokenHash, anon);
   if (!ok) return bad(401, 'unknown token');
-  const citizen = await store.findByTokenHash(tokenHash);
   // A live socket keeps the identity it joined with; re-key it to the new
   // public slug (masked exactly like /v1/world) so `anon on` takes effect now.
-  if (citizen) await notifyRooms?.({ kind: 'relabel', citizenId: citizen.id, slug: publicSlug({ ...citizen, anon }, opts.anonSecret) });
+  await notifyRooms?.({ kind: 'relabel', citizenId: citizen.id, slug: publicSlug({ ...citizen, anon }, opts.anonSecret) });
   return { status: 200, body: { anon } };
 }
 
@@ -345,6 +360,9 @@ export async function handleBrowserLink(
   }
   const citizen = await store.findByTokenHash(hashToken(payload.token));
   if (!citizen) return bad(401, 'unknown token');
+  // Recall revoked every browser credential; don't mint a fresh one that
+  // would come back to life when the buddy is un-hidden.
+  if (citizen.hidden) return recalled();
 
   const code = randomBytes(16).toString('hex');
   await store.createLinkCode(citizen.id, hashToken(code), opts.now + LINK_CODE_TTL_MS);

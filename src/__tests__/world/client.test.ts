@@ -237,6 +237,37 @@ describe('WorldSync batching and failure handling (B3: sync must never wedge)', 
     expect(sync.pending).toBe(0);
     expect(sent.every((r) => r.status === 401 && r.events.length === 1)).toBe(true); // nothing piled up
   });
+
+  it('stops for good once the server says the buddy was recalled (409): drops the queue, sends nothing more', async () => {
+    await sync.teleport(buildWorldSnapshot(companion()));
+    // Recalled elsewhere (the CLI, another process): this sync never heard.
+    expect(await new WorldSync(cfg, { fetchFn: recordingFetch }).recall(false)).toBe(true);
+
+    for (let i = 0; i < 3; i++) sync.queue('commit');
+    expect(await sync.flush(buildWorldSnapshot(companion()))).toBe(false);
+    expect(sent.map((r) => r.status)).toEqual([409]); // one refused POST, no 400 retry
+    expect(sync.recalled).toBe(true);
+    expect(sync.pending).toBe(0);
+
+    sync.queue('commit');
+    expect(sync.pending).toBe(0); // ignored, not requeued
+    clock.now += 120_000;
+    expect(await sync.flush()).toBe(false);
+    await sync.maybeFlush();
+    expect(sent).toHaveLength(1); // no further network calls
+  });
+
+  it('a 409 for any other reason is an ordinary rejected batch, not a recall', async () => {
+    const other = new WorldSync(cfg, {
+      fetchFn: async () => new Response('{"error":"town_full"}', { status: 409 }),
+      now: () => clock.now,
+    });
+    other.queue('commit');
+    expect(await other.flush()).toBe(false);
+    expect(other.recalled).toBe(false);
+    other.queue('commit');
+    expect(other.pending).toBe(1);
+  });
 });
 
 describe('autoSyncWorld (MCP server glue)', () => {
@@ -273,6 +304,52 @@ describe('autoSyncWorld (MCP server glue)', () => {
     const world = await fetchHandler(new Request(`https://world.example.com/v1/world/${tp.district}`));
     const body = (await world.json()) as { events: Array<{ type: string }> };
     expect(body.events.some((e) => e.type === 'commit')).toBe(true);
+  });
+});
+
+describe('autoSyncWorld after a server-side recall', () => {
+  it('goes quiet (no sync, no blessing) until world.json is re-read, and resumes after a teleport back', async () => {
+    const { autoSyncWorld, saveWorldConfig, generateToken, isWorldBlessed } = await import('../../lib/world/client.js');
+    const dir = mkdtempSync(join(tmpdir(), 'buddy-recalled-'));
+    const file = join(dir, 'world.json');
+
+    // Date.now() drives isWorldBlessed's cache, so keep this clock near it.
+    const clock = { now: Date.now() };
+    const fetchHandler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      now: () => clock.now,
+    });
+    const posts: number[] = [];
+    const fetchFn = async (url: string, init?: RequestInit) => {
+      const res = await fetchHandler(new Request(url, init));
+      if (url.endsWith('/v1/events')) posts.push(res.status);
+      return res;
+    };
+
+    const cfg = { token: generateToken(), apiUrl: 'https://world.example.com' };
+    saveWorldConfig(cfg, file); // world.json says "in the world" throughout
+    const cli = new WorldSync(cfg, { fetchFn, now: () => clock.now });
+    await cli.teleport(buildWorldSnapshot(companion()));
+    const deps = { configPath: file, fetchFn, now: () => clock.now, instant: true };
+
+    await autoSyncWorld(companion(), 'commit', deps);
+    expect(posts).toEqual([200]);
+    expect(isWorldBlessed(file)).toBe(true);
+
+    expect(await cli.recall(false)).toBe(true); // e.g. a script, or another machine
+    await autoSyncWorld(companion(), 'commit', deps);
+    expect(posts).toEqual([200, 409]);
+    expect(isWorldBlessed(file)).toBe(false); // out of the world now, despite world.json
+
+    await autoSyncWorld(companion(), 'commit', deps);
+    expect(posts).toEqual([200, 409]); // quiet: no POST for a buddy known to be recalled
+
+    // Owner teleports back; once the config cache expires, sync resumes.
+    await cli.teleport(buildWorldSnapshot(companion()));
+    clock.now += 31_000;
+    await autoSyncWorld(companion(), 'commit', deps);
+    expect(posts).toEqual([200, 409, 200]);
   });
 });
 
