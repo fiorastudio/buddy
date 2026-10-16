@@ -12,8 +12,9 @@ import { districtForTown, townForDistrict } from './towns.js';
 import { portalBetween, spawnInto } from './portals.js';
 import { DISTRICT_CAPACITY } from './districts.js';
 import type { WorldStore, CitizenRow } from './store.js';
+import { MAX_EVENT_BATCH } from './schema-sql.js';
 
-export const MAX_EVENT_BATCH = 50;
+export { MAX_EVENT_BATCH };
 
 // Browser identity (M1). The control token is scoped to driving your own sprite;
 // it is NOT the world token and can never teleport/recall/write XP.
@@ -144,21 +145,26 @@ export async function handleEvents(
   const citizen = await store.findByTokenHash(hashToken(payload.token));
   if (!citizen) return bad(401, 'unknown token');
 
+  // Validate the WHOLE request before writing anything. A rejected request
+  // must leave no trace: the client may resend the same events (without the
+  // snapshot), and a half-applied 400 would insert them twice.
   if (Array.isArray(payload.events) && payload.events.length > MAX_EVENT_BATCH) {
     return bad(400, `event batch exceeds ${MAX_EVENT_BATCH}`);
   }
+  let snap: WorldSnapshot | undefined;
+  if (payload.snapshot) {
+    snap = payload.snapshot as WorldSnapshot;
+    const valid = validateSnapshot(snap);
+    if (!valid.ok) return bad(400, valid.reason);
+  }
 
+  // Writes. The store records the events all-or-nothing, so a failure there
+  // leaves nothing behind for a client retry to duplicate.
   let accepted = 0;
   if (Array.isArray(payload.events)) {
     accepted = await store.recordEvents(citizen.id, payload.events as Array<{ type: string; ts: number }>);
   }
-
-  if (payload.snapshot) {
-    const snap = payload.snapshot as WorldSnapshot;
-    const valid = validateSnapshot(snap);
-    if (!valid.ok) return bad(400, valid.reason);
-    await applyClampedSnapshot(citizen, snap, store, opts.now);
-  }
+  if (snap) await applyClampedSnapshot(citizen, snap, store, opts.now);
 
   return { status: 200, body: { accepted } };
 }

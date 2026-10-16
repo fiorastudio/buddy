@@ -28,6 +28,10 @@ export const INSTANT_WORLD_EVENTS: ReadonlySet<WorldEventType> = new Set(['deplo
 // sync debounce" can diverge without one silently changing the other.
 export const ANNOUNCE_EVENT_TYPES: readonly WorldEventType[] = ['level_up', 'deploy', 'streak_7'];
 
+// Most events one /v1/events request may carry. Shared wire contract: the
+// server rejects larger batches with 400, so the client must chunk to this.
+export const MAX_EVENT_BATCH = 50;
+
 export const WORLD_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS citizens (
   id TEXT PRIMARY KEY,

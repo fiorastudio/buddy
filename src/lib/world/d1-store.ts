@@ -16,15 +16,19 @@ import type {
   AnnouncementRow,
 } from './store.js';
 
+export interface D1BoundStatement {
+  run(): Promise<unknown>;
+  all<T>(): Promise<{ results: T[] }>;
+  first<T>(): Promise<T | null>;
+}
+
 export interface D1Like {
   exec(sql: string): Promise<unknown>;
   prepare(sql: string): {
-    bind(...args: unknown[]): {
-      run(): Promise<unknown>;
-      all<T>(): Promise<{ results: T[] }>;
-      first<T>(): Promise<T | null>;
-    };
+    bind(...args: unknown[]): D1BoundStatement;
   };
+  // D1 runs a batch as one implicit transaction: all statements land or none do.
+  batch(statements: D1BoundStatement[]): Promise<unknown[]>;
 }
 
 function rowToCitizen(row: Record<string, unknown>): CitizenRow {
@@ -173,24 +177,26 @@ export class D1WorldStore implements WorldStore {
   }
 
   async recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number> {
+    // Collected and sent as ONE db.batch() (a transaction): a failure part-way
+    // through writes nothing, so the client's retry cannot insert duplicates.
+    const writes: D1BoundStatement[] = [];
     let accepted = 0;
     let maxTs = 0;
     for (const ev of events) {
       if (!(WORLD_EVENT_TYPES as readonly string[]).includes(ev.type)) continue;
       if (!Number.isFinite(ev.ts)) continue;
-      await this.db
+      writes.push(this.db
         .prepare('INSERT INTO world_events (citizen_id, type, ts) VALUES (?, ?, ?)')
-        .bind(citizenId, ev.type, ev.ts)
-        .run();
+        .bind(citizenId, ev.type, ev.ts));
       accepted++;
       maxTs = Math.max(maxTs, ev.ts);
     }
     if (maxTs > 0) {
-      await this.db
+      writes.push(this.db
         .prepare('UPDATE citizens SET last_seen_at = MAX(last_seen_at, ?) WHERE id = ?')
-        .bind(maxTs, citizenId)
-        .run();
+        .bind(maxTs, citizenId));
     }
+    if (writes.length > 0) await this.db.batch(writes);
     return accepted;
   }
 
