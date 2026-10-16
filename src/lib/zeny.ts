@@ -10,7 +10,12 @@ const ZENY_REWARDS: Record<string, number> = {
   commit: 55,
   bug_fix: 90,
   deploy: 150,
-  streak_7: 500, // milestone bonus
+  // Milestone bonus. streak_7 is deliberately absent from XP_REWARDS: the
+  // milestone is a world celebration + this Zeny bonus, and its xp_events row
+  // pays only the 1-XP fallback. No spec ever set an XP amount; adding one is
+  // a product decision (and the hook filter in award.ts would then need to
+  // stop accepting streak_7 from the pending-events queue).
+  streak_7: 500,
   level_up: 0,
 };
 

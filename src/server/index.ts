@@ -15,10 +15,10 @@ import {
 } from "../lib/species.js";
 import { type Companion, STAT_NAMES, RARITY_STARS, SPARKLE_EYE, getPeakStat, getDumpStat } from "../lib/types.js";
 import { autoSyncWorld } from "../lib/world/client.js";
-import { classifySummary, resolveEventType } from "../lib/xp-classify.js";
+import { classifySummary } from "../lib/xp-classify.js";
 import { formatZeny } from "../lib/zeny.js";
 import { jobClass } from "../lib/jobclass.js";
-import { consumePendingEvents } from "../lib/pending-events.js";
+import { withPendingEvents } from "../lib/pending-events.js";
 import { awardWithGates } from "../lib/award.js";
 import { statBar } from "../lib/rng.js";
 import { getVoice, getNever } from "../lib/personality.js";
@@ -77,11 +77,13 @@ export function recalcMood(companionId: string, leveledUp: boolean): Mood {
 function awardXpAndRefresh(row: any, eventType: string, userIdOverride?: string) {
   // Ground-truth channel: commits/deploys/test-passes the hook actually saw.
   // File I/O happens here, before the write lock; the award runs atomically.
-  const pending = consumePendingEvents();
-  const pendingTypes = new Set(pending.map((e) => e.type));
-  const requestedSelfType = resolveEventType(eventType as never, pendingTypes);
-
-  const { xpResult, worldEvents } = awardWithGates(db, row.id, requestedSelfType, pending);
+  // The queue is global across sessions, so the self-report is passed RAW and
+  // deduped against the ledger inside the award (X3), not against `pending`.
+  // The queue is dropped only once the award has committed; if the award
+  // throws, the events go back on the queue for the next observe (X6).
+  const { xpResult, worldEvents } = withPendingEvents(
+    (pending) => awardWithGates(db, row.id, eventType, pending),
+  );
 
   // A muted buddy keeps earning XP quietly, but its mood is left alone —
   // overwriting it here was the second path that silently un-muted.
