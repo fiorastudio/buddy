@@ -561,6 +561,69 @@ describe('plaza smoke test (headless browser)', () => {
     expect(none).toBe('');
   }, 60_000);
 
+  it('only ever uses a real town as the district, from the URL or the room (C16)', async () => {
+    // A fresh context: no control token left in localStorage by other tests, so
+    // the only API calls are the two feeds.
+    const ctx = await browser.createBrowserContext();
+    for (const [requested, expected] of [
+      ['plaza-3', 'plaza-3'],
+      ['plaza-7', 'plaza-1'], // no seventh town
+      ['plaza-01', 'plaza-1'],
+      ['../../v1/me', 'plaza-1'],
+      ['plaza-1/../../admin', 'plaza-1'],
+    ]) {
+      const page = await ctx.newPage();
+      const apiPaths: string[] = [];
+      page.on('request', (r) => {
+        const path = new URL(r.url()).pathname;
+        if (path.startsWith('/v1/')) apiPaths.push(path);
+      });
+      // domcontentloaded: a non-Prontera town load()s its music track, which
+      // keeps the network from ever going idle in headless.
+      await page.goto(`${baseUrl}/?district=${encodeURIComponent(requested)}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.worldLoaded', { timeout: 15_000 });
+      expect(await page.evaluate('window.__PLAZA__.district'), requested).toBe(expected);
+      // Only the expected town's feed (plus the global announcements): no /v1/me
+      // or other path reached by a crafted district.
+      expect([...new Set(apiPaths)].sort(), requested).toEqual(['/v1/announcements', `/v1/world/${expected}`]);
+      await page.close();
+    }
+    await ctx.close();
+
+    // A room_redirect naming something that isn't a town is ignored: no
+    // navigation, and the live socket stays up.
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.evaluateOnNewDocument(FAKE_ROOM_SOCKET);
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== '/v1/me') { void req.continue(); return; }
+      void req.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'buddy-0', district: 'plaza-1' }),
+      });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__WS__.length === 1');
+    await page.evaluate('window.__WS__[0]._open()');
+    await page.evaluate(`window.__WS__[0]._recv({ type: 'welcome', district: 'plaza-1', self: 'buddy-0', actors: [] })`);
+    const before = page.url();
+    for (const bad of ['plaza-9', '//evil.example', 'plaza-2?x=1', 42]) {
+      await page.evaluate(`window.__WS__[0]._recv({ type: 'room_redirect', district: ${JSON.stringify(bad)} })`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    expect(page.url()).toBe(before);
+    expect(await page.evaluate('window.__PLAYER__.lastRedirect')).toBeUndefined();
+    expect(await page.evaluate('window.__PLAZA__.rtStatus()')).toMatchObject({ joined: true, connected: true });
+    // A warp_failed naming a bogus town gets the generic wording, not a mangled name.
+    await page.evaluate(`window.__WS__[0]._recv({ type: 'warp_failed', to: 'plaza-99', reason: 'town_full' })`);
+    expect(await page.evaluate('window.__PLAZA__.lastToast')).toContain('that town is full');
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('captures the RO essence: porings, stalls, sitting idlers, town name, bubbles', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });

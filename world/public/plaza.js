@@ -15,7 +15,6 @@
   const srListEl = document.getElementById('sr-citizens');
 
   const params = new URLSearchParams(location.search);
-  const district = params.get('district') || 'plaza-1';
   // The API is always same-origin: the Worker serves this page and /v1 together.
   // There is deliberately no ?api= override, because the control code and token
   // would follow it to whatever origin the link named.
@@ -44,6 +43,16 @@
     n = Math.min(n, 9999);
     return TOWNS[(n - 1) % TOWNS.length];
   }
+  // A district is one of the real towns: plaza-1 … plaza-6, one per TOWNS
+  // entry. The name lands in API paths, the room socket URL and redirects, so
+  // anything else (from the URL or off the wire) is refused, and the page
+  // falls back to Prontera.
+  function isDistrict(d) {
+    if (typeof d !== 'string' || !/^plaza-[1-9]$/.test(d)) return false;
+    return Number(d.slice('plaza-'.length)) <= TOWNS.length;
+  }
+  const requestedDistrict = params.get('district');
+  const district = isDistrict(requestedDistrict) ? requestedDistrict : 'plaza-1';
   const TOWN = townFor(district);
 
   // Portal graph (M4). RO-style blue gates you WALK into to travel — the old
@@ -1248,7 +1257,7 @@
     // new town, and the fresh page reconnects to /v1/live/<new>. Full reload is
     // the MVP; an in-place town-swap is a later optimization.
     function doRedirect(msg) {
-      if (!msg || typeof msg.district !== 'string') return;
+      if (!msg || !isDistrict(msg.district)) return; // never navigate to a name we can't render
       stopped = true; // don't reconnect to the OLD room after we close it
       try { if (socket) socket.close(1000, 'portal'); } catch {}
       socket = null;
@@ -1382,6 +1391,7 @@
   state.rtToPixel = RT.toPixel;
   state.rtToFraction = RT.toFraction;
   state.portals = portalsHere;
+  state.district = district;
   state.actorPos = (slug) => {
     const a = actors.get(slug);
     return a ? { x: a.x, y: a.y, tx: a.tx, ty: a.ty, owned: !!a.owned, remote: !!a.remote } : null;
@@ -1414,7 +1424,7 @@
     toastTimer = setTimeout(() => { toastEl.hidden = true; toastEl.textContent = ''; }, 5000);
   }
   function warpFailedText(msg) {
-    const to = msg && typeof msg.to === 'string' && /^plaza-\d+$/.test(msg.to) ? townFor(msg.to).name : 'that town';
+    const to = msg && isDistrict(msg.to) ? townFor(msg.to).name : 'that town';
     switch (msg && msg.reason) {
       case 'town_full': return `🚧 ${to} is full right now. Try the gate again in a bit.`;
       case 'no_portal':
