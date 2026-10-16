@@ -24,6 +24,12 @@ export interface DurableObjectStateLike {
   // timer, keeps the socket alive, so the DO can be evicted between messages.
   acceptWebSocket(ws: CfWebSocket, tags?: string[]): void;
   getWebSockets(tag?: string): CfWebSocket[];
+  // Alarms wake a hibernated DO at a set time without keeping it awake in
+  // between (unlike a timer) — used for the hello deadline.
+  storage: {
+    getAlarm(): Promise<number | null>;
+    setAlarm(scheduledTime: number): Promise<void>;
+  };
 }
 
 export interface DurableObjectIdLike {
