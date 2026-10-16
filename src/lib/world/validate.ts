@@ -5,10 +5,16 @@
 import { levelFromXp } from '../leveling.js';
 import { RARITIES, EYES, HATS } from '../types.js';
 import { SPECIES_LIST } from '../species.js';
+import { isNameClean } from './identity.js';
 
 export const WORLD_MOODS = ['happy', 'content', 'neutral', 'curious', 'grumpy', 'exhausted'] as const;
 
 export const MAX_NAME_LENGTH = 32;
+
+// The owner avatars the plaza can draw (plaza.js AVATARS has 8 entries and the
+// CLI documents `--avatar chibi-1..8`). Anything else is dropped rather than
+// stored and shipped to every viewer.
+export const AVATAR_RE = /^chibi-[1-8]$/;
 
 export interface WorldSnapshot {
   name: string;
@@ -24,53 +30,127 @@ export interface WorldSnapshot {
   avatar?: string;
 }
 
-export type ValidationResult = { ok: true } | { ok: false; reason: string };
+// On success, `snapshot` is a fresh object rebuilt from the known fields only:
+// callers must store THAT, never the raw input, so unknown keys (in the
+// snapshot or in `stats`) can't ride along into the database and back out to
+// every viewer of /v1/world (release audit B4).
+export type ValidationResult = { ok: true; snapshot: WorldSnapshot } | { ok: false; reason: string };
 
-const STAT_KEYS = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'] as const;
+export const STAT_KEYS = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'] as const;
 
+// Exactly the five stats, nothing else. Used on write (stores) and on read, so
+// a row written before this was enforced is still served in canonical shape.
+export function pickStats(stats: unknown): WorldSnapshot['stats'] {
+  const src = (stats !== null && typeof stats === 'object' ? stats : {}) as Record<string, unknown>;
+  const out = {} as WorldSnapshot['stats'];
+  for (const key of STAT_KEYS) {
+    const v = src[key];
+    out[key] = typeof v === 'number' && Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0;
+  }
+  return out;
+}
+
+// A stored/served avatar is either a known one or nothing.
+export function pickAvatar(avatar: unknown): string | null {
+  return typeof avatar === 'string' && AVATAR_RE.test(avatar) ? avatar : null;
+}
+
+// Invisible characters that can disguise or reorder a name on screen:
+// C0/C1 controls and DEL, the bidi embeddings/overrides (U+202A-202E) and
+// isolates (U+2066-2069), and the implicit direction marks (LRM/RLM/ALM).
+// They are stripped, not rejected, so a stray one from a terminal paste
+// doesn't break sync (release audit B14).
+const INVISIBLE_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+export function cleanName(name: string): string {
+  return name.replace(INVISIBLE_RE, '').trim();
+}
+
+function oneOf(list: readonly string[], v: unknown): v is string {
+  return typeof v === 'string' && list.includes(v);
+}
+
+// The ONE snapshot gate: teleport (and warp, which re-teleports) and
+// /v1/events all call this and store only the snapshot it returns.
 export function validateSnapshot(input: unknown): ValidationResult {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, reason: 'snapshot must be an object' };
   }
-  const snap = input as WorldSnapshot;
-  if (typeof snap.name !== 'string' || snap.name.trim().length === 0) {
+  const snap = input as Record<string, unknown>;
+  if (typeof snap.name !== 'string') {
     return { ok: false, reason: 'name must be a non-empty string' };
   }
-  if (snap.name.length > MAX_NAME_LENGTH) {
+  const name = cleanName(snap.name);
+  if (name.length === 0) {
+    return { ok: false, reason: 'name must be a non-empty string' };
+  }
+  if (name.length > MAX_NAME_LENGTH) {
     return { ok: false, reason: `name exceeds ${MAX_NAME_LENGTH} characters` };
   }
   // Names render in web viewers; ban HTML-metacharacters outright rather
   // than trusting every render site to escape (defense in depth with the
   // client's textContent-only construction).
-  if (/[<>&"'`]/.test(snap.name)) {
+  if (/[<>&"'`]/.test(name)) {
     return { ok: false, reason: 'name contains disallowed characters' };
   }
-  if (!SPECIES_LIST.includes(snap.species as (typeof SPECIES_LIST)[number])) {
-    return { ok: false, reason: `unknown species: ${snap.species}` };
+  // The profanity filter lives here, not in one handler, so every path that
+  // writes a name (teleport, warp, /v1/events) applies it.
+  if (!isNameClean(name)) {
+    return { ok: false, reason: 'name rejected by filter' };
   }
-  if (!Number.isInteger(snap.xp) || snap.xp < 0) {
+  if (!oneOf(SPECIES_LIST, snap.species)) {
+    return { ok: false, reason: `unknown species: ${String(snap.species).slice(0, 40)}` };
+  }
+  const xp = snap.xp;
+  if (typeof xp !== 'number' || !Number.isSafeInteger(xp) || xp < 0) {
     return { ok: false, reason: 'xp must be a non-negative integer' };
   }
-  if (levelFromXp(snap.xp) !== snap.level) {
-    return { ok: false, reason: `level ${snap.level} does not match xp ${snap.xp}` };
+  if (levelFromXp(xp) !== snap.level) {
+    return { ok: false, reason: `level ${String(snap.level).slice(0, 20)} does not match xp ${xp}` };
+  }
+  const rawStats = snap.stats;
+  if (rawStats === null || typeof rawStats !== 'object' || Array.isArray(rawStats)) {
+    return { ok: false, reason: 'stats must be an object' };
   }
   for (const key of STAT_KEYS) {
-    const v = snap.stats?.[key];
-    if (!Number.isFinite(v) || v < 0 || v > 100) {
+    const v = (rawStats as Record<string, unknown>)[key];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100) {
       return { ok: false, reason: `stat ${key} out of range` };
     }
   }
-  if (!(WORLD_MOODS as readonly string[]).includes(snap.mood)) {
-    return { ok: false, reason: `unknown mood: ${snap.mood}` };
+  if (!oneOf(WORLD_MOODS, snap.mood)) {
+    return { ok: false, reason: `unknown mood: ${String(snap.mood).slice(0, 40)}` };
   }
-  if (!(RARITIES as readonly string[]).includes(snap.rarity)) {
-    return { ok: false, reason: `unknown rarity: ${snap.rarity}` };
+  if (!oneOf(RARITIES, snap.rarity)) {
+    return { ok: false, reason: `unknown rarity: ${String(snap.rarity).slice(0, 40)}` };
   }
-  if (!(HATS as readonly string[]).includes(snap.hat)) {
-    return { ok: false, reason: `unknown hat: ${snap.hat}` };
+  if (!oneOf(HATS, snap.hat)) {
+    return { ok: false, reason: `unknown hat: ${String(snap.hat).slice(0, 40)}` };
   }
-  if (!(EYES as readonly string[]).includes(snap.eye)) {
-    return { ok: false, reason: `unknown eye: ${snap.eye}` };
+  if (!oneOf(EYES, snap.eye)) {
+    return { ok: false, reason: `unknown eye: ${String(snap.eye).slice(0, 40)}` };
   }
-  return { ok: true };
+  if (snap.shiny !== undefined && typeof snap.shiny !== 'boolean') {
+    return { ok: false, reason: 'shiny must be a boolean' };
+  }
+  const snapshot: WorldSnapshot = {
+    name,
+    species: snap.species as string,
+    level: snap.level as number,
+    xp,
+    mood: snap.mood as string,
+    stats: pickStats(rawStats),
+    rarity: snap.rarity as string,
+    shiny: snap.shiny === true,
+    hat: snap.hat as string,
+    eye: snap.eye as string,
+  };
+  // Avatar is cosmetic and optional, so an unknown one is DROPPED (treated as
+  // absent), not rejected: a 400 on /v1/events makes the client resend without
+  // the snapshot and then give up on it, so one bad avatar saved in a user's
+  // world.json would silently stop their level/XP sync. Absent means "keep
+  // whatever is stored" on a re-teleport, and no avatar for a new citizen.
+  const avatar = pickAvatar(snap.avatar);
+  if (avatar) snapshot.avatar = avatar;
+  return { ok: true, snapshot };
 }

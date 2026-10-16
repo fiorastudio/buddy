@@ -36,6 +36,7 @@ const USAGE = [
   '  towns                           list the towns you can warp to',
   '  status                          show your buddy\'s world link',
   '  link                            get a personal link to drive your own buddy in the plaza',
+  '  link --revoke                   sign out every browser driving your buddy',
   '  anon <on|off>                   toggle anonymous mode ("a wild Void Cat")',
   '  recall [--purge]                leave the world (--purge deletes all server data)',
 ];
@@ -148,6 +149,11 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
     case 'link': {
       const cfg = loadWorldConfig(configPath);
       if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
+      if (rest.includes('--revoke')) {
+        const n = await makeSync(cfg, deps).revokeBrowserSessions();
+        if (n === null) return ['Could not revoke browser access (network?). Try again later.'];
+        return [`🔒 Signed out ${n} browser session${n === 1 ? '' : 's'}; unused links no longer work. New link: buddy-world link`];
+      }
       const res = await makeSync(cfg, deps).mintBrowserLink();
       if (!res) return ['Could not mint a control link (network?). Try again later.'];
       out.push('🔗 Personal plaza link — opens YOUR buddy to drive. Keep it private; it expires soon.');

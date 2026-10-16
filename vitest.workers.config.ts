@@ -23,6 +23,9 @@ export default defineConfig({
           ROOM: { className: 'WorldRoom', useSQLite: true },
         },
         d1Databases: ['DB'],
+        // The anon-mask key (production: `wrangler secret put ANON_SECRET`).
+        // Set here so the tests prove worker AND room both read it.
+        bindings: { ANON_SECRET: 'workers-test-anon-secret' },
       },
     }),
   ],

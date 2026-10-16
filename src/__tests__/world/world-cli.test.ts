@@ -114,6 +114,36 @@ describe('worldCommand', () => {
     expect(out).toMatch(/world\.example\.com\/\?district=plaza-\d+#code=[0-9a-f]+/);
   });
 
+  it('link --revoke signs out every browser session and voids unused links (B18)', async () => {
+    await worldCommand(['teleport'], deps);
+    const api = (path: string, init?: RequestInit) => deps.fetchFn!(`https://world.example.com${path}`, init);
+    const code = /#code=([0-9a-f]+)/.exec((await worldCommand(['link'], deps)).join('\n'))![1];
+    const unused = /#code=([0-9a-f]+)/.exec((await worldCommand(['link'], deps)).join('\n'))![1];
+    const session = await api('/v1/browser-session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const { controlToken } = (await session.json()) as { controlToken: string };
+
+    const out = (await worldCommand(['link', '--revoke'], deps)).join('\n');
+    expect(out).toMatch(/signed out 1 browser session\b/i);
+    expect((await api('/v1/me', { headers: { authorization: `Bearer ${controlToken}` } })).status).toBe(401);
+    const redeem = await api('/v1/browser-session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: unused }),
+    });
+    expect(redeem.status).toBe(401);
+    expect(loadWorldConfig(configPath)?.slug).toMatch(/^shadowpaw-/); // still in the world
+  });
+
+  it('link --revoke reports a network failure', async () => {
+    await worldCommand(['teleport'], deps);
+    const offline = { ...deps, fetchFn: () => Promise.reject(new Error('ECONNREFUSED')) };
+    expect((await worldCommand(['link', '--revoke'], offline)).join('\n')).toMatch(/could not revoke/i);
+  });
+
   it('link is refused before teleporting', async () => {
     expect((await worldCommand(['link'], deps)).join('\n')).toMatch(/not in the world/i);
   });

@@ -3,17 +3,49 @@
 // Worker (and any future host) adapts HTTP to these; all logic and
 // validation lives here where it is tested against a real SQLite store.
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { validateSnapshot, type WorldSnapshot } from './validate.js';
-import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
 import { districtForTown, townForDistrict } from './towns.js';
 import { portalBetween, spawnInto } from './portals.js';
-import { DISTRICT_CAPACITY } from './districts.js';
+import { DISTRICT_CAPACITY, RESIDENT_WINDOW_MS, WORLD_CITIZEN_LIMIT, isCapacityGated } from './districts.js';
+import { SERVER_DERIVED_EVENT_TYPES } from './schema-sql.js';
 import type { WorldStore, CitizenRow } from './store.js';
+import { MAX_EVENT_BATCH } from './schema-sql.js';
 
-export const MAX_EVENT_BATCH = 50;
+export { MAX_EVENT_BATCH };
+
+// Client event timestamps are clamped into [now - MAX_EVENT_AGE_MS, now] on the
+// SERVER clock. A future ts used to sort above everything else forever (pinning
+// the global banner and /v1/world feeds) and pushed last_seen_at ahead; a day
+// of backdating covers a client that queued events offline.
+export const MAX_EVENT_AGE_MS = 86_400_000;
+
+// Make client-reported events safe to store: drop malformed entries and
+// server-derived types (level_up comes only from the snapshot delta), and
+// clamp each ts to the server clock. Unknown types are left for the store's
+// WORLD_EVENT_TYPES filter so there is one allowlist.
+export function sanitizeClientEvents(events: unknown[], now: number): Array<{ type: string; ts: number }> {
+  const out: Array<{ type: string; ts: number }> = [];
+  for (const ev of events) {
+    if (typeof ev !== 'object' || ev === null) continue;
+    const { type, ts } = ev as { type?: unknown; ts?: unknown };
+    if (typeof type !== 'string' || typeof ts !== 'number' || !Number.isFinite(ts)) continue;
+    if ((SERVER_DERIVED_EVENT_TYPES as ReadonlySet<string>).has(type)) continue;
+    out.push({ type, ts: Math.round(Math.min(now, Math.max(now - MAX_EVENT_AGE_MS, ts))) });
+  }
+  return out;
+}
+
+// New-citizen throttle: how many NEW world tokens one IP may turn into citizens
+// per day (re-teleports of an existing citizen are not counted). An honest
+// machine creates one citizen ever; 20 leaves room for a shared office/NAT
+// onboarding together while stopping a single IP from minting hundreds of
+// self-issued tokens to pack towns (release audit B2). Enforced by the worker
+// with the same best-effort, per-isolate RateLimiter as the request limit.
+export const NEW_CITIZENS_PER_IP_PER_DAY = 20;
+export const NEW_CITIZEN_WINDOW_MS = 86_400_000;
 
 // Browser identity (M1). The control token is scoped to driving your own sprite;
 // it is NOT the world token and can never teleport/recall/write XP.
@@ -21,6 +53,7 @@ export const CONTROL_TOKEN_SCOPE = 'move,portal_warp';
 // Link codes are short-lived: minted by the CLI, redeemed by the browser at once.
 export const LINK_CODE_TTL_MS = 30 * 60_000; // 30 minutes (single-use; roomy enough to paste a link and click it later)
 // Control tokens live in localStorage across sessions, so a generous window.
+// The owner can end them all early with /v1/browser-sessions/revoke (B18).
 export const CONTROL_TOKEN_TTL_MS = 30 * 86_400_000; // 30 days
 
 export interface HandlerResult {
@@ -35,11 +68,104 @@ export interface HandlerOpts {
   // or the `cf-ipcountry` header). Server-derived from the IP, so it's not
   // client-spoofable. Absent off-Cloudflare (tests, self-host).
   country?: string;
+  // New-citizen throttle hook (worker: per-IP RateLimiter). Called ONLY when a
+  // teleport is about to create a brand-new citizen; returning false refuses it
+  // with 429. Absent = unthrottled (tests, self-host).
+  allowNewCitizen?: () => boolean;
+  // Server secret keying the anon mask (see publicSlug). Production sets it
+  // with `wrangler secret put ANON_SECRET`; absent → DEV_ANON_SECRET.
+  anonSecret?: string;
+}
+
+// Does `district` have room for one more resident? The hub is never gated (see
+// districts.ts); satellites count only visible citizens seen within the
+// resident window, so long-gone and recalled buddies don't hold slots forever.
+async function hasRoom(store: WorldStore, district: string, now: number): Promise<boolean> {
+  if (!isCapacityGated(district)) return true;
+  const counts = await store.districtCounts(now - RESIDENT_WINDOW_MS);
+  return (counts[district] ?? 0) < DISTRICT_CAPACITY;
 }
 
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
+
+// The id a citizen is known by in PUBLIC surfaces (/v1/world, announcements,
+// live rooms): the real slug, or a stable `anon-xxxxxx` mask when anon. One
+// definition so the room's wire identity can never drift from the plaza's.
+//
+// The mask is an HMAC keyed by a SERVER SECRET (B10). Slugs are public (every
+// non-anon buddy shows one, and an anon buddy showed its own before toggling),
+// so an unkeyed hash let anyone precompute slug → mask and unmask anon buddies.
+export const DEV_ANON_SECRET = 'buddy-world-dev-anon-secret--set-ANON_SECRET-in-production';
+export function publicSlug(c: { slug: string; anon: boolean }, secret?: string): string {
+  if (!c.anon) return c.slug;
+  const mac = createHmac('sha256', secret || DEV_ANON_SECRET).update(c.slug).digest('hex');
+  return `anon-${mac.slice(0, 6)}`;
+}
+
+// The plaza's activity thresholds (world/public/plaza.js ACTIVE_WINDOW_MS /
+// IDLE_SIT_MS): a glow under 15 min, a long-AFK sit from 3 h.
+const ANON_ACTIVE_MS = 15 * 60_000;
+const ANON_SIT_MS = 3 * 3_600_000;
+
+// An anon buddy's last_seen_at, coarsened to the three states the plaza
+// renders (active / idle / long-AFK) instead of a millisecond timestamp that
+// can be matched against the owner's activity elsewhere. Each bucket sits well
+// inside its band, so a client clock a few minutes off renders the same.
+export function coarseLastSeen(lastSeenAt: number, now: number): number {
+  const minute = now - (now % 60_000);
+  const age = now - lastSeenAt;
+  if (age < ANON_ACTIVE_MS) return minute;
+  if (age < ANON_SIT_MS) return minute - 3_600_000;
+  return minute - 24 * 3_600_000;
+}
+
+// The highest stat, ties to the first in the canonical order — the plaza's
+// behavior pick (dominantStat) needs only which one leads, not the numbers.
+const STAT_ORDER = ['debugging', 'patience', 'chaos', 'wisdom', 'snark'] as const;
+function peakStat(stats: Record<string, number> | null | undefined): string {
+  let peak: string = STAT_ORDER[0];
+  for (const k of STAT_ORDER) if ((stats?.[k] ?? 0) > (stats?.[peak] ?? 0)) peak = k;
+  return peak;
+}
+
+// The public view of an ANON citizen: an allow-list of what the plaza renders,
+// at the coarsest grain that still renders it. Dropped: created_at, exact xp,
+// the five exact stats, hat, skin, rarity, the eye glyph — together a
+// fingerprint that matched the masked buddy back to its public self. Kept:
+// species/level/mood/avatar/shiny (sprite and nameplate), the leading stat
+// (wander behavior), coarse activity. New columns stay private by default.
+function anonView(c: Omit<CitizenRow, 'id'>, opts: HandlerOpts) {
+  return {
+    slug: publicSlug(c, opts.anonSecret),
+    name: `a wild ${c.species}`,
+    species: c.species,
+    level: c.level,
+    mood: c.mood,
+    shiny: c.shiny,
+    avatar: c.avatar,
+    eye: '·',
+    stats: { [peakStat(c.stats as unknown as Record<string, number>)]: 1 },
+    anon: true,
+    country: null,
+    district: c.district,
+    last_seen_at: coarseLastSeen(c.last_seen_at, opts.now),
+  };
+}
+
+// Privacy changes made over HTTP must reach sockets already live in a room
+// (a Durable Object). The host injects this; the handlers stay host-agnostic
+// and it is simply absent (no-op) where there are no rooms (tests, self-host).
+//   evict   — recall/purge, or the owner revoked browser access: drop the
+//             citizen's live socket(s) for good. `reason` (default
+//             'recalled') is what the closed socket is told.
+//   relabel — anon toggle: re-key the live actor under its new public slug.
+export type EvictReason = 'recalled' | 'revoked';
+export type RoomNotice =
+  | { kind: 'evict'; citizenId: string; reason?: EvictReason }
+  | { kind: 'relabel'; citizenId: string; slug: string };
+export type RoomNotifier = (notice: RoomNotice) => Promise<void>;
 
 // Sanitize an origin country to a bare ISO 3166-1 alpha-2 code, or null.
 // Cloudflare uses `XX`/`T1` sentinels for unknown/Tor — those normalize away
@@ -86,12 +212,14 @@ export async function handleTeleport(
   if (typeof payload.token !== 'string' || payload.token.length < 8) {
     return bad(400, 'missing or malformed token');
   }
-  const snap = payload.snapshot as WorldSnapshot;
-  const valid = validateSnapshot(snap);
+  // Store only the rebuilt snapshot (known fields, bounded values), never the
+  // raw payload.
+  const valid = validateSnapshot(payload.snapshot);
   if (!valid.ok) return bad(400, valid.reason);
-  if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
+  const snap = valid.snapshot;
 
   const tokenHash = hashToken(payload.token);
+  const current = await store.findByTokenHash(tokenHash);
 
   // Optional chosen destination: an owner may pick a town by name (or plaza-N)
   // to teleport into, or move to when re-teleporting.
@@ -100,13 +228,18 @@ export async function handleTeleport(
     if (typeof payload.district !== 'string') return bad(400, 'unknown_town');
     const resolved = districtForTown(payload.district);
     if (!resolved) return bad(400, 'unknown_town');
-    // Capacity gate — but never bounce someone who already lives there.
-    const counts = await store.districtCounts();
-    if ((counts[resolved] ?? 0) >= DISTRICT_CAPACITY) {
-      const current = await store.findByTokenHash(tokenHash);
-      if (current?.district !== resolved) return bad(409, 'town_full');
+    // Capacity gate — but never bounce someone who already lives there, and
+    // never gate the hub (Prontera is everyone's landing spot and way home).
+    if (current?.district !== resolved && !(await hasRoom(store, resolved, opts.now))) {
+      return bad(409, 'town_full');
     }
     desiredDistrict = resolved;
+  }
+  // Throttle brand-new citizens per network, checked last (so a refused town
+  // doesn't spend the budget) but BEFORE anything is written, so self-minted
+  // tokens can't be farmed into a town-filling crowd.
+  if (!current && opts.allowNewCitizen && !opts.allowNewCitizen()) {
+    return bad(429, 'too many new buddies from this network; try again later');
   }
   // ACCEPTED RISK: a first teleport's claimed XP is trusted (the server
   // never saw the buddy's local history — that's inherent to opt-in sync
@@ -144,43 +277,63 @@ export async function handleEvents(
   const citizen = await store.findByTokenHash(hashToken(payload.token));
   if (!citizen) return bad(401, 'unknown token');
 
+  // Validate the WHOLE request before writing anything. A rejected request
+  // must leave no trace: the client may resend the same events (without the
+  // snapshot), and a half-applied 400 would insert them twice.
   if (Array.isArray(payload.events) && payload.events.length > MAX_EVENT_BATCH) {
     return bad(400, `event batch exceeds ${MAX_EVENT_BATCH}`);
   }
+  let snap: WorldSnapshot | undefined;
+  if (payload.snapshot) {
+    const valid = validateSnapshot(payload.snapshot);
+    if (!valid.ok) return bad(400, valid.reason);
+    snap = valid.snapshot;
+  }
 
+  // Writes. The store records the events all-or-nothing, so a failure there
+  // leaves nothing behind for a client retry to duplicate.
   let accepted = 0;
   if (Array.isArray(payload.events)) {
-    accepted = await store.recordEvents(citizen.id, payload.events as Array<{ type: string; ts: number }>);
+    accepted = await store.recordEvents(citizen.id, sanitizeClientEvents(payload.events, opts.now));
   }
-
-  if (payload.snapshot) {
-    const snap = payload.snapshot as WorldSnapshot;
-    const valid = validateSnapshot(snap);
-    if (!valid.ok) return bad(400, valid.reason);
-    await applyClampedSnapshot(citizen, snap, store, opts.now);
-  }
+  if (snap) await applyClampedSnapshot(citizen, snap, store, opts.now);
 
   return { status: 200, body: { accepted } };
 }
 
 export async function handleRecall(
   payload: { token?: unknown; purge?: unknown },
-  store: WorldStore
+  store: WorldStore,
+  notifyRooms?: RoomNotifier
 ): Promise<HandlerResult> {
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
-  const ok = await store.recall(hashToken(payload.token), payload.purge === true);
-  if (!ok) return bad(401, 'unknown token');
+  const tokenHash = hashToken(payload.token);
+  // Resolve the id BEFORE the write: a purge deletes the row.
+  const citizen = await store.findByTokenHash(tokenHash);
+  const ok = await store.recall(tokenHash, payload.purge === true);
+  if (!ok || !citizen) return bad(401, 'unknown token');
+  // The store already revoked every control token; this kicks the socket(s)
+  // that are connected right now, which never re-authenticate on their own.
+  await notifyRooms?.({ kind: 'evict', citizenId: citizen.id });
   return { status: 200, body: { recalled: true, purged: payload.purge === true } };
 }
 
 export async function handleAnon(
   payload: { token?: unknown; anon?: unknown },
-  store: WorldStore
+  store: WorldStore,
+  notifyRooms?: RoomNotifier,
+  opts: Pick<HandlerOpts, 'anonSecret'> = {}
 ): Promise<HandlerResult> {
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
-  const ok = await store.setAnon(hashToken(payload.token), payload.anon === true);
+  const anon = payload.anon === true;
+  const tokenHash = hashToken(payload.token);
+  const ok = await store.setAnon(tokenHash, anon);
   if (!ok) return bad(401, 'unknown token');
-  return { status: 200, body: { anon: payload.anon === true } };
+  const citizen = await store.findByTokenHash(tokenHash);
+  // A live socket keeps the identity it joined with; re-key it to the new
+  // public slug (masked exactly like /v1/world) so `anon on` takes effect now.
+  if (citizen) await notifyRooms?.({ kind: 'relabel', citizenId: citizen.id, slug: publicSlug({ ...citizen, anon }, opts.anonSecret) });
+  return { status: 200, body: { anon } };
 }
 
 // browser-link: the owner proves control with the REAL world token and gets a
@@ -209,6 +362,25 @@ export async function handleBrowserLink(
       url: `${opts.baseUrl}/?district=${citizen.district}#code=${code}`,
     },
   };
+}
+
+// browser-sessions/revoke (B18): the owner, proving control with the REAL
+// world token, signs every browser out. All control tokens and unused link
+// codes are deleted, and the rooms close any socket still driving the buddy:
+// a live socket authenticated once at hello and would otherwise keep moving it.
+export async function handleRevokeBrowserSessions(
+  payload: { token?: unknown },
+  store: WorldStore,
+  notifyRooms?: RoomNotifier
+): Promise<HandlerResult> {
+  if (typeof payload.token !== 'string' || payload.token.length < 8) {
+    return bad(400, 'missing or malformed token');
+  }
+  const citizen = await store.findByTokenHash(hashToken(payload.token));
+  if (!citizen) return bad(401, 'unknown token');
+  const revoked = await store.revokeBrowserAccess(citizen.id);
+  await notifyRooms?.({ kind: 'evict', citizenId: citizen.id, reason: 'revoked' });
+  return { status: 200, body: { revoked } };
 }
 
 // browser-session: exchange a one-time code for a scoped control token. The
@@ -306,9 +478,9 @@ export async function handlePortalWarp(
   if (!portalBetween(from, target)) return bad(400, 'no_portal');
 
   // Capacity gate. `from !== target` here, so this citizen is genuinely moving
-  // in and legitimately counts against the cap — mirroring handleTeleport.
-  const counts = await store.districtCounts();
-  if ((counts[target] ?? 0) >= DISTRICT_CAPACITY) return bad(409, 'town_full');
+  // in and legitimately counts against the cap — mirroring handleTeleport. The
+  // hub is never gated, so a satellite's portal home ALWAYS works.
+  if (!(await hasRoom(store, target, opts.now))) return bad(409, 'town_full');
 
   // District-ONLY write: the scoped token must never touch xp/level.
   await store.setDistrict(citizen.id, target);
@@ -320,17 +492,27 @@ export async function handleWorld(
   store: WorldStore,
   _opts: HandlerOpts
 ): Promise<HandlerResult> {
-  const view = await store.district(district, _opts.now - 3_600_000);
+  // Events in the last hour up to the server clock (B1); residents only (seen
+  // within RESIDENT_WINDOW_MS), bounded — this is polled every 10s by every
+  // open plaza, so it must never ship every citizen ever.
+  const view = await store.district(
+    district,
+    _opts.now - 3_600_000,
+    _opts.now,
+    _opts.now - RESIDENT_WINDOW_MS,
+    WORLD_CITIZEN_LIMIT
+  );
   const anonSlugByReal = new Map<string, string>();
 
   const citizens = view.citizens.map((c) => {
     // Internal moderation/accounting fields never leave the server.
     const { flagged: _f, hidden: _h, xp_bucket: _b, ...pub } = c;
     if (!pub.anon) return pub;
-    const masked = `anon-${hashToken(pub.slug).slice(0, 6)}`;
-    anonSlugByReal.set(pub.slug, masked);
-    // Anon = minimal identity: no real name, no country flag.
-    return { ...pub, name: `a wild ${pub.species}`, slug: masked, country: null };
+    // Anon = minimal identity: no real name, no country flag, nothing that
+    // fingerprints the buddy back to its public self (anonView).
+    const view = anonView(c, _opts);
+    anonSlugByReal.set(c.slug, view.slug);
+    return view;
   });
 
   const events = view.events.map((e) =>
@@ -343,6 +525,10 @@ export async function handleWorld(
 // How many celebrations the global feed returns. Enough to fill a fresh
 // viewer's banner backlog without shipping a wall of history.
 export const ANNOUNCE_LIMIT = 30;
+// How far back the feed looks. The plaza only broadcasts rows it hasn't seen
+// (its first poll just seeds the seen-set), so old history is never shown;
+// the window bounds the per-citizen ROW_NUMBER scan to recent rows.
+export const ANNOUNCE_WINDOW_MS = 86_400_000;
 
 // announcements: the GLOBAL celebration feed powering the RO-yellow broadcast
 // banner (M6). Cross-town (never scoped to one district) — a level-up in Payon
@@ -351,10 +537,11 @@ export const ANNOUNCE_LIMIT = 30;
 // its RO town name for the broadcast phrasing.
 export async function handleAnnouncements(
   store: WorldStore,
-  _opts: HandlerOpts,
+  opts: HandlerOpts,
   limit: number = ANNOUNCE_LIMIT
 ): Promise<HandlerResult> {
-  const rows = await store.announcements(limit);
+  // Window ends at the server clock: a future-dated row can't pin the banner.
+  const rows = await store.announcements(limit, opts.now - ANNOUNCE_WINDOW_MS, opts.now);
   const announcements = rows.map((r) => {
     const town = townForDistrict(r.district) ?? r.district;
     // `id` is the stable per-event key the client de-dupes on (so two
@@ -364,7 +551,7 @@ export async function handleAnnouncements(
     if (!r.anon) return { ...base, name: r.name, slug: r.slug };
     // Anon = minimal identity: broadcast as "a wild <species>", masked slug —
     // the same masking handleWorld applies to the per-town event stream.
-    return { ...base, name: `a wild ${r.species}`, slug: `anon-${hashToken(r.slug).slice(0, 6)}` };
+    return { ...base, name: `a wild ${r.species}`, slug: publicSlug(r, opts.anonSecret) };
   });
   return { status: 200, body: { announcements } };
 }

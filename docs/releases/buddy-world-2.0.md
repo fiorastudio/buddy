@@ -77,6 +77,7 @@ into portals, and everyone sees each other move — and celebrate — in real ti
 |---------|--------------|
 | `buddy-world teleport` | Bring your buddy into Buddy World (lands in Prontera) |
 | `buddy-world link` | Mint a personal browser control link (drive your sprite) |
+| `buddy-world link --revoke` | Sign out every browser driving your buddy (all control tokens and unused links) |
 | `buddy-world warp <town>` | Move your buddy to another town |
 | `buddy-world towns` | List the towns you can warp to |
 | `buddy-world status` | Show your buddy's world status |
