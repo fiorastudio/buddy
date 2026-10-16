@@ -4,7 +4,13 @@
 // SQL here MUST stay semantically identical to SqliteWorldStore.
 
 import { randomUUID } from 'node:crypto';
-import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, ANNOUNCE_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
+import {
+  WORLD_SCHEMA_SQL,
+  WORLD_EVENT_TYPES,
+  ANNOUNCE_EVENT_TYPES,
+  ANNOUNCE_MAX_PER_CITIZEN,
+  type WorldEventType,
+} from './schema-sql.js';
 import { makeSlug } from './identity.js';
 import type { WorldSnapshot } from './validate.js';
 import type {
@@ -209,7 +215,7 @@ export class D1WorldStore implements WorldStore {
     return true;
   }
 
-  async district(name: string, sinceMs: number): Promise<DistrictView> {
+  async district(name: string, sinceMs: number, untilMs: number): Promise<DistrictView> {
     const citizenRows = await this.db
       .prepare('SELECT * FROM citizens WHERE district = ? AND hidden = 0 ORDER BY created_at')
       .bind(name)
@@ -219,10 +225,10 @@ export class D1WorldStore implements WorldStore {
       .prepare(
         `SELECT c.slug AS citizen_slug, e.type, e.ts
          FROM world_events e JOIN citizens c ON c.id = e.citizen_id
-         WHERE c.district = ? AND c.hidden = 0 AND e.ts >= ?
+         WHERE c.district = ? AND c.hidden = 0 AND e.ts >= ? AND e.ts <= ?
          ORDER BY e.ts DESC LIMIT 200`
       )
-      .bind(name, sinceMs)
+      .bind(name, sinceMs, untilMs)
       .all<Record<string, unknown>>();
 
     return {
@@ -240,16 +246,20 @@ export class D1WorldStore implements WorldStore {
     };
   }
 
-  async announcements(limit: number): Promise<AnnouncementRow[]> {
+  async announcements(limit: number, sinceMs: number, untilMs: number): Promise<AnnouncementRow[]> {
     const placeholders = ANNOUNCE_EVENT_TYPES.map(() => '?').join(', ');
+    // ROW_NUMBER per citizen enforces ANNOUNCE_MAX_PER_CITIZEN.
     const rows = await this.db
       .prepare(
-        `SELECT e.id, c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts
-         FROM world_events e JOIN citizens c ON c.id = e.citizen_id
-         WHERE c.hidden = 0 AND e.type IN (${placeholders})
-         ORDER BY e.ts DESC, e.id DESC LIMIT ?`
+        `SELECT id, slug, name, species, anon, level, district, type, ts FROM (
+           SELECT e.id, c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts,
+             ROW_NUMBER() OVER (PARTITION BY e.citizen_id ORDER BY e.ts DESC, e.id DESC) AS rn
+           FROM world_events e JOIN citizens c ON c.id = e.citizen_id
+           WHERE c.hidden = 0 AND e.type IN (${placeholders}) AND e.ts >= ? AND e.ts <= ?
+         ) WHERE rn <= ?
+         ORDER BY ts DESC, id DESC LIMIT ?`
       )
-      .bind(...ANNOUNCE_EVENT_TYPES, limit)
+      .bind(...ANNOUNCE_EVENT_TYPES, sinceMs, untilMs, ANNOUNCE_MAX_PER_CITIZEN, limit)
       .all<Record<string, unknown>>();
     return rows.results.map(
       (row): AnnouncementRow => ({

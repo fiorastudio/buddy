@@ -11,9 +11,32 @@ import { levelFromXp } from '../leveling.js';
 import { districtForTown, townForDistrict } from './towns.js';
 import { portalBetween, spawnInto } from './portals.js';
 import { DISTRICT_CAPACITY } from './districts.js';
+import { SERVER_DERIVED_EVENT_TYPES } from './schema-sql.js';
 import type { WorldStore, CitizenRow } from './store.js';
 
 export const MAX_EVENT_BATCH = 50;
+
+// Client event timestamps are clamped into [now - MAX_EVENT_AGE_MS, now] on the
+// SERVER clock. A future ts used to sort above everything else forever (pinning
+// the global banner and /v1/world feeds) and pushed last_seen_at ahead; a day
+// of backdating covers a client that queued events offline.
+export const MAX_EVENT_AGE_MS = 86_400_000;
+
+// Make client-reported events safe to store: drop malformed entries and
+// server-derived types (level_up comes only from the snapshot delta), and
+// clamp each ts to the server clock. Unknown types are left for the store's
+// WORLD_EVENT_TYPES filter so there is one allowlist.
+export function sanitizeClientEvents(events: unknown[], now: number): Array<{ type: string; ts: number }> {
+  const out: Array<{ type: string; ts: number }> = [];
+  for (const ev of events) {
+    if (typeof ev !== 'object' || ev === null) continue;
+    const { type, ts } = ev as { type?: unknown; ts?: unknown };
+    if (typeof type !== 'string' || typeof ts !== 'number' || !Number.isFinite(ts)) continue;
+    if ((SERVER_DERIVED_EVENT_TYPES as ReadonlySet<string>).has(type)) continue;
+    out.push({ type, ts: Math.round(Math.min(now, Math.max(now - MAX_EVENT_AGE_MS, ts))) });
+  }
+  return out;
+}
 
 // Browser identity (M1). The control token is scoped to driving your own sprite;
 // it is NOT the world token and can never teleport/recall/write XP.
@@ -150,7 +173,7 @@ export async function handleEvents(
 
   let accepted = 0;
   if (Array.isArray(payload.events)) {
-    accepted = await store.recordEvents(citizen.id, payload.events as Array<{ type: string; ts: number }>);
+    accepted = await store.recordEvents(citizen.id, sanitizeClientEvents(payload.events, opts.now));
   }
 
   if (payload.snapshot) {
@@ -320,7 +343,7 @@ export async function handleWorld(
   store: WorldStore,
   _opts: HandlerOpts
 ): Promise<HandlerResult> {
-  const view = await store.district(district, _opts.now - 3_600_000);
+  const view = await store.district(district, _opts.now - 3_600_000, _opts.now);
   const anonSlugByReal = new Map<string, string>();
 
   const citizens = view.citizens.map((c) => {
@@ -343,6 +366,10 @@ export async function handleWorld(
 // How many celebrations the global feed returns. Enough to fill a fresh
 // viewer's banner backlog without shipping a wall of history.
 export const ANNOUNCE_LIMIT = 30;
+// How far back the feed looks. The plaza only broadcasts rows it hasn't seen
+// (its first poll just seeds the seen-set), so old history is never shown;
+// the window bounds the per-citizen ROW_NUMBER scan to recent rows.
+export const ANNOUNCE_WINDOW_MS = 86_400_000;
 
 // announcements: the GLOBAL celebration feed powering the RO-yellow broadcast
 // banner (M6). Cross-town (never scoped to one district) — a level-up in Payon
@@ -351,10 +378,11 @@ export const ANNOUNCE_LIMIT = 30;
 // its RO town name for the broadcast phrasing.
 export async function handleAnnouncements(
   store: WorldStore,
-  _opts: HandlerOpts,
+  opts: HandlerOpts,
   limit: number = ANNOUNCE_LIMIT
 ): Promise<HandlerResult> {
-  const rows = await store.announcements(limit);
+  // Window ends at the server clock: a future-dated row can't pin the banner.
+  const rows = await store.announcements(limit, opts.now - ANNOUNCE_WINDOW_MS, opts.now);
   const announcements = rows.map((r) => {
     const town = townForDistrict(r.district) ?? r.district;
     // `id` is the stable per-event key the client de-dupes on (so two
