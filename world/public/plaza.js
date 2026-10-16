@@ -299,27 +299,56 @@
   }
 
   // ── layout ─────────────────────────────────────────────────────────────
+  // Sprites, porings and click markers live in canvas pixels, laid out inside
+  // the courtyard (plazaBounds). When the viewport changes (a window resize, a
+  // phone rotating) the courtyard moves and rescales, so everything placed in
+  // it is carried along to the same relative spot. Otherwise a sprite would
+  // stay at its old pixel position, off the new floor or off-screen, with
+  // its walk target (and an owner's portal hit-test) still in the old layout.
+  let layoutSize = null; // the canvas size the current pixel positions were laid out at
+  function remapPoint(p, from, to, xKey, yKey) {
+    if (!p || !Number.isFinite(p[xKey]) || !Number.isFinite(p[yKey])) return;
+    p[xKey] = to.cx + ((p[xKey] - from.cx) / from.rx) * to.rx;
+    p[yKey] = to.cy + ((p[yKey] - from.cy) / from.ry) * to.ry;
+  }
+  function remapLayout(from, to) {
+    for (const a of actors.values()) {
+      remapPoint(a, from, to, 'x', 'y');
+      remapPoint(a, from, to, 'tx', 'ty');
+    }
+    for (const p of state.porings) {
+      remapPoint(p, from, to, 'x', 'y');
+      remapPoint(p, from, to, 'tx', 'ty');
+    }
+    for (const m of state.clickMarkers || []) remapPoint(m, from, to, 'x', 'y');
+  }
   function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    const to = plazaBounds();
+    if (!(to.rx > 0 && to.ry > 0)) return; // a zero-size (minimized) window: keep the last good layout
+    if (layoutSize) remapLayout(plazaBounds(layoutSize.w, layoutSize.h), to);
+    layoutSize = { w: canvas.width, h: canvas.height };
   }
   window.addEventListener('resize', resize);
   resize();
 
   // The walkable courtyard grows with population — a busier town is a
   // bigger town (up to the viewport). Below the building line at the top.
-  function plazaBounds() {
+  // (width/height default to the live canvas; resize() also asks for the
+  // courtyard at the previous size.)
+  function plazaBounds(width = canvas.width, height = canvas.height) {
     const pop = state.citizens.length || 6;
     // Near-fill the viewport so the courtyard edge ≈ the screen edge — this is
     // what lets the perimeter portal gates actually sit AT the edges (not adrift
     // in a small central band) while sprites can still walk out to them.
     const grow = Math.min(1, 0.95 + pop / 50);
-    const skyline = Math.min(180, canvas.height * 0.24); // building band up top
+    const skyline = Math.min(180, height * 0.24); // building band up top
     return {
-      cx: canvas.width / 2,
-      cy: skyline + (canvas.height - skyline) / 2 + 10,
-      rx: Math.min(canvas.width * 0.46 * grow, canvas.width * 0.46),
-      ry: Math.min((canvas.height - skyline) * 0.40 * grow, (canvas.height - skyline) * 0.42),
+      cx: width / 2,
+      cy: skyline + (height - skyline) / 2 + 10,
+      rx: Math.min(width * 0.46 * grow, width * 0.46),
+      ry: Math.min((height - skyline) * 0.40 * grow, (height - skyline) * 0.42),
       skyline,
     };
   }

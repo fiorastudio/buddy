@@ -543,6 +543,63 @@ describe('plaza smoke test (headless browser)', () => {
     expect(Math.round(after.tx)).toBe(Math.round(goodTx)); // unchanged, not NaN
   }, 60_000);
 
+  it('keeps every sprite at the same spot in the courtyard when the viewport resizes or rotates (C4)', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    // Reduced motion: nothing wanders between the two snapshots.
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAYER__ && window.__PLAZA__.actorFrames && Object.keys(window.__PLAZA__.actorFrames).length === 8'
+    );
+    // My sprite parked by a click, a peer placed by the room, the rest where they spawned.
+    await page.evaluate(`window.__PLAZA__.meSlug = 'buddy-0'`);
+    await page.evaluate(`(() => {
+      const p = window.__PLAZA__.rtToPixel(0.2, 0.7);
+      window.__PLAYER__.moveOwnerTo(p.x, p.y);
+      window.__PLAYER__.applySnapshot({ actors: [{ slug: 'buddy-1', x: 0.75, y: 0.25, seq: 1 }] });
+    })()`);
+
+    type Layout = Record<string, { x: number; y: number; tx: number; ty: number; px: number; py: number }>;
+    // Every sprite (and each poring) as courtyard fractions, plus its raw pixels.
+    const layout = async () =>
+      (await page.evaluate(`(() => {
+        const P = window.__PLAZA__, out = {};
+        const frac = (x, y) => P.rtToFraction(x, y);
+        for (const c of P.citizens) {
+          const a = P.actorPos(c.slug), f = frac(a.x, a.y), t = frac(a.tx, a.ty);
+          out[c.slug] = { x: f.x, y: f.y, tx: t.x, ty: t.y, px: a.x, py: a.y };
+        }
+        P.porings.forEach((p, i) => {
+          const f = frac(p.x, p.y), t = frac(p.tx, p.ty);
+          out['poring-' + i] = { x: f.x, y: f.y, tx: t.x, ty: t.y, px: p.x, py: p.y };
+        });
+        return out;
+      })()`)) as Layout;
+
+    const before = await layout();
+    expect(before['buddy-0'].x).toBeCloseTo(0.2, 2);
+    expect(before['buddy-1'].x).toBeCloseTo(0.75, 2);
+
+    for (const [width, height] of [[600, 900], [1400, 500]]) {
+      await page.setViewport({ width, height }); // a rotation, then a wide window
+      await page.waitForFunction(`document.querySelector('#plaza').width === ${width}`);
+      const after = await layout();
+      for (const [key, b] of Object.entries(before)) {
+        const a = after[key];
+        for (const k of ['x', 'y', 'tx', 'ty'] as const) {
+          expect(a[k], `${key}.${k} at ${width}x${height}`).toBeCloseTo(b[k], 3);
+        }
+        // ...which puts it back on screen, inside the new canvas.
+        expect(a.px, `${key} x on screen`).toBeGreaterThanOrEqual(0);
+        expect(a.px, `${key} x on screen`).toBeLessThanOrEqual(width);
+        expect(a.py, `${key} y on screen`).toBeGreaterThanOrEqual(0);
+        expect(a.py, `${key} y on screen`).toBeLessThanOrEqual(height);
+      }
+    }
+    await page.close();
+  }, 60_000);
+
   it('renders RO job classes on nameplates via jobLabel', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
