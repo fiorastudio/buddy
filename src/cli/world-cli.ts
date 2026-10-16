@@ -68,6 +68,12 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
 
       const avatarIdx = rest.indexOf('--avatar');
       const avatar = avatarIdx >= 0 ? rest[avatarIdx + 1] : undefined;
+      // Check locally, before any network call: the server drops an unknown
+      // avatar silently, so this is the only place the user hears about a typo.
+      if (avatarIdx >= 0 && !/^chibi-[1-8]$/.test(avatar ?? '')) {
+        const valid = Array.from({ length: 8 }, (_, i) => `chibi-${i + 1}`).join(', ');
+        return [`Unknown avatar "${avatar ?? ''}". Valid avatars: ${valid}.`];
+      }
 
       const existing = loadWorldConfig(configPath);
       if (!existing) {

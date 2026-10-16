@@ -55,6 +55,22 @@ describe('worldCommand', () => {
     expect(cfg?.avatar).toBe('chibi-4');
   });
 
+  it('teleport rejects an unknown --avatar locally, before any network call', async () => {
+    let calls = 0;
+    const inner = deps.fetchFn!;
+    deps.fetchFn = (url, init) => {
+      calls++;
+      return inner(url, init);
+    };
+    for (const argv of [['teleport', '--avatar', 'wizard'], ['teleport', '--avatar', 'chibi-9'], ['teleport', '--avatar']]) {
+      const out = (await worldCommand(argv, deps)).join('\n');
+      expect(out, argv.join(' ')).toMatch(/Unknown avatar/);
+      expect(out).toContain('chibi-1, chibi-2, chibi-3, chibi-4, chibi-5, chibi-6, chibi-7, chibi-8');
+    }
+    expect(calls).toBe(0);
+    expect(loadWorldConfig(configPath)).toBeNull();
+  });
+
   it('teleport aborts when the privacy note is declined', async () => {
     deps.confirm = async () => false;
     const out = await worldCommand(['teleport'], deps);
