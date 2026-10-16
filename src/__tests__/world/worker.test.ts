@@ -58,13 +58,14 @@ describe('world worker fetch handler', () => {
 
   it('GET /v1/announcements returns the global celebration feed with CORS', async () => {
     await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
-    await post('/v1/events', { token: TOKEN, events: [{ type: 'level_up', ts: 1_800_000_100_000 }] });
+    // level_up is server-derived only, so a client-reported deploy drives the feed.
+    await post('/v1/events', { token: TOKEN, events: [{ type: 'deploy', ts: Date.now() }] });
 
     const res = await fetchHandler(new Request('https://world.example.com/v1/announcements'));
     expect(res.status).toBe(200);
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
     const body = (await res.json()) as { announcements: Array<{ type: string; town: string; name: string }> };
-    expect(body.announcements.some((a) => a.type === 'level_up')).toBe(true);
+    expect(body.announcements.some((a) => a.type === 'deploy')).toBe(true);
     expect(body.announcements[0].town).toBe('Prontera');
   });
 

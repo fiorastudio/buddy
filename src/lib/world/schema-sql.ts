@@ -32,6 +32,15 @@ export const ANNOUNCE_EVENT_TYPES: readonly WorldEventType[] = ['level_up', 'dep
 // server rejects larger batches with 400, so the client must chunk to this.
 export const MAX_EVENT_BATCH = 50;
 
+// Event types only the SERVER may record. `level_up` is derived from the
+// stored-vs-snapshot level delta (updateSnapshot, behind the XP clamp), so a
+// client claiming one is either a duplicate or a forgery — /v1/events drops it.
+export const SERVER_DERIVED_EVENT_TYPES: ReadonlySet<WorldEventType> = new Set(['level_up']);
+
+// At most this many rows per citizen in the global announcements feed, so one
+// buddy (or one self-minted token) can't flood every slot of the banner.
+export const ANNOUNCE_MAX_PER_CITIZEN = 3;
+
 export const WORLD_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS citizens (
   id TEXT PRIMARY KEY,

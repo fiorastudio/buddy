@@ -13,13 +13,17 @@ import {
   handlePortalWarp,
   hashToken,
   RateLimiter,
+  MAX_EVENT_AGE_MS,
 } from '../../lib/world/handlers.js';
+import { ANNOUNCE_MAX_PER_CITIZEN } from '../../lib/world/schema-sql.js';
 import { DISTRICT_CAPACITY } from '../../lib/world/districts.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
 
 const T0 = 1_800_000_000_000;
 const OPTS = { now: T0, baseUrl: 'https://world.example.com' };
+// Server clock a little after the T0+N events the announcement tests seed.
+const LATER = { ...OPTS, now: T0 + 10_000 };
 
 function snap(overrides: Partial<WorldSnapshot> = {}): WorldSnapshot {
   return {
@@ -238,7 +242,7 @@ describe('world handlers', () => {
     ]);
     await store.recordEvents(bob.id, [{ type: 'deploy', ts: T0 + 2000 }]);
 
-    const res = await handleAnnouncements(store, OPTS);
+    const res = await handleAnnouncements(store, LATER);
     expect(res.status).toBe(200);
     const body = res.body as {
       announcements: Array<{ name: string; slug: string; type: string; ts: number; town: string }>;
@@ -264,10 +268,10 @@ describe('world handlers', () => {
       { type: 'deploy', ts: T0 + 6 },
       { type: 'level_up', ts: T0 + 7 },
     ]);
-    const all = (await handleAnnouncements(store, OPTS)).body as { announcements: Array<{ type: string }> };
+    const all = (await handleAnnouncements(store, LATER)).body as { announcements: Array<{ type: string }> };
     // Only the three celebration-class types survive, newest first.
     expect(all.announcements.map((a) => a.type)).toEqual(['level_up', 'deploy', 'streak_7']);
-    const limited = (await handleAnnouncements(store, OPTS, 2)).body as { announcements: unknown[] };
+    const limited = (await handleAnnouncements(store, LATER, 2)).body as { announcements: unknown[] };
     expect(limited.announcements).toHaveLength(2);
   });
 
@@ -277,7 +281,7 @@ describe('world handlers', () => {
     const c = (await store.findByTokenHash(hashToken('tok-anon-0000000')))!;
     await store.recordEvents(c.id, [{ type: 'level_up', ts: T0 + 1000 }]);
 
-    const res = await handleAnnouncements(store, OPTS);
+    const res = await handleAnnouncements(store, LATER);
     const body = res.body as { announcements: Array<{ name: string; slug: string }> };
     expect(body.announcements).toHaveLength(1);
     expect(body.announcements[0].name).toBe('a wild Void Cat');
@@ -285,6 +289,80 @@ describe('world handlers', () => {
     // The real name AND the real slug must be absent from the entire payload.
     expect(JSON.stringify(body.announcements)).not.toContain('Shadowpaw');
     expect(JSON.stringify(body.announcements)).not.toContain(c.slug);
+  });
+
+  // B1 (release/2.0 audit): a self-minted token could POST 30 `deploy` events
+  // at ts 8.6e15 and pin the global banner + /v1/world feeds forever.
+  it('future-dated event floods cannot pin the banner, the world feed, or last_seen_at', async () => {
+    await handleTeleport({ token: 'tok-attacker-000', snapshot: snap({ name: 'Mallory' }) }, store, OPTS);
+    await handleTeleport({ token: 'tok-victim-00000', snapshot: snap({ name: 'Victor' }) }, store, OPTS);
+    const flood = Array.from({ length: 30 }, () => ({ type: 'deploy', ts: 8.6e15 }));
+    const res = await handleEvents({ token: 'tok-attacker-000', events: flood }, store, OPTS);
+    expect(res.status).toBe(200);
+
+    // The attacker's last_seen_at is the server clock, not 8.6e15.
+    const attacker = (await store.findByTokenHash(hashToken('tok-attacker-000')))!;
+    expect(attacker.last_seen_at).toBe(T0);
+
+    // A legitimate celebration a few seconds later still reaches the top.
+    const later = { ...OPTS, now: T0 + 5_000 };
+    await handleEvents({ token: 'tok-victim-00000', events: [{ type: 'deploy', ts: T0 + 5_000 }] }, store, later);
+
+    const feed = (await handleAnnouncements(store, later)).body as {
+      announcements: Array<{ name: string; ts: number }>;
+    };
+    expect(feed.announcements[0].name).toBe('Victor');
+    expect(feed.announcements.every((a) => a.ts <= later.now)).toBe(true);
+    // ...and one citizen can never occupy more than a few banner slots.
+    expect(feed.announcements.filter((a) => a.name === 'Mallory')).toHaveLength(ANNOUNCE_MAX_PER_CITIZEN);
+
+    const world = (await handleWorld('plaza-1', store, later)).body as { events: Array<{ ts: number }> };
+    expect(world.events[0].ts).toBe(T0 + 5_000);
+    expect(world.events.every((e) => e.ts <= later.now)).toBe(true);
+  });
+
+  it('clamps client event timestamps into [now - MAX_EVENT_AGE_MS, now] and skips malformed entries', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const res = await handleEvents(
+      {
+        token: 'tok-0123456789abcdef',
+        events: [
+          { type: 'commit', ts: 0 }, // ancient → now - MAX_EVENT_AGE_MS
+          { type: 'commit', ts: 1e16 }, // future → now
+          null,
+          'deploy',
+          { type: 'deploy' }, // no ts
+          { type: 'deploy', ts: '1e16' }, // non-numeric ts
+        ],
+      },
+      store,
+      OPTS
+    );
+    expect(res.status).toBe(200);
+    expect((res.body as { accepted: number }).accepted).toBe(2);
+    const view = await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER);
+    expect(view.events.map((e) => e.ts)).toEqual([T0, T0 - MAX_EVENT_AGE_MS]);
+  });
+
+  it('ignores client-claimed level_up; the banner only shows a level-up the server saw in the snapshot', async () => {
+    // Level 4, a few XP short of level 5.
+    const lvl4 = snap({ level: 4, xp: totalXpForLevel(5) - 1 });
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: lvl4 }, store, OPTS);
+
+    const forged = await handleEvents(
+      { token: 'tok-0123456789abcdef', events: [{ type: 'level_up', ts: T0 }] },
+      store,
+      OPTS
+    );
+    expect((forged.body as { accepted: number }).accepted).toBe(0);
+    let feed = (await handleAnnouncements(store, OPTS)).body as { announcements: Array<{ type: string }> };
+    expect(feed.announcements).toHaveLength(0);
+
+    // A real level-up (snapshot crosses into level 5) is derived server-side.
+    const later = { ...OPTS, now: T0 + 60_000 };
+    await handleEvents({ token: 'tok-0123456789abcdef', events: [], snapshot: snap() }, store, later);
+    feed = (await handleAnnouncements(store, later)).body as { announcements: Array<{ type: string; ts: number }> };
+    expect(feed.announcements).toEqual([expect.objectContaining({ type: 'level_up', ts: later.now })]);
   });
 
   it('rate limiter rejects after the per-minute budget', () => {
