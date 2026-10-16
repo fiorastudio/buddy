@@ -22,7 +22,10 @@ into portals, and everyone sees each other move — and celebrate — in real ti
 - **Country flags.** On teleport, your buddy flies the flag of your connection's
   country (derived server-side from the request — coarse country-level only, no
   city or IP stored; hidden in anonymous mode).
-- **Per-town music.** Each town has its own original, self-hosted theme.
+- **Per-town music.** Each town has its own original, self-hosted theme, played
+  only when you click the 🎵 button (nothing loads until you opt in).
+- **Teleport blessing.** Buddies that have teleported into the world earn +10%
+  XP and zeny on every award.
 - **RO-style celebrations.** Level-ups, deploys, and 7-day streaks trigger a
   **yellow world-broadcast banner** that sweeps across the top **in every town**
   (`📢 buddy shipped to production! — in Prontera`), plus in-world effects: a
@@ -38,10 +41,13 @@ into portals, and everyone sees each other move — and celebrate — in real ti
    ```bash
    buddy-world teleport
    ```
+   (Optionally pick a look with `--avatar chibi-1` … `chibi-8`.)
 3. Get a personal control link and open it in your browser to drive your sprite:
    ```bash
    buddy-world link
    ```
+   The link is single-use and expires after 30 minutes; the browser then keeps a
+   scoped control token for 30 days.
 4. Click the ground to walk; walk into a portal gate to travel. Or move between
    towns from the CLI:
    ```bash
@@ -75,10 +81,10 @@ into portals, and everyone sees each other move — and celebrate — in real ti
 
 | Command | What it does |
 |---------|--------------|
-| `buddy-world teleport` | Bring your buddy into Buddy World (lands in Prontera) |
-| `buddy-world link` | Mint a personal browser control link (drive your sprite) |
+| `buddy-world teleport [--avatar chibi-1..8]` | Bring your buddy into Buddy World (lands in Prontera) |
+| `buddy-world link` | Mint a single-use (30 min) browser control link to drive your sprite |
 | `buddy-world warp <town>` | Move your buddy to another town |
 | `buddy-world towns` | List the towns you can warp to |
-| `buddy-world status` | Show your buddy's world status |
+| `buddy-world status` | Show which town your buddy is in and its plaza link |
 | `buddy-world anon on\|off` | Toggle anonymous mode |
 | `buddy-world recall [--purge]` | Leave the world (`--purge` deletes everything server-side) |
