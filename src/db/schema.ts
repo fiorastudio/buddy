@@ -88,36 +88,50 @@ export function initDb(conn: Database.Database = db) {
   `);
 
   // Migration: add observer_mode column (safe for existing DBs)
-  try {
-    conn.exec(`ALTER TABLE companions ADD COLUMN observer_mode TEXT DEFAULT 'both'`);
-  } catch { /* column already exists */ }
+  addColumnIfMissing(conn, 'companions', `observer_mode TEXT DEFAULT 'both'`);
 
   // Migration: add cc_rescue flag for CC-imported buddies (uses Bun wyhash for stats)
-  try {
-    conn.exec(`ALTER TABLE companions ADD COLUMN cc_rescue INTEGER DEFAULT 0`);
-  } catch { /* column already exists */ }
+  addColumnIfMissing(conn, 'companions', 'cc_rescue INTEGER DEFAULT 0');
 
   // Migration: mute is its own flag rather than a value parked in `mood`.
   // calculateMood never returns 'muted', so every mood recompute overwrote it.
-  try {
-    conn.exec(`ALTER TABLE companions ADD COLUMN muted INTEGER DEFAULT 0`);
-  } catch { /* column already exists */ }
+  addColumnIfMissing(conn, 'companions', 'muted INTEGER DEFAULT 0');
 
   // Migration: add stat columns for growth
-  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_debugging INTEGER`); } catch {}
-  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_patience INTEGER`); } catch {}
-  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_chaos INTEGER`); } catch {}
-  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_wisdom INTEGER`); } catch {}
-  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_snark INTEGER`); } catch {}
-  try { conn.exec(`ALTER TABLE companions ADD COLUMN stat_points_available INTEGER DEFAULT 0`); } catch {}
+  addColumnIfMissing(conn, 'companions', 'stat_debugging INTEGER');
+  addColumnIfMissing(conn, 'companions', 'stat_patience INTEGER');
+  addColumnIfMissing(conn, 'companions', 'stat_chaos INTEGER');
+  addColumnIfMissing(conn, 'companions', 'stat_wisdom INTEGER');
+  addColumnIfMissing(conn, 'companions', 'stat_snark INTEGER');
+  addColumnIfMissing(conn, 'companions', 'stat_points_available INTEGER DEFAULT 0');
 
   // Migration: Zeny (RO currency) earned from coding events
-  try { conn.exec(`ALTER TABLE companions ADD COLUMN zeny INTEGER DEFAULT 0`); } catch {}
+  addColumnIfMissing(conn, 'companions', 'zeny INTEGER DEFAULT 0');
   // Reasoning-layer migration (claims/edges tables + guard_mode column).
   initReasoningSchema(conn);
 
   // One-time data backfills, gated by PRAGMA user_version.
   runVersionedMigrations(conn);
+}
+
+/** True for SQLite's "duplicate column name: x" — the column is already there. */
+export function isDuplicateColumnError(err: unknown): boolean {
+  return err instanceof Error && /duplicate column name/i.test(err.message);
+}
+
+/**
+ * `ALTER TABLE <table> ADD COLUMN <columnDef>`, tolerating only the column
+ * already existing. Anything else — SQLITE_BUSY past busy_timeout, a read-only
+ * or corrupt DB file, a full disk — is rethrown (X11). The old bare
+ * `catch {}` swallowed those too, so initDb() reported success with the column
+ * missing and the first query that used it failed somewhere far away.
+ */
+export function addColumnIfMissing(conn: Database.Database, table: string, columnDef: string): void {
+  try {
+    conn.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) throw err;
+  }
 }
 
 /**
