@@ -13,13 +13,17 @@ import {
   handlePortalWarp,
   hashToken,
   RateLimiter,
+  MAX_EVENT_AGE_MS,
 } from '../../lib/world/handlers.js';
-import { DISTRICT_CAPACITY } from '../../lib/world/districts.js';
+import { ANNOUNCE_MAX_PER_CITIZEN } from '../../lib/world/schema-sql.js';
+import { DISTRICT_CAPACITY, RESIDENT_WINDOW_MS, WORLD_CITIZEN_LIMIT } from '../../lib/world/districts.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
 
 const T0 = 1_800_000_000_000;
 const OPTS = { now: T0, baseUrl: 'https://world.example.com' };
+// Server clock a little after the T0+N events the announcement tests seed.
+const LATER = { ...OPTS, now: T0 + 10_000 };
 
 function snap(overrides: Partial<WorldSnapshot> = {}): WorldSnapshot {
   return {
@@ -149,6 +153,20 @@ describe('world handlers', () => {
     expect(res.status).toBe(400);
   });
 
+  it('a rejected snapshot writes nothing, so a client retry cannot duplicate events', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const payload = {
+      token: 'tok-0123456789abcdef',
+      events: [{ type: 'commit', ts: T0 + 1 }],
+      snapshot: snap({ name: "O'Malley", mood: 'grumpy' }), // validator rejects quotes
+    };
+    for (let i = 0; i < 3; i++) {
+      expect((await handleEvents(payload, store, OPTS)).status).toBe(400);
+    }
+    expect((await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER)).events).toHaveLength(0);
+    expect((await store.findByTokenHash(hashToken('tok-0123456789abcdef')))!.mood).toBe('happy');
+  });
+
   it('strips internal flags from the public world view', async () => {
     await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
     const res = await handleWorld('plaza-1', store, OPTS);
@@ -156,6 +174,34 @@ describe('world handlers', () => {
     expect(body.citizens[0]).not.toHaveProperty('flagged');
     expect(body.citizens[0]).not.toHaveProperty('hidden');
     expect(body.citizens[0]).not.toHaveProperty('xp_bucket');
+  });
+
+  it('world view lists only recent residents, not every citizen ever (B2)', async () => {
+    const stale = T0 - RESIDENT_WINDOW_MS - 1;
+    await handleTeleport({ token: 'old-timer-0123456789', snapshot: snap({ name: 'Oldtimer' }) }, store, { ...OPTS, now: stale });
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    // An idle-but-recent buddy (2 days quiet) is still a resident (the plaza
+    // draws it sitting), so the window must comfortably exceed the 3h idle tier.
+    await handleTeleport({ token: 'idle-one-0123456789', snapshot: snap({ name: 'Idler' }) }, store, { ...OPTS, now: T0 - 2 * 86_400_000 });
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const names = (res.body as { citizens: Array<{ name: string }> }).citizens.map((c) => c.name).sort();
+    expect(names).toEqual(['Idler', 'Shadowpaw']);
+  });
+
+  it('world view is bounded to the most recently seen residents', async () => {
+    const total = WORLD_CITIZEN_LIMIT + 5;
+    for (let i = 0; i < total; i++) {
+      // Citizen i was last seen at T0 - (total - i) ms: higher i = more recent.
+      await handleTeleport({ token: `crowd-${i}-0123456789`, snapshot: snap({ name: `Crowd${i}` }) }, store, {
+        ...OPTS,
+        now: T0 - (total - i),
+      });
+    }
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const names = new Set((res.body as { citizens: Array<{ name: string }> }).citizens.map((c) => c.name));
+    expect(names.size).toBe(WORLD_CITIZEN_LIMIT);
+    for (let i = 0; i < 5; i++) expect(names.has(`Crowd${i}`)).toBe(false); // the 5 least-recent drop off
+    expect(names.has(`Crowd${total - 1}`)).toBe(true);
   });
 
   it('recall hides the citizen and purge removes it', async () => {
@@ -224,7 +270,7 @@ describe('world handlers', () => {
     ]);
     await store.recordEvents(bob.id, [{ type: 'deploy', ts: T0 + 2000 }]);
 
-    const res = await handleAnnouncements(store, OPTS);
+    const res = await handleAnnouncements(store, LATER);
     expect(res.status).toBe(200);
     const body = res.body as {
       announcements: Array<{ name: string; slug: string; type: string; ts: number; town: string }>;
@@ -250,10 +296,10 @@ describe('world handlers', () => {
       { type: 'deploy', ts: T0 + 6 },
       { type: 'level_up', ts: T0 + 7 },
     ]);
-    const all = (await handleAnnouncements(store, OPTS)).body as { announcements: Array<{ type: string }> };
+    const all = (await handleAnnouncements(store, LATER)).body as { announcements: Array<{ type: string }> };
     // Only the three celebration-class types survive, newest first.
     expect(all.announcements.map((a) => a.type)).toEqual(['level_up', 'deploy', 'streak_7']);
-    const limited = (await handleAnnouncements(store, OPTS, 2)).body as { announcements: unknown[] };
+    const limited = (await handleAnnouncements(store, LATER, 2)).body as { announcements: unknown[] };
     expect(limited.announcements).toHaveLength(2);
   });
 
@@ -263,7 +309,7 @@ describe('world handlers', () => {
     const c = (await store.findByTokenHash(hashToken('tok-anon-0000000')))!;
     await store.recordEvents(c.id, [{ type: 'level_up', ts: T0 + 1000 }]);
 
-    const res = await handleAnnouncements(store, OPTS);
+    const res = await handleAnnouncements(store, LATER);
     const body = res.body as { announcements: Array<{ name: string; slug: string }> };
     expect(body.announcements).toHaveLength(1);
     expect(body.announcements[0].name).toBe('a wild Void Cat');
@@ -271,6 +317,80 @@ describe('world handlers', () => {
     // The real name AND the real slug must be absent from the entire payload.
     expect(JSON.stringify(body.announcements)).not.toContain('Shadowpaw');
     expect(JSON.stringify(body.announcements)).not.toContain(c.slug);
+  });
+
+  // B1 (release/2.0 audit): a self-minted token could POST 30 `deploy` events
+  // at ts 8.6e15 and pin the global banner + /v1/world feeds forever.
+  it('future-dated event floods cannot pin the banner, the world feed, or last_seen_at', async () => {
+    await handleTeleport({ token: 'tok-attacker-000', snapshot: snap({ name: 'Mallory' }) }, store, OPTS);
+    await handleTeleport({ token: 'tok-victim-00000', snapshot: snap({ name: 'Victor' }) }, store, OPTS);
+    const flood = Array.from({ length: 30 }, () => ({ type: 'deploy', ts: 8.6e15 }));
+    const res = await handleEvents({ token: 'tok-attacker-000', events: flood }, store, OPTS);
+    expect(res.status).toBe(200);
+
+    // The attacker's last_seen_at is the server clock, not 8.6e15.
+    const attacker = (await store.findByTokenHash(hashToken('tok-attacker-000')))!;
+    expect(attacker.last_seen_at).toBe(T0);
+
+    // A legitimate celebration a few seconds later still reaches the top.
+    const later = { ...OPTS, now: T0 + 5_000 };
+    await handleEvents({ token: 'tok-victim-00000', events: [{ type: 'deploy', ts: T0 + 5_000 }] }, store, later);
+
+    const feed = (await handleAnnouncements(store, later)).body as {
+      announcements: Array<{ name: string; ts: number }>;
+    };
+    expect(feed.announcements[0].name).toBe('Victor');
+    expect(feed.announcements.every((a) => a.ts <= later.now)).toBe(true);
+    // ...and one citizen can never occupy more than a few banner slots.
+    expect(feed.announcements.filter((a) => a.name === 'Mallory')).toHaveLength(ANNOUNCE_MAX_PER_CITIZEN);
+
+    const world = (await handleWorld('plaza-1', store, later)).body as { events: Array<{ ts: number }> };
+    expect(world.events[0].ts).toBe(T0 + 5_000);
+    expect(world.events.every((e) => e.ts <= later.now)).toBe(true);
+  });
+
+  it('clamps client event timestamps into [now - MAX_EVENT_AGE_MS, now] and skips malformed entries', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const res = await handleEvents(
+      {
+        token: 'tok-0123456789abcdef',
+        events: [
+          { type: 'commit', ts: 0 }, // ancient → now - MAX_EVENT_AGE_MS
+          { type: 'commit', ts: 1e16 }, // future → now
+          null,
+          'deploy',
+          { type: 'deploy' }, // no ts
+          { type: 'deploy', ts: '1e16' }, // non-numeric ts
+        ],
+      },
+      store,
+      OPTS
+    );
+    expect(res.status).toBe(200);
+    expect((res.body as { accepted: number }).accepted).toBe(2);
+    const view = await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER);
+    expect(view.events.map((e) => e.ts)).toEqual([T0, T0 - MAX_EVENT_AGE_MS]);
+  });
+
+  it('ignores client-claimed level_up; the banner only shows a level-up the server saw in the snapshot', async () => {
+    // Level 4, a few XP short of level 5.
+    const lvl4 = snap({ level: 4, xp: totalXpForLevel(5) - 1 });
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: lvl4 }, store, OPTS);
+
+    const forged = await handleEvents(
+      { token: 'tok-0123456789abcdef', events: [{ type: 'level_up', ts: T0 }] },
+      store,
+      OPTS
+    );
+    expect((forged.body as { accepted: number }).accepted).toBe(0);
+    let feed = (await handleAnnouncements(store, OPTS)).body as { announcements: Array<{ type: string }> };
+    expect(feed.announcements).toHaveLength(0);
+
+    // A real level-up (snapshot crosses into level 5) is derived server-side.
+    const later = { ...OPTS, now: T0 + 60_000 };
+    await handleEvents({ token: 'tok-0123456789abcdef', events: [], snapshot: snap() }, store, later);
+    feed = (await handleAnnouncements(store, later)).body as { announcements: Array<{ type: string; ts: number }> };
+    expect(feed.announcements).toEqual([expect.objectContaining({ type: 'level_up', ts: later.now })]);
   });
 
   it('rate limiter rejects after the per-minute budget', () => {
@@ -294,6 +414,114 @@ describe('world handlers', () => {
     await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
     const citizen = await store.findByTokenHash(hashToken('tok-0123456789abcdef'));
     expect(citizen!.xp_bucket).toBeLessThanOrEqual(60);
+  });
+});
+
+describe('snapshot bounds (release audit B4)', () => {
+  let store: SqliteWorldStore;
+  beforeEach(() => {
+    store = new SqliteWorldStore(new Database(':memory:'));
+  });
+
+  const padded = () =>
+    ({
+      ...snap(),
+      bio: 'x'.repeat(5000),
+      stats: { ...snap().stats, essay: 'y'.repeat(5000) },
+    }) as unknown as WorldSnapshot;
+
+  it('teleport stores and serves only the five stats and known fields', async () => {
+    expect((await handleTeleport({ token: 'secret-token', snapshot: padded() }, store, OPTS)).status).toBe(200);
+    const res = await handleWorld('plaza-1', store, OPTS);
+    const [c] = (res.body as { citizens: Array<Record<string, unknown>> }).citizens;
+    expect(Object.keys(c.stats as object).sort()).toEqual(['chaos', 'debugging', 'patience', 'snark', 'wisdom']);
+    expect(c).not.toHaveProperty('bio');
+    expect(JSON.stringify(res.body)).not.toMatch(/xxxxx|yyyyy/);
+  });
+
+  it('events snapshot stores only the five stats', async () => {
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    const res = await handleEvents({ token: 'secret-token', events: [], snapshot: padded() }, store, LATER);
+    expect(res.status).toBe(200);
+    const row = await store.findByTokenHash(hashToken('secret-token'));
+    expect(Object.keys(row!.stats).sort()).toEqual(['chaos', 'debugging', 'patience', 'snark', 'wisdom']);
+  });
+
+  // An unknown avatar is dropped, not a 400: a 400 on /v1/events would make the
+  // client drop the snapshot, silently stopping level/XP sync for anyone whose
+  // world.json holds a bad avatar.
+  it('drops an unknown avatar on teleport and on events; the rest still syncs', async () => {
+    const bad = snap({ avatar: '<svg onload=alert(1)>' + 'z'.repeat(5000) });
+    const tp = await handleTeleport({ token: 'secret-token', snapshot: bad }, store, OPTS);
+    expect(tp.status).toBe(200);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBeNull();
+    const served = await handleWorld('plaza-1', store, OPTS);
+    expect((served.body as { citizens: Array<{ avatar: unknown }> }).citizens[0].avatar).toBeNull();
+    expect(JSON.stringify(served.body)).not.toMatch(/svg|zzzzz/);
+
+    // Re-teleport with a valid avatar sets it; a later bad one keeps it.
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBe('chibi-3');
+    await handleTeleport({ token: 'secret-token', snapshot: bad }, store, OPTS);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBe('chibi-3');
+
+    const ev = await handleEvents(
+      {
+        token: 'secret-token',
+        events: [{ type: 'commit', ts: T0 }],
+        snapshot: { ...bad, mood: 'grumpy' },
+      },
+      store,
+      LATER
+    );
+    expect(ev).toMatchObject({ status: 200, body: { accepted: 1 } });
+    const row = (await store.findByTokenHash(hashToken('secret-token')))!;
+    expect(row.mood).toBe('grumpy'); // the snapshot was applied
+    expect(row.avatar).toBe('chibi-3');
+  });
+});
+
+describe('one snapshot gate for every path (release audit B14)', () => {
+  let store: SqliteWorldStore;
+  beforeEach(() => {
+    store = new SqliteWorldStore(new Database(':memory:'));
+  });
+
+  it('teleport and warp (re-teleport) reject a profane name', async () => {
+    const tp = await handleTeleport({ token: 'secret-token', snapshot: snap({ name: 'fuckface' }) }, store, OPTS);
+    expect(tp).toMatchObject({ status: 400, body: { error: 'name rejected by filter' } });
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    const warp = await handleTeleport(
+      { token: 'secret-token', snapshot: snap({ name: 'fuckface' }), district: 'Payon' },
+      store,
+      OPTS
+    );
+    expect(warp.status).toBe(400);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Shadowpaw');
+  });
+
+  it('/v1/events rejects a rename to a profane name and writes nothing', async () => {
+    await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    const res = await handleEvents(
+      { token: 'secret-token', events: [{ type: 'commit', ts: T0 }], snapshot: snap({ name: 'b1tch' }) },
+      store,
+      LATER
+    );
+    expect(res).toMatchObject({ status: 400, body: { error: 'name rejected by filter' } });
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Shadowpaw');
+    expect((await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER)).events).toHaveLength(0);
+  });
+
+  it('teleport and /v1/events store names with bidi/control characters stripped', async () => {
+    await handleTeleport({ token: 'secret-token', snapshot: snap({ name: '‮Shadowpaw' }) }, store, OPTS);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Shadowpaw');
+    const res = await handleEvents(
+      { token: 'secret-token', events: [], snapshot: snap({ name: 'Night⁦paw\u0007' }) },
+      store,
+      LATER
+    );
+    expect(res.status).toBe(200);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.name).toBe('Nightpaw');
   });
 });
 
@@ -395,14 +623,16 @@ describe('browser identity handlers', () => {
     expect(after.xp).toBe(before.xp);
   });
 
-  // Fill a town to a given visible population using ordinary teleports.
-  async function fill(district: string, n: number) {
+  // Fill a town to a given visible population using ordinary teleports, all
+  // last seen at `now` (default T0 = "just now" for the tests below).
+  async function fill(district: string, n: number, now = T0) {
     for (let i = 0; i < n; i++) {
-      await handleTeleport(
-        { token: `filler-${district}-${i}-000000`, snapshot: snap({ name: `Fill${i}` }), district },
+      const res = await handleTeleport(
+        { token: `filler-${district}-${now}-${i}-000000`, snapshot: snap({ name: `Fill${i}` }), district },
         store,
-        OPTS
+        { ...OPTS, now }
       );
+      expect(res.status).toBe(200);
     }
   }
 
@@ -482,9 +712,66 @@ describe('browser identity handlers', () => {
     await fill('plaza-2', DISTRICT_CAPACITY); // town is full of visible buddies
     expect((await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS)).status).toBe(409);
     // Recall (hide) one occupant — capacity must now reflect the visible count.
-    await handleRecall({ token: 'filler-plaza-2-0-000000', purge: false }, store);
+    await handleRecall({ token: `filler-plaza-2-${T0}-0-000000`, purge: false }, store);
     const res = await handlePortalWarp({ controlToken, to: 'plaza-2' }, store, OPTS);
     expect(res.status).toBe(200); // the hidden buddy no longer occupies a slot
+  });
+
+  // Release audit B2: capacity used to count every citizen EVER created, so a
+  // town filled up for good and stayed full.
+  it('capacity counts only RECENT residents: long-gone citizens free their slots', async () => {
+    const { controlToken } = await link(); // owner in plaza-1
+    // 80 buddies moved into Payon once, then their owners went quiet for longer
+    // than the resident window. They no longer occupy the town.
+    await fill('plaza-2', DISTRICT_CAPACITY, T0 - RESIDENT_WINDOW_MS - 1);
+    expect((await handlePortalWarp({ controlToken, to: 'Payon' }, store, OPTS)).status).toBe(200);
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.district).toBe('plaza-2');
+    // A named teleport into the same town is admitted too.
+    const tp = await handleTeleport({ token: 'newcomer-0123456789', snapshot: snap(), district: 'Payon' }, store, OPTS);
+    expect(tp.status).toBe(200);
+  });
+
+  it('a long-gone citizen who syncs again counts toward capacity again', async () => {
+    const { controlToken } = await link();
+    await fill('plaza-2', DISTRICT_CAPACITY - 1); // 79 recent
+    await fill('plaza-2', 1, T0 - RESIDENT_WINDOW_MS - 1); // +1 stale: still room for one
+    // The stale owner comes back and syncs (events bump last_seen_at).
+    const stale = `filler-plaza-2-${T0 - RESIDENT_WINDOW_MS - 1}-0-000000`;
+    expect((await handleEvents({ token: stale, events: [{ type: 'commit', ts: T0 }] }, store, OPTS)).status).toBe(200);
+    // Now 80 residents: full.
+    expect((await handlePortalWarp({ controlToken, to: 'Payon' }, store, OPTS)).status).toBe(409);
+  });
+
+  it('the hub is never full: newcomers always land and satellites can always portal home', async () => {
+    const { controlToken } = await link();
+    // Owner walks out to Payon while Prontera is quiet.
+    expect((await handlePortalWarp({ controlToken, to: 'Payon' }, store, OPTS)).status).toBe(200);
+    // Prontera packs past the satellite cap (fill() asserts each named
+    // teleport into the hub succeeds: the hub is not capacity-gated).
+    await fill('plaza-1', DISTRICT_CAPACITY + 5);
+    // A brand-new buddy still lands in the hub...
+    const fresh = await handleTeleport({ token: 'latecomer-0123456789', snapshot: snap() }, store, OPTS);
+    expect(fresh.status).toBe(200);
+    expect((fresh.body as { district: string }).district).toBe('plaza-1');
+    // ...and the satellite resident's one portal home never 409s.
+    const home = await handlePortalWarp({ controlToken, to: 'Prontera' }, store, OPTS);
+    expect(home.status).toBe(200);
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.district).toBe('plaza-1');
+  });
+
+  it('teleport refuses a NEW citizen when the per-network throttle says no (429); nothing is created', async () => {
+    let calls = 0;
+    const throttled = { ...OPTS, allowNewCitizen: () => ++calls <= 2 };
+    expect((await handleTeleport({ token: 'minted-0-0123456789', snapshot: snap() }, store, throttled)).status).toBe(200);
+    expect((await handleTeleport({ token: 'minted-1-0123456789', snapshot: snap() }, store, throttled)).status).toBe(200);
+    const third = await handleTeleport({ token: 'minted-2-0123456789', snapshot: snap(), district: 'Payon' }, store, throttled);
+    expect(third.status).toBe(429);
+    expect(await store.findByTokenHash(hashToken('minted-2-0123456789'))).toBeNull();
+    // Existing citizens are never throttled: a re-teleport/warp still works and
+    // doesn't consult the new-citizen budget.
+    const again = await handleTeleport({ token: TOKEN, snapshot: snap(), district: 'Payon' }, store, throttled);
+    expect(again.status).toBe(200);
+    expect(calls).toBe(3); // only the three NEW attempts consulted it
   });
 
   it('an expired control token cannot portal-warp', async () => {

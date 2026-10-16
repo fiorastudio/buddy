@@ -5,15 +5,47 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { validateSnapshot, type WorldSnapshot } from './validate.js';
-import { isNameClean } from './identity.js';
 import { spendXpBudget } from './antiabuse.js';
 import { levelFromXp } from '../leveling.js';
 import { districtForTown, townForDistrict } from './towns.js';
 import { portalBetween, spawnInto } from './portals.js';
-import { DISTRICT_CAPACITY } from './districts.js';
+import { DISTRICT_CAPACITY, RESIDENT_WINDOW_MS, WORLD_CITIZEN_LIMIT, isCapacityGated } from './districts.js';
+import { SERVER_DERIVED_EVENT_TYPES } from './schema-sql.js';
 import type { WorldStore, CitizenRow } from './store.js';
+import { MAX_EVENT_BATCH } from './schema-sql.js';
 
-export const MAX_EVENT_BATCH = 50;
+export { MAX_EVENT_BATCH };
+
+// Client event timestamps are clamped into [now - MAX_EVENT_AGE_MS, now] on the
+// SERVER clock. A future ts used to sort above everything else forever (pinning
+// the global banner and /v1/world feeds) and pushed last_seen_at ahead; a day
+// of backdating covers a client that queued events offline.
+export const MAX_EVENT_AGE_MS = 86_400_000;
+
+// Make client-reported events safe to store: drop malformed entries and
+// server-derived types (level_up comes only from the snapshot delta), and
+// clamp each ts to the server clock. Unknown types are left for the store's
+// WORLD_EVENT_TYPES filter so there is one allowlist.
+export function sanitizeClientEvents(events: unknown[], now: number): Array<{ type: string; ts: number }> {
+  const out: Array<{ type: string; ts: number }> = [];
+  for (const ev of events) {
+    if (typeof ev !== 'object' || ev === null) continue;
+    const { type, ts } = ev as { type?: unknown; ts?: unknown };
+    if (typeof type !== 'string' || typeof ts !== 'number' || !Number.isFinite(ts)) continue;
+    if ((SERVER_DERIVED_EVENT_TYPES as ReadonlySet<string>).has(type)) continue;
+    out.push({ type, ts: Math.round(Math.min(now, Math.max(now - MAX_EVENT_AGE_MS, ts))) });
+  }
+  return out;
+}
+
+// New-citizen throttle: how many NEW world tokens one IP may turn into citizens
+// per day (re-teleports of an existing citizen are not counted). An honest
+// machine creates one citizen ever; 20 leaves room for a shared office/NAT
+// onboarding together while stopping a single IP from minting hundreds of
+// self-issued tokens to pack towns (release audit B2). Enforced by the worker
+// with the same best-effort, per-isolate RateLimiter as the request limit.
+export const NEW_CITIZENS_PER_IP_PER_DAY = 20;
+export const NEW_CITIZEN_WINDOW_MS = 86_400_000;
 
 // Browser identity (M1). The control token is scoped to driving your own sprite;
 // it is NOT the world token and can never teleport/recall/write XP.
@@ -35,6 +67,19 @@ export interface HandlerOpts {
   // or the `cf-ipcountry` header). Server-derived from the IP, so it's not
   // client-spoofable. Absent off-Cloudflare (tests, self-host).
   country?: string;
+  // New-citizen throttle hook (worker: per-IP RateLimiter). Called ONLY when a
+  // teleport is about to create a brand-new citizen; returning false refuses it
+  // with 429. Absent = unthrottled (tests, self-host).
+  allowNewCitizen?: () => boolean;
+}
+
+// Does `district` have room for one more resident? The hub is never gated (see
+// districts.ts); satellites count only visible citizens seen within the
+// resident window, so long-gone and recalled buddies don't hold slots forever.
+async function hasRoom(store: WorldStore, district: string, now: number): Promise<boolean> {
+  if (!isCapacityGated(district)) return true;
+  const counts = await store.districtCounts(now - RESIDENT_WINDOW_MS);
+  return (counts[district] ?? 0) < DISTRICT_CAPACITY;
 }
 
 export function hashToken(token: string): string {
@@ -86,12 +131,14 @@ export async function handleTeleport(
   if (typeof payload.token !== 'string' || payload.token.length < 8) {
     return bad(400, 'missing or malformed token');
   }
-  const snap = payload.snapshot as WorldSnapshot;
-  const valid = validateSnapshot(snap);
+  // Store only the rebuilt snapshot (known fields, bounded values), never the
+  // raw payload.
+  const valid = validateSnapshot(payload.snapshot);
   if (!valid.ok) return bad(400, valid.reason);
-  if (!isNameClean(snap.name)) return bad(400, 'name rejected by filter');
+  const snap = valid.snapshot;
 
   const tokenHash = hashToken(payload.token);
+  const current = await store.findByTokenHash(tokenHash);
 
   // Optional chosen destination: an owner may pick a town by name (or plaza-N)
   // to teleport into, or move to when re-teleporting.
@@ -100,13 +147,18 @@ export async function handleTeleport(
     if (typeof payload.district !== 'string') return bad(400, 'unknown_town');
     const resolved = districtForTown(payload.district);
     if (!resolved) return bad(400, 'unknown_town');
-    // Capacity gate — but never bounce someone who already lives there.
-    const counts = await store.districtCounts();
-    if ((counts[resolved] ?? 0) >= DISTRICT_CAPACITY) {
-      const current = await store.findByTokenHash(tokenHash);
-      if (current?.district !== resolved) return bad(409, 'town_full');
+    // Capacity gate — but never bounce someone who already lives there, and
+    // never gate the hub (Prontera is everyone's landing spot and way home).
+    if (current?.district !== resolved && !(await hasRoom(store, resolved, opts.now))) {
+      return bad(409, 'town_full');
     }
     desiredDistrict = resolved;
+  }
+  // Throttle brand-new citizens per network, checked last (so a refused town
+  // doesn't spend the budget) but BEFORE anything is written, so self-minted
+  // tokens can't be farmed into a town-filling crowd.
+  if (!current && opts.allowNewCitizen && !opts.allowNewCitizen()) {
+    return bad(429, 'too many new buddies from this network; try again later');
   }
   // ACCEPTED RISK: a first teleport's claimed XP is trusted (the server
   // never saw the buddy's local history — that's inherent to opt-in sync
@@ -144,21 +196,26 @@ export async function handleEvents(
   const citizen = await store.findByTokenHash(hashToken(payload.token));
   if (!citizen) return bad(401, 'unknown token');
 
+  // Validate the WHOLE request before writing anything. A rejected request
+  // must leave no trace: the client may resend the same events (without the
+  // snapshot), and a half-applied 400 would insert them twice.
   if (Array.isArray(payload.events) && payload.events.length > MAX_EVENT_BATCH) {
     return bad(400, `event batch exceeds ${MAX_EVENT_BATCH}`);
   }
+  let snap: WorldSnapshot | undefined;
+  if (payload.snapshot) {
+    const valid = validateSnapshot(payload.snapshot);
+    if (!valid.ok) return bad(400, valid.reason);
+    snap = valid.snapshot;
+  }
 
+  // Writes. The store records the events all-or-nothing, so a failure there
+  // leaves nothing behind for a client retry to duplicate.
   let accepted = 0;
   if (Array.isArray(payload.events)) {
-    accepted = await store.recordEvents(citizen.id, payload.events as Array<{ type: string; ts: number }>);
+    accepted = await store.recordEvents(citizen.id, sanitizeClientEvents(payload.events, opts.now));
   }
-
-  if (payload.snapshot) {
-    const snap = payload.snapshot as WorldSnapshot;
-    const valid = validateSnapshot(snap);
-    if (!valid.ok) return bad(400, valid.reason);
-    await applyClampedSnapshot(citizen, snap, store, opts.now);
-  }
+  if (snap) await applyClampedSnapshot(citizen, snap, store, opts.now);
 
   return { status: 200, body: { accepted } };
 }
@@ -306,9 +363,9 @@ export async function handlePortalWarp(
   if (!portalBetween(from, target)) return bad(400, 'no_portal');
 
   // Capacity gate. `from !== target` here, so this citizen is genuinely moving
-  // in and legitimately counts against the cap — mirroring handleTeleport.
-  const counts = await store.districtCounts();
-  if ((counts[target] ?? 0) >= DISTRICT_CAPACITY) return bad(409, 'town_full');
+  // in and legitimately counts against the cap — mirroring handleTeleport. The
+  // hub is never gated, so a satellite's portal home ALWAYS works.
+  if (!(await hasRoom(store, target, opts.now))) return bad(409, 'town_full');
 
   // District-ONLY write: the scoped token must never touch xp/level.
   await store.setDistrict(citizen.id, target);
@@ -320,7 +377,16 @@ export async function handleWorld(
   store: WorldStore,
   _opts: HandlerOpts
 ): Promise<HandlerResult> {
-  const view = await store.district(district, _opts.now - 3_600_000);
+  // Events in the last hour up to the server clock (B1); residents only (seen
+  // within RESIDENT_WINDOW_MS), bounded — this is polled every 10s by every
+  // open plaza, so it must never ship every citizen ever.
+  const view = await store.district(
+    district,
+    _opts.now - 3_600_000,
+    _opts.now,
+    _opts.now - RESIDENT_WINDOW_MS,
+    WORLD_CITIZEN_LIMIT
+  );
   const anonSlugByReal = new Map<string, string>();
 
   const citizens = view.citizens.map((c) => {
@@ -343,6 +409,10 @@ export async function handleWorld(
 // How many celebrations the global feed returns. Enough to fill a fresh
 // viewer's banner backlog without shipping a wall of history.
 export const ANNOUNCE_LIMIT = 30;
+// How far back the feed looks. The plaza only broadcasts rows it hasn't seen
+// (its first poll just seeds the seen-set), so old history is never shown;
+// the window bounds the per-citizen ROW_NUMBER scan to recent rows.
+export const ANNOUNCE_WINDOW_MS = 86_400_000;
 
 // announcements: the GLOBAL celebration feed powering the RO-yellow broadcast
 // banner (M6). Cross-town (never scoped to one district) — a level-up in Payon
@@ -351,10 +421,11 @@ export const ANNOUNCE_LIMIT = 30;
 // its RO town name for the broadcast phrasing.
 export async function handleAnnouncements(
   store: WorldStore,
-  _opts: HandlerOpts,
+  opts: HandlerOpts,
   limit: number = ANNOUNCE_LIMIT
 ): Promise<HandlerResult> {
-  const rows = await store.announcements(limit);
+  // Window ends at the server clock: a future-dated row can't pin the banner.
+  const rows = await store.announcements(limit, opts.now - ANNOUNCE_WINDOW_MS, opts.now);
   const announcements = rows.map((r) => {
     const town = townForDistrict(r.district) ?? r.district;
     // `id` is the stable per-event key the client de-dupes on (so two
