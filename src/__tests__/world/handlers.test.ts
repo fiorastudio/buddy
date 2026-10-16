@@ -11,8 +11,11 @@ import {
   handleBrowserSession,
   handleMe,
   handlePortalWarp,
+  handleAnon,
   hashToken,
+  publicSlug,
   RateLimiter,
+  type RoomNotice,
 } from '../../lib/world/handlers.js';
 import { DISTRICT_CAPACITY } from '../../lib/world/districts.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
@@ -507,5 +510,85 @@ describe('browser identity handlers', () => {
     expect((await handleBrowserSession({ code }, store, OPTS)).status).toBe(401);
     expect((await handleBrowserSession({ code: spare.code }, store, OPTS)).status).toBe(401);
     expect(await store.findCitizenByBrowserToken(hashToken(controlToken), T0)).toBeNull();
+  });
+});
+
+// B9: privacy changes made over HTTP (recall, purge, anon) must reach the live
+// room — the control token stops authenticating and the room is notified.
+describe('recall / anon reach live rooms', () => {
+  let db: Database.Database;
+  let store: SqliteWorldStore;
+  let notices: RoomNotice[];
+  const notify = async (n: RoomNotice) => {
+    notices.push(n);
+  };
+  const TOKEN = 'live-room-token-abcdef';
+
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    store = new SqliteWorldStore(db);
+    notices = [];
+    await handleTeleport({ token: TOKEN, snapshot: snap() }, store, OPTS);
+  });
+
+  async function controlToken(): Promise<string> {
+    const code = ((await handleBrowserLink({ token: TOKEN }, store, OPTS)).body as { code: string }).code;
+    return ((await handleBrowserSession({ code }, store, OPTS)).body as { controlToken: string }).controlToken;
+  }
+  const citizenId = async () => (await store.findByTokenHash(hashToken(TOKEN)))!.id;
+
+  it('recall (no purge) revokes control tokens: /v1/me, portal-warp and the room hello all fail', async () => {
+    const ct = await controlToken();
+    expect((await handleMe(ct, store, OPTS)).status).toBe(200);
+    expect((await handleRecall({ token: TOKEN, purge: false }, store)).status).toBe(200);
+    expect(await store.findCitizenByBrowserToken(hashToken(ct), T0)).toBeNull();
+    expect((await handleMe(ct, store, OPTS)).status).toBe(401);
+    expect((await handlePortalWarp({ controlToken: ct, to: 'plaza-2' }, store, OPTS)).status).toBe(401);
+  });
+
+  it('a hidden citizen never authenticates by control token, even if a session row survived', async () => {
+    const ct = await controlToken();
+    db.prepare('UPDATE citizens SET hidden = 1').run(); // hidden, session untouched
+    expect(await store.findCitizenByBrowserToken(hashToken(ct), T0)).toBeNull();
+    expect((await handleMe(ct, store, OPTS)).status).toBe(401);
+  });
+
+  it('re-teleporting after a recall does not resurrect the old control token', async () => {
+    const ct = await controlToken();
+    await handleRecall({ token: TOKEN, purge: false }, store);
+    await handleTeleport({ token: TOKEN, snapshot: snap() }, store, OPTS);
+    expect((await handleMe(ct, store, OPTS)).status).toBe(401);
+    expect((await handleMe(await controlToken(), store, OPTS)).status).toBe(200); // a fresh link works
+  });
+
+  it('recall and purge tell the rooms to evict the citizen', async () => {
+    const id = await citizenId();
+    await handleRecall({ token: TOKEN, purge: false }, store, notify);
+    expect(notices).toEqual([{ kind: 'evict', citizenId: id }]);
+
+    notices = [];
+    await handleRecall({ token: TOKEN, purge: true }, store, notify);
+    expect(notices).toEqual([{ kind: 'evict', citizenId: id }]);
+  });
+
+  it('an unknown token notifies no room', async () => {
+    expect((await handleRecall({ token: 'nobody-0000000000', purge: true }, store, notify)).status).toBe(401);
+    expect((await handleAnon({ token: 'nobody-0000000000', anon: true }, store, notify)).status).toBe(401);
+    expect(notices).toEqual([]);
+  });
+
+  it('anon on relabels the live actor with EXACTLY the /v1/world masked slug; anon off restores it', async () => {
+    const id = await citizenId();
+    const real = (await store.findByTokenHash(hashToken(TOKEN)))!.slug;
+
+    await handleAnon({ token: TOKEN, anon: true }, store, notify);
+    const world = (await handleWorld('plaza-1', store, OPTS)).body as { citizens: Array<{ slug: string }> };
+    expect(notices).toEqual([{ kind: 'relabel', citizenId: id, slug: world.citizens[0].slug }]);
+    expect(world.citizens[0].slug).toBe(publicSlug({ slug: real, anon: true }));
+    expect(world.citizens[0].slug).not.toBe(real);
+
+    notices = [];
+    await handleAnon({ token: TOKEN, anon: false }, store, notify);
+    expect(notices).toEqual([{ kind: 'relabel', citizenId: id, slug: real }]);
   });
 });

@@ -49,6 +49,17 @@ function fixtureDistrict() {
   };
 }
 
+// The production headers from world/public/_headers (one `/*` block), applied
+// to every static response so the smoke tests run under the real CSP.
+function staticHeaders(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of readFileSync(join(publicDir, '_headers'), 'utf8').split(/\r?\n/)) {
+    const m = /^\s+([\w-]+):\s*(.+)$/.exec(line);
+    if (m) out[m[1]] = m[2].trim();
+  }
+  return out;
+}
+
 const MIME: Record<string, string> = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -62,6 +73,7 @@ describe('plaza smoke test (headless browser)', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
+    const securityHeaders = staticHeaders();
     server = createServer((req, res) => {
       const url = (req.url ?? '/').split('?')[0];
       if (url.startsWith('/v1/world/')) {
@@ -79,7 +91,10 @@ describe('plaza smoke test (headless browser)', () => {
       }
       const file = join(publicDir, url === '/' ? 'index.html' : url.slice(1));
       if (existsSync(file)) {
-        res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+        res.writeHead(200, {
+          ...securityHeaders,
+          'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+        });
         res.end(readFileSync(file));
       } else {
         res.writeHead(404);
@@ -345,6 +360,100 @@ describe('plaza smoke test (headless browser)', () => {
     expect(fired!.seq).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
+  // C5: a scripted stand-in for the room socket, installed before plaza.js
+  // runs, so the test drives open/close/messages and sees every frame sent.
+  const FAKE_ROOM_SOCKET = `(() => {
+    window.__WS__ = [];
+    class FakeWS extends EventTarget {
+      constructor(url) { super(); this.url = url; this.readyState = 0; this.sent = []; window.__WS__.push(this); }
+      send(data) { if (this.readyState !== 1) throw new Error('not open'); this.sent.push(JSON.parse(data)); }
+      close(code = 1000) {
+        if (this.readyState === 3) return;
+        this.readyState = 3;
+        this.dispatchEvent(new CloseEvent('close', { code }));
+      }
+      _open() { this.readyState = 1; this.dispatchEvent(new Event('open')); }
+      _recv(msg) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(msg) })); }
+    }
+    window.WebSocket = FakeWS;
+    try { localStorage.setItem('buddyControlToken', 'test-control-token'); } catch {}
+  })()`;
+
+  it('reconnect re-sends my position, replays a gate entered offline, and shows a failed warp', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.evaluateOnNewDocument(FAKE_ROOM_SOCKET);
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== '/v1/me') { void req.continue(); return; }
+      void req.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'buddy-0', district: 'plaza-1' }),
+      });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__WS__.length === 1 && window.__PLAZA__.actorFrames["buddy-0"] !== undefined');
+    type Frame = { type: string; seq?: number; x?: number; y?: number; to?: string; portal?: string };
+    const sentOn = async (i: number) => (await page.evaluate(`window.__WS__[${i}].sent`)) as Frame[];
+    const welcome = `{ type: 'welcome', district: 'plaza-1', self: 'buddy-0', actors: [] }`;
+
+    // Connect, start walking before the room answers: only the hello may go out
+    // (a frame racing the hello would be refused as unauthenticated).
+    await page.evaluate('window.__WS__[0]._open()');
+    await page.evaluate('window.__PLAYER__.moveOwnerTo(320, 300)');
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await sentOn(0)).map((f) => f.type)).toEqual(['hello']);
+    await page.evaluate(`window.__WS__[0]._recv(${welcome})`);
+    expect((await sentOn(0)).map((f) => f.type)).toContain('move_to'); // resync on welcome
+
+    // The connection drops. While it's down, walk into the Payon gate: the
+    // portal_enter can't be sent, so it must be queued, not latched away.
+    await page.evaluate('window.__WS__[0].close(1006)');
+    await page.evaluate('window.__PLAYER__.enterPortalForTest(0)');
+    expect((await page.evaluate('window.__PLAZA__.rtStatus()')) as Record<string, unknown>).toMatchObject({
+      joined: false,
+      pendingPortal: 'prontera-payon',
+    });
+
+    // Reconnect (1s backoff). Again nothing but the hello before the welcome...
+    await page.waitForFunction('window.__WS__.length === 2', { timeout: 5_000 });
+    await page.evaluate('window.__WS__[1]._open()');
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await sentOn(1)).map((f) => f.type)).toEqual(['hello']);
+
+    // ...then the welcome: my real position goes out first (the room just put
+    // me back at spawn), then the queued portal entry, with fresh seqs.
+    const gate = (await page.evaluate(`(() => {
+      const p = window.__PLAZA__.portals[0].rect;
+      return { x: p.x + p.w / 2, y: p.y + p.h / 2 };
+    })()`)) as { x: number; y: number };
+    await page.evaluate(`window.__WS__[1]._recv(${welcome})`);
+    const after = (await sentOn(1)).slice(1);
+    expect(after.map((f) => f.type)).toEqual(['move_to', 'portal_enter']);
+    expect(after[0].x).toBeCloseTo(gate.x, 2);
+    expect(after[0].y).toBeCloseTo(gate.y, 2);
+    expect(after[1]).toMatchObject({ portal: 'prontera-payon', to: 'plaza-2' });
+    expect(after[1].seq!).toBeGreaterThan(after[0].seq!);
+    expect(await page.evaluate('window.__PLAZA__.rtStatus().pendingPortal')).toBeNull();
+
+    // The room can't warp me (Payon is full): the owner is told, not left guessing.
+    await page.evaluate(`window.__WS__[1]._recv({ type: 'warp_failed', to: 'plaza-2', reason: 'town_full' })`);
+    const toast = (await page.evaluate(`(() => {
+      const el = document.querySelector('#toast');
+      return { hidden: el.hidden, text: el.textContent, live: el.getAttribute('aria-live') };
+    })()`)) as { hidden: boolean; text: string; live: string };
+    expect(toast.hidden).toBe(false);
+    expect(toast.text).toContain('Payon is full');
+    expect(toast.live).toBe('polite');
+    expect(await page.evaluate('window.__PLAYER__.lastRedirect')).toBeUndefined(); // stayed put
+
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('click-to-pet spawns a heart emote on a buddy (RO /heart)', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
@@ -494,6 +603,93 @@ describe('plaza smoke test (headless browser)', () => {
     expect(popup.text).toContain('60'); // deploy pays 60 XP
   }, 60_000);
 
+  // B6: the room retires the older tab for the same buddy with an error frame
+  // and a 1008 "taken over" close. The parked tab must say so, and offer a way
+  // to take control back, instead of silently going quiet.
+  it('tells the owner another tab took over their buddy, and "take back control" reconnects', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.evaluateOnNewDocument(FAKE_ROOM_SOCKET);
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== '/v1/me') { void req.continue(); return; }
+      void req.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'buddy-0', district: 'plaza-1' }),
+      });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__WS__.length === 1');
+    const welcome = `{ type: 'welcome', district: 'plaza-1', self: 'buddy-0', actors: [] }`;
+    await page.evaluate('window.__WS__[0]._open()');
+    await page.evaluate(`window.__WS__[0]._recv(${welcome})`);
+
+    const toast = () =>
+      page.evaluate(`(() => {
+        const el = document.querySelector('#toast');
+        const btn = el.querySelector('button');
+        return { hidden: el.hidden, text: el.textContent, button: btn ? btn.textContent : null };
+      })()`) as Promise<{ hidden: boolean; text: string; button: string | null }>;
+    // The server side of a takeover, exactly as the room sends it.
+    const takeOver = (i: number) =>
+      page.evaluate(`(() => {
+        const ws = window.__WS__[${i}];
+        ws._recv({ type: 'error', error: 'taken over' });
+        ws.readyState = 3;
+        ws.dispatchEvent(new CloseEvent('close', { code: 1008, reason: 'taken over' }));
+      })()`);
+
+    await takeOver(0);
+    let t = await toast();
+    expect(t.hidden).toBe(false);
+    expect(t.text).toContain('Your buddy is now being driven in another tab');
+    expect(t.button).toBe('Take back control');
+
+    // Parked: no reconnect on its own (well past the 1s first backoff), and the
+    // notice stays up rather than timing out like a warp toast.
+    await new Promise((r) => setTimeout(r, 6_000));
+    expect(await page.evaluate('window.__WS__.length')).toBe(1);
+    expect((await toast()).hidden).toBe(false);
+
+    // Taking it back opens a fresh socket with a fresh hello: this tab is the
+    // newest again, so the room hands it control.
+    await page.click('#toast button');
+    await page.waitForFunction('window.__WS__.length === 2', { timeout: 2_000 });
+    t = await toast();
+    expect(t.hidden).toBe(true);
+    await page.evaluate('window.__WS__[1]._open()');
+    expect(((await page.evaluate('window.__WS__[1].sent')) as Array<{ type: string; controlToken?: string }>)[0]).toMatchObject({
+      type: 'hello',
+      controlToken: 'test-control-token',
+    });
+    await page.evaluate(`window.__WS__[1]._recv(${welcome})`);
+    expect(await page.evaluate('window.__PLAZA__.rtStatus().joined')).toBe(true);
+
+    // ...and it can be taken over (and back) again.
+    await takeOver(1);
+    expect((await toast()).button).toBe('Take back control');
+
+    // Any other 1008 (a revoked or expired token) is still a quiet, final stop.
+    await page.click('#toast button');
+    await page.waitForFunction('window.__WS__.length === 3', { timeout: 2_000 });
+    await page.evaluate('window.__WS__[2]._open()');
+    await page.evaluate(`(() => {
+      const ws = window.__WS__[2];
+      ws._recv({ type: 'error', error: 'invalid control token' });
+      ws.readyState = 3;
+      ws.dispatchEvent(new CloseEvent('close', { code: 1008, reason: 'auth' }));
+    })()`);
+    expect((await toast()).hidden).toBe(true);
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect(await page.evaluate('window.__WS__.length')).toBe(3);
+
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('offers an accessible SFX toggle, off by default', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
@@ -579,5 +775,118 @@ describe('plaza smoke test (headless browser)', () => {
     for (const [slug, ratio] of Object.entries(ratios)) {
       expect(ratio, `contrast for ${slug}`).toBeGreaterThanOrEqual(4.5);
     }
+  }, 60_000);
+
+  it('runs under a CSP that only allows its own origin', async () => {
+    const csp = staticHeaders()['Content-Security-Policy'];
+    expect(csp).toMatch(/connect-src 'self'/);
+    expect(csp).toMatch(/frame-ancestors 'none'/);
+    expect(csp).toMatch(/script-src 'self'(;|$)/);
+
+    // The page must still boot and render with the policy enforced.
+    const page = await browser.newPage();
+    const violations: string[] = [];
+    page.on('console', (m) => {
+      if (/Content Security Policy/i.test(m.text())) violations.push(m.text());
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0', {
+      timeout: 15_000,
+    });
+    expect(violations).toEqual([]);
+  }, 60_000);
+
+  it('ignores an ?api= override, so the control code never leaves the origin', async () => {
+    const page = await browser.newPage();
+    const requested: string[] = [];
+    page.on('request', (r) => requested.push(r.url()));
+    await page.goto(
+      `${baseUrl}/?district=plaza-1&api=${encodeURIComponent('http://attacker.invalid')}#code=deadbeefdeadbeef`,
+      { waitUntil: 'networkidle0' }
+    );
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0', {
+      timeout: 15_000,
+    });
+    expect(requested.filter((u) => new URL(u).origin !== baseUrl)).toEqual([]);
+    expect(requested.some((u) => u.startsWith(`${baseUrl}/v1/browser-session`))).toBe(true);
+  }, 60_000);
+
+  // ── C3: startup and render-loop resilience ─────────────────────────────
+  // Sampled non-transparent canvas pixels: > 1000 means the plaza painted.
+  const PAINTED = `(() => {
+    const canvas = document.querySelector('#plaza');
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let n = 0;
+    for (let i = 3; i < data.length; i += 40) if (data[i] > 0) n++;
+    return n;
+  })() > 1000`;
+
+  // Open the plaza with one endpoint overridden: a canned response, or
+  // 'hang' to never answer at all.
+  async function openWithFault(path: string, fault: { status: number; body: string } | 'hang') {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== path) { void req.continue(); return; }
+      if (fault === 'hang') return; // never answered — only the client timeout ends it
+      void req.respond({ status: fault.status, contentType: 'text/html', body: fault.body });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'domcontentloaded' });
+    return { page, errors };
+  }
+
+  for (const [label, fault] of [
+    ['a 500', { status: 500, body: '<h1>Internal Server Error</h1>' }],
+    ['a garbage body', { status: 200, body: '{"announcements": [tru' }],
+    ['no answer at all', 'hang'],
+  ] as const) {
+    it(`still renders every citizen when /v1/announcements gives ${label}`, async () => {
+      const { page, errors } = await openWithFault('/v1/announcements', fault);
+      await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length === 8', { timeout: 15_000 });
+      await page.waitForFunction(PAINTED, { timeout: 15_000 });
+      expect(await page.evaluate('window.__PLAZA__.broadcast')).toBeNull();
+      expect(errors).toEqual([]);
+      await page.close();
+    }, 60_000);
+  }
+
+  it('still paints the town when the world feed returns garbage', async () => {
+    const { page, errors } = await openWithFault('/v1/world/plaza-1', { status: 200, body: '<html>oops' });
+    await page.waitForFunction(PAINTED, { timeout: 15_000 });
+    // Survived the bad payload: no citizens, no misleading "quiet town", and
+    // the static assets that loaded independently are still in place.
+    const s = (await page.evaluate(`(() => ({
+      citizens: window.__PLAZA__.citizens.length,
+      worldLoaded: window.__PLAZA__.worldLoaded,
+      hasSprites: !!window.__PLAZA__.sprites && Object.keys(window.__PLAZA__.sprites).length > 0,
+    }))()`)) as { citizens: number; worldLoaded: boolean; hasSprites: boolean };
+    expect(s).toEqual({ citizens: 0, worldLoaded: false, hasSprites: true });
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it('keeps animating after a frame throws (the loop always schedules the next frame)', async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.actorFrames && Object.keys(window.__PLAZA__.actorFrames).length === 8'
+    );
+    await page.evaluate('window.__PLAZA__.failNextFrameForTest = true');
+    await page.waitForFunction('window.__PLAZA__.frameErrors === 1', { timeout: 5_000 });
+    const before = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    await new Promise((r) => setTimeout(r, 1300));
+    const after = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    for (const slug of Object.keys(before)) {
+      // ~450ms per sprite frame: 1.3s of live frames advances each one.
+      expect(after[slug] - before[slug], `frames kept advancing for ${slug}`).toBeGreaterThanOrEqual(1);
+    }
+    expect(await page.evaluate('window.__PLAZA__.frameErrors')).toBe(1); // one bad frame, not a stuck loop
+    expect(errors).toEqual([]); // caught and logged once, never an uncaught page error
+    await page.close();
   }, 60_000);
 });

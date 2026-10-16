@@ -34,17 +34,26 @@ function snap(over: Record<string, unknown> = {}) {
   };
 }
 
+// Every test shares ONE worker isolate, so its per-IP rate limiter. Give each
+// request its own client IP so the suite's volume (it grows with every test)
+// never trips the 60/min budget meant for a single real client.
+let clientIp = 0;
+function nextIp(): string {
+  clientIp++;
+  return `10.0.${clientIp >> 8}.${clientIp & 255}`;
+}
+
 function post(path: string, body: unknown) {
   return SELF.fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': nextIp() },
     body: JSON.stringify(body),
   });
 }
 
 // Run the real M1 flow to get a scoped control token for a fresh citizen.
-async function mintControlToken(worldToken: string): Promise<string> {
-  await post('/v1/teleport', { token: worldToken, snapshot: snap() });
+async function mintControlToken(worldToken: string, district?: string): Promise<string> {
+  await post('/v1/teleport', { token: worldToken, snapshot: snap(), ...(district ? { district } : {}) });
   const link = (await (await post('/v1/browser-link', { token: worldToken })).json()) as { code: string };
   const sess = (await (await post('/v1/browser-session', { code: link.code })).json()) as { controlToken: string };
   return sess.controlToken;
@@ -54,6 +63,7 @@ interface Client {
   send(msg: unknown): void;
   next(): Promise<any>;
   close(): void;
+  closed: Promise<{ code: number; reason: string }>;
 }
 
 async function connect(district: string): Promise<Client> {
@@ -61,6 +71,9 @@ async function connect(district: string): Promise<Client> {
   expect(res.status).toBe(101);
   const ws = res.webSocket!;
   ws.accept();
+  const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+    ws.addEventListener('close', (e: CloseEvent) => resolve({ code: e.code, reason: e.reason }))
+  );
 
   const queue: any[] = [];
   const waiters: Array<(m: any) => void> = [];
@@ -80,6 +93,7 @@ async function connect(district: string): Promise<Client> {
         else waiters.push(resolve);
       }),
     close: () => ws.close(),
+    closed,
   };
 }
 
@@ -213,6 +227,165 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     expect(welcomeC.actors.length).toBe(2);
 
     a.close();
+    b.close();
+    c.close();
+  });
+
+  // B9: HTTP privacy changes reach sockets that are ALREADY live. Own towns
+  // (plaza-3/plaza-4) so plaza-1's shared roster is untouched.
+  it('anon on relabels a live buddy in place: peers see real leave + masked join, owner is re-welcomed', async () => {
+    const ctA = await mintControlToken('ws-anon-token-aaa', 'plaza-3');
+    const ctB = await mintControlToken('ws-anon-token-bbb', 'plaza-3');
+
+    const a = await connect('plaza-3');
+    a.send({ type: 'hello', controlToken: ctA });
+    const welcomeA = await a.next();
+    const realSlug = welcomeA.self as string;
+    expect(realSlug).toMatch(/^shadowpaw-/);
+
+    const b = await connect('plaza-3');
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next(); // B welcome
+    await a.next(); // A hears B join
+
+    expect((await post('/v1/anon', { token: 'ws-anon-token-aaa', anon: true })).status).toBe(200);
+
+    // The masked id is exactly the one the plaza (/v1/world) renders.
+    const world = (await (await SELF.fetch(`${BASE}/v1/world/plaza-3`)).json()) as {
+      citizens: Array<{ slug: string; name: string }>;
+    };
+    const masked = world.citizens.find((c) => c.slug.startsWith('anon-'))!.slug;
+
+    const rewelcome = await a.next();
+    expect(rewelcome).toMatchObject({ type: 'welcome', district: 'plaza-3', self: masked });
+
+    const leave = await b.next();
+    expect(leave).toEqual({ type: 'leave', slug: realSlug });
+    const join = await b.next();
+    expect(join.type).toBe('join');
+    expect(join.actor.slug).toBe(masked);
+
+    // From now on the real slug never reaches peers: A's next move is masked.
+    a.send({ type: 'move_to', seq: 1, x: 0.2, y: 0.8, clientTs: 1 });
+    let snap: any;
+    for (let i = 0; i < 5 && !snap; i++) {
+      const m = await b.next();
+      if (m.type === 'snapshot') snap = m;
+    }
+    expect(snap.actors.map((x: any) => x.slug)).toContain(masked);
+    expect(JSON.stringify(snap)).not.toContain(realSlug);
+
+    a.close();
+    b.close();
+  });
+
+  it('recall evicts a live socket (even across hibernation) and its control token can no longer join', async () => {
+    const ctA = await mintControlToken('ws-recall-token-aaa', 'plaza-4');
+    const ctB = await mintControlToken('ws-recall-token-bbb', 'plaza-4');
+
+    const a = await connect('plaza-4');
+    a.send({ type: 'hello', controlToken: ctA });
+    const slugA = (await a.next()).self as string;
+    const b = await connect('plaza-4');
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next();
+    await a.next(); // A hears B join
+
+    // The owner id must survive on the socket attachment through hibernation.
+    // (Also proves the HTTP notice leaves no open subrequest behind: an undrained
+    // DO response made this eviction hang.)
+    const stub = env.ROOM.get(env.ROOM.idFromName('plaza-4'));
+    await evictDurableObject(stub);
+
+    expect((await post('/v1/recall', { token: 'ws-recall-token-aaa', purge: false })).status).toBe(200);
+
+    expect(await a.next()).toEqual({ type: 'error', error: 'recalled' });
+    expect((await a.closed).code).toBe(1008); // client parks reconnection on 1008
+    expect(await b.next()).toEqual({ type: 'leave', slug: slugA });
+
+    // A reconnect with the revoked control token is refused...
+    const again = await connect('plaza-4');
+    again.send({ type: 'hello', controlToken: ctA });
+    expect(await again.next()).toEqual({ type: 'error', error: 'invalid control token' });
+
+    // ...and a fresh joiner's roster no longer lists the recalled buddy.
+    const ctC = await mintControlToken('ws-recall-token-ccc', 'plaza-4');
+    const c = await connect('plaza-4');
+    c.send({ type: 'hello', controlToken: ctC });
+    const welcomeC = await c.next();
+    expect(welcomeC.actors.map((x: any) => x.slug)).not.toContain(slugA);
+
+    again.close();
+    b.close();
+    c.close();
+  });
+
+  it('a portal_enter that cannot warp tells the owner why (warp_failed) and keeps the socket', async () => {
+    const controlToken = await mintControlToken('ws-warpfail-token');
+    const c = await connect('plaza-1');
+    c.send({ type: 'hello', controlToken });
+    await c.next(); // welcome
+
+    // A town off the map: handlePortalWarp rejects it, nothing moves in D1.
+    c.send({ type: 'portal_enter', seq: 1, portal: 'bogus', to: 'plaza-99', controlToken });
+    const failed = await c.next();
+    expect(failed).toEqual({ type: 'warp_failed', to: 'plaza-99', reason: 'unknown_town' });
+
+    // Still connected and still here: a ping on the same socket is answered.
+    c.send({ type: 'ping' });
+    expect((await c.next()).type).toBe('pong');
+    c.close();
+  });
+
+  // B6: a second tab for the same buddy takes over; the old one is retired
+  // quietly (1008 so the plaza doesn't reconnect and steal it back).
+  it('a second socket for the same buddy takes over: one roster entry, no leave until the live tab closes', async () => {
+    const ctA = await mintControlToken('ws-dupe-token-aaa', 'plaza-5');
+    const ctB = await mintControlToken('ws-dupe-token-bbb', 'plaza-5');
+
+    const b = await connect('plaza-5'); // an observer
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next();
+
+    const tab1 = await connect('plaza-5');
+    tab1.send({ type: 'hello', controlToken: ctA });
+    const slugA = (await tab1.next()).self as string;
+    expect((await b.next()).type).toBe('join');
+
+    const tab2 = await connect('plaza-5');
+    tab2.send({ type: 'hello', controlToken: ctA });
+    const welcome2 = await tab2.next();
+    expect(welcome2).toMatchObject({ type: 'welcome', self: slugA });
+    expect(welcome2.actors.map((x: any) => x.slug)).not.toContain(slugA);
+
+    expect(await tab1.next()).toEqual({ type: 'error', error: 'taken over' });
+    expect(await tab1.closed).toEqual({ code: 1008, reason: 'taken over' });
+
+    // The observer hears the buddy re-join at spawn — and no leave for the old tab.
+    const rejoin = await b.next();
+    expect(rejoin).toMatchObject({ type: 'join', actor: { slug: slugA } });
+
+    // A fresh joiner sees the buddy exactly once.
+    const ctC = await mintControlToken('ws-dupe-token-ccc', 'plaza-5');
+    const c = await connect('plaza-5');
+    c.send({ type: 'hello', controlToken: ctC });
+    const welcomeC = await c.next();
+    expect(welcomeC.actors.filter((x: any) => x.slug === slugA)).toHaveLength(1);
+    expect((await b.next()).type).toBe('join'); // observer hears C
+
+    // Only the live tab moves the buddy, and closing it is the one leave.
+    tab2.send({ type: 'move_to', seq: 1, x: 0.25, y: 0.75, clientTs: 1 });
+    let snap: any;
+    for (let i = 0; i < 5 && !snap; i++) {
+      const m = await b.next();
+      expect(m.type, 'no leave while the buddy is still live').not.toBe('leave');
+      if (m.type === 'snapshot') snap = m;
+    }
+    expect(snap.actors.find((x: any) => x.slug === slugA)).toMatchObject({ x: 0.25, y: 0.75 });
+
+    tab2.close();
+    expect(await b.next()).toEqual({ type: 'leave', slug: slugA });
+
     b.close();
     c.close();
   });

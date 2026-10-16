@@ -279,6 +279,41 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     expect(res.close).toBeUndefined(); // warp failed → stay put; socket kept open
     expect(rec.sent.some((s) => s.msg.type === 'room_redirect')).toBe(false);
     expect(rec.broadcasts.some((b) => b.msg.type === 'leave')).toBe(false);
+    // ...and the owner (only the owner) is told why, so the client can say so.
+    expect(rec.sent).toEqual([{ socket: 'me', msg: { type: 'warp_failed', to: 'plaza-2', reason: 'town_full' } }]);
+    expect(rec.broadcasts.some((b) => b.msg.type === 'warp_failed')).toBe(false);
+  });
+
+  it('a warp that throws (D1 hiccup) reports warp_failed and keeps the socket', async () => {
+    const rec = makePort({
+      warp: () => {
+        throw new Error('D1 unavailable');
+      },
+    });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage(
+      'me',
+      actor('x', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }),
+      []
+    );
+    expect(res.attach?.seq).toBe(1);
+    expect(res.close).toBeUndefined();
+    expect(rec.sent.map((s) => s.msg)).toEqual([{ type: 'warp_failed', to: 'plaza-2', reason: 'warp_unavailable' }]);
+  });
+
+  it('a failed warp with no reason from the port falls back to warp_unavailable', async () => {
+    const rec = makePort({ warp: () => null });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    await core.onMessage('me', actor('x', { seq: 0 }), JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }), []);
+    expect(rec.sent.map((s) => s.msg)).toEqual([{ type: 'warp_failed', to: 'plaza-2', reason: 'warp_unavailable' }]);
+  });
+
+  it('a successful warp sends no warp_failed', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    await core.onMessage('me', actor('x', { seq: 0 }), JSON.stringify({ type: 'portal_enter', ...HELLO_SEQ }), []);
+    expect(rec.sent.some((s) => s.msg.type === 'warp_failed')).toBe(false);
   });
 
   it('a portal_enter without a control token is ignored (no warp attempted)', async () => {
@@ -292,6 +327,22 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     );
     expect(res.attach?.seq).toBe(1); // seq still consumed
     expect(rec.warps).toHaveLength(0);
+    expect(rec.sent.map((s) => s.msg)).toEqual([
+      { type: 'warp_failed', to: 'plaza-2', reason: 'missing control token' },
+    ]);
+  });
+
+  it('a portal_enter with no target reports warp_failed (to: null)', async () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    await core.onMessage(
+      'me',
+      actor('x', { seq: 0 }),
+      JSON.stringify({ type: 'portal_enter', seq: 1, controlToken: 'good-control-token' }),
+      []
+    );
+    expect(rec.warps).toHaveLength(0);
+    expect(rec.sent.map((s) => s.msg)).toEqual([{ type: 'warp_failed', to: null, reason: 'unknown_town' }]);
   });
 
   it('drops a stale / non-increasing portal_enter seq', async () => {
@@ -305,6 +356,7 @@ describe('room-core portal warp (portal_enter → room_redirect)', () => {
     );
     expect(res.attach).toBeUndefined();
     expect(rec.warps).toHaveLength(0);
+    expect(rec.sent).toEqual([]); // a dropped replay is silent — no warp_failed
   });
 
   it('a portal_enter before authentication is refused (hello still required first)', async () => {
@@ -357,5 +409,115 @@ describe('room-core pure helpers', () => {
     ]);
     const dirty = diffActors(prev, next).map((a) => a.slug).sort();
     expect(dirty).toEqual(['b', 'c']);
+  });
+});
+
+// B9: an HTTP-side recall/purge/anon change must take effect on a socket that
+// is ALREADY live — it never re-authenticates on its own.
+describe('room-core server-initiated identity changes (recall / anon)', () => {
+  it('a successful hello surfaces the owner id for the adapter, but never on the wire', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'anon-1a2b3c', district: DISTRICT, citizenId: 'cit-123' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, JSON.stringify({ type: 'hello', controlToken: 'good-control-token' }), []);
+    expect(res.citizenId).toBe('cit-123');
+    expect(res.attach).toEqual({ slug: 'anon-1a2b3c', x: 0.5, y: 0.5, seq: 0 }); // no citizenId in ActorState
+    const wire = JSON.stringify([...rec.sent.map((s) => s.msg), ...rec.broadcasts.map((b) => b.msg)]);
+    expect(wire).not.toContain('cit-123');
+  });
+
+  it('evict: peers hear one leave, the socket is detached and closed 1008 (no reconnect)', () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = core.evict('me', actor('shadowpaw-ab12', { x: 0.3, y: 0.4, seq: 7 }));
+    expect(res.detach).toBe(true);
+    expect(res.attach).toBeUndefined();
+    expect(res.close?.code).toBe(1008);
+    expect(rec.broadcasts).toEqual([{ msg: { type: 'leave', slug: 'shadowpaw-ab12' }, except: 'me' }]);
+    expect(rec.sent).toEqual([{ socket: 'me', msg: { type: 'error', error: 'recalled' } }]);
+  });
+
+  it('relabel (anon on): peers see the real slug leave and the masked one join; owner is re-welcomed', () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const peers = [{ socket: 'peerA', state: actor('mistcoil-99') }];
+    const res = core.relabel('me', actor('shadowpaw-ab12', { x: 0.3, y: 0.4, seq: 7 }), 'anon-1a2b3c', peers);
+
+    // Position and seq carry over; only the public id changes.
+    expect(res.attach).toEqual({ slug: 'anon-1a2b3c', x: 0.3, y: 0.4, seq: 7 });
+    expect(res.close).toBeUndefined();
+    expect(rec.broadcasts.map((b) => [b.msg.type, b.except])).toEqual([
+      ['leave', 'me'],
+      ['join', 'me'],
+    ]);
+    expect((rec.broadcasts[0].msg as Extract<ServerMsg, { type: 'leave' }>).slug).toBe('shadowpaw-ab12');
+    expect((rec.broadcasts[1].msg as Extract<ServerMsg, { type: 'join' }>).actor.slug).toBe('anon-1a2b3c');
+    const welcome = rec.sent.find((s) => s.socket === 'me')!.msg as Extract<ServerMsg, { type: 'welcome' }>;
+    expect(welcome).toEqual({ type: 'welcome', district: DISTRICT, self: 'anon-1a2b3c', actors: [actor('mistcoil-99')] });
+    // Nothing that follows the swap carries the real slug.
+    expect(JSON.stringify([welcome, rec.broadcasts[1].msg])).not.toContain('shadowpaw');
+  });
+
+  it('relabel to the same slug is a no-op (no churn, nothing sent)', () => {
+    const rec = makePort();
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = core.relabel('me', actor('shadowpaw-ab12'), 'shadowpaw-ab12', []);
+    expect(res).toEqual({});
+    expect(rec.sent).toHaveLength(0);
+    expect(rec.broadcasts).toHaveLength(0);
+  });
+});
+
+// B6: one live socket per buddy. A second tab (or a reconnect that beats the
+// old socket's close) takes over; the old socket is retired without a `leave`.
+describe('room-core one socket per buddy (newest wins)', () => {
+  const HELLO = JSON.stringify({ type: 'hello', controlToken: 'good-control-token' });
+
+  it('a second hello for the same owner takes over the older socket', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'shadowpaw-ab12', district: DISTRICT, citizenId: 'cit-1' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const peers = [
+      { socket: 'oldTab', state: actor('shadowpaw-ab12', { x: 0.2, y: 0.3, seq: 9 }), citizenId: 'cit-1' },
+      { socket: 'peerA', state: actor('mistcoil-99'), citizenId: 'cit-2' },
+    ];
+    const res = await core.onMessage('newTab', null, HELLO, peers);
+
+    expect(res.attach).toEqual({ slug: 'shadowpaw-ab12', x: 0.5, y: 0.5, seq: 0 });
+    expect(res.takeover).toEqual(['oldTab']);
+    // The old tab is told why before the adapter closes it.
+    expect(rec.sent).toContainEqual({ socket: 'oldTab', msg: { type: 'error', error: 'taken over' } });
+    // The newcomer's roster never lists itself (the old socket's actor).
+    const welcome = rec.sent.find((s) => s.socket === 'newTab')!.msg as Extract<ServerMsg, { type: 'welcome' }>;
+    expect(welcome.actors.map((a) => a.slug)).toEqual(['mistcoil-99']);
+    // Peers hear no leave — the buddy never left — only the join at spawn.
+    expect(rec.broadcasts.map((b) => b.msg.type)).toEqual(['join']);
+    // The owner id stays server-side.
+    expect(JSON.stringify([...rec.sent, ...rec.broadcasts])).not.toContain('cit-');
+  });
+
+  it('matches by public slug when an older socket carries no owner id', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'anon-1a2b3c', district: DISTRICT, citizenId: 'cit-1' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('newTab', null, HELLO, [{ socket: 'oldTab', state: actor('anon-1a2b3c') }]);
+    expect(res.takeover).toEqual(['oldTab']);
+  });
+
+  it('a different buddy is never taken over', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'shadowpaw-ab12', district: DISTRICT, citizenId: 'cit-1' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, HELLO, [
+      { socket: 'peerA', state: actor('mistcoil-99'), citizenId: 'cit-2' },
+    ]);
+    expect(res.takeover).toBeUndefined();
+    expect(rec.sent.filter((s) => s.socket === 'peerA')).toHaveLength(0);
+  });
+
+  it('a failed hello never takes over anyone', async () => {
+    const rec = makePort({ verify: () => null });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, HELLO, [
+      { socket: 'oldTab', state: actor('shadowpaw-ab12'), citizenId: 'cit-1' },
+    ]);
+    expect(res.takeover).toBeUndefined();
+    expect(rec.sent.filter((s) => s.socket === 'oldTab')).toHaveLength(0);
   });
 });
