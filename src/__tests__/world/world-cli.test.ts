@@ -62,6 +62,78 @@ describe('worldCommand', () => {
     expect(loadWorldConfig(configPath)).toBeNull();
   });
 
+  it('teleport shows the privacy note inside the prompt, before asking and before any network call', async () => {
+    const events: string[] = [];
+    let prompt = '';
+    const realFetch = deps.fetchFn!;
+    deps.fetchFn = (url, init) => {
+      events.push('fetch');
+      return realFetch(url, init);
+    };
+    deps.confirm = async (p) => {
+      events.push('confirm');
+      prompt = p;
+      return true;
+    };
+    await worldCommand(['teleport'], deps);
+    expect(events[0]).toBe('confirm');
+    expect(events).toContain('fetch');
+    // The note is part of what the user sees when asked, ahead of the question.
+    expect(prompt).toMatch(/GAME STATE ONLY[\s\S]*recall --purge[\s\S]*Teleport your buddy into Buddy World\?$/);
+  });
+
+  it('teleport declined sends nothing to the server', async () => {
+    let fetched = false;
+    deps.fetchFn = async () => {
+      fetched = true;
+      throw new Error('should not be called');
+    };
+    deps.confirm = async () => false;
+    await worldCommand(['teleport'], deps);
+    expect(fetched).toBe(false);
+  });
+
+  it('non-interactive first teleport without --yes shows the note and does not teleport', async () => {
+    let fetched = false;
+    deps.fetchFn = async () => {
+      fetched = true;
+      throw new Error('should not be called');
+    };
+    deps.confirm = undefined; // no TTY: nobody to ask
+    const out = (await worldCommand(['teleport'], deps)).join('\n');
+    expect(out).toMatch(/GAME STATE ONLY/);
+    expect(out).toMatch(/buddy-world teleport --yes/);
+    expect(fetched).toBe(false);
+    expect(loadWorldConfig(configPath)).toBeNull();
+  });
+
+  it('non-interactive first teleport with --yes proceeds and still prints the note', async () => {
+    deps.confirm = undefined;
+    const out = (await worldCommand(['teleport', '--yes'], deps)).join('\n');
+    expect(out).toMatch(/GAME STATE ONLY/);
+    expect(out).toMatch(/teleported into Buddy World/);
+    expect(loadWorldConfig(configPath)?.slug).toMatch(/^shadowpaw-/);
+  });
+
+  it('--yes skips the prompt even when interactive', async () => {
+    let asked = false;
+    deps.confirm = async () => {
+      asked = true;
+      return false;
+    };
+    await worldCommand(['teleport', '--yes', '--avatar', 'chibi-2'], deps);
+    expect(asked).toBe(false);
+    expect(loadWorldConfig(configPath)?.avatar).toBe('chibi-2');
+  });
+
+  it('re-teleport of an already opted-in buddy needs neither a prompt nor --yes', async () => {
+    await worldCommand(['teleport'], deps);
+    deps.confirm = undefined;
+    const out = (await worldCommand(['teleport'], deps)).join('\n');
+    expect(out).toMatch(/teleported into Buddy World/);
+    expect(out).not.toMatch(/GAME STATE ONLY/);
+  });
+
   it('status reports not-teleported before opt-in and the url after', async () => {
     expect((await worldCommand(['status'], deps)).join('\n')).toMatch(/not in the world/i);
     await worldCommand(['teleport'], deps);

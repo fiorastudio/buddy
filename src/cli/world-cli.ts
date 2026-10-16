@@ -25,6 +25,12 @@ export interface WorldCliDeps {
   fetchFn?: FetchLike;
   configPath?: string;
   apiUrl?: string;
+  /**
+   * Show `prompt` to a person at a terminal and return their answer. The
+   * prompt includes everything they are consenting to, so it is displayed
+   * BEFORE they answer. Omit it when nobody is there to ask (non-TTY): the
+   * first teleport then requires an explicit --yes.
+   */
   confirm?: (prompt: string) => Promise<boolean>;
 }
 
@@ -32,6 +38,7 @@ const USAGE = [
   'Usage: buddy-world <command>',
   '',
   '  teleport [--avatar chibi-1..8]  teleport your buddy into Buddy World (lands in Prontera)',
+  '           [--yes]                first time only: agree to the privacy note without a prompt',
   '  warp <town>                     travel your buddy to another town',
   '  towns                           list the towns you can warp to',
   '  status                          show your buddy\'s world link',
@@ -71,11 +78,22 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
 
       const existing = loadWorldConfig(configPath);
       if (!existing) {
-        out.push(...PRIVACY_NOTE);
-        const confirm = deps.confirm ?? (async () => true);
-        if (!(await confirm('Teleport your buddy into Buddy World?'))) {
-          out.push('Teleport cancelled. Your buddy stays home.');
-          return out;
+        // First teleport makes the buddy public: consent must be affirmative
+        // and given AFTER the privacy note has been shown, never assumed.
+        if (rest.includes('--yes')) {
+          out.push(...PRIVACY_NOTE, '');
+        } else if (!deps.confirm) {
+          return [
+            ...PRIVACY_NOTE,
+            '',
+            'Teleporting makes your buddy publicly visible in Buddy World.',
+            'No one is here to confirm, so nothing was sent. To agree, re-run: buddy-world teleport --yes',
+          ];
+        } else {
+          // The note is part of the prompt itself, so it is on screen before
+          // the user answers (it used to be printed only after).
+          const prompt = [...PRIVACY_NOTE, '', 'Teleport your buddy into Buddy World?'].join('\n');
+          if (!(await deps.confirm(prompt))) return ['Teleport cancelled. Your buddy stays home.'];
         }
       }
 
@@ -185,12 +203,12 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
   }
 }
 
+// Privacy opt-in is affirmative: default No, only an explicit y/yes agrees.
 async function askYesNo(prompt: string): Promise<boolean> {
-  if (!process.stdin.isTTY) return true; // headless installs opt in explicitly by running the command
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await new Promise<string>((resolve) => rl.question(`${prompt} [Y/n] `, resolve));
+  const answer = await new Promise<string>((resolve) => rl.question(`${prompt} [y/N] `, resolve));
   rl.close();
-  return !/^n/i.test(answer.trim());
+  return /^y(es)?$/i.test(answer.trim());
 }
 
 async function main() {
@@ -202,7 +220,9 @@ async function main() {
       const row = db.prepare('SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get();
       return row ? loadCompanion(row) : null;
     },
-    confirm: askYesNo,
+    // Only ask when a person can both see the note and answer; otherwise
+    // worldCommand requires --yes for the first teleport.
+    confirm: process.stdin.isTTY && process.stdout.isTTY ? askYesNo : undefined,
   });
   console.log(out.join('\n'));
 }
