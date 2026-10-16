@@ -14,6 +14,15 @@
   "files": [
     "dist",
     "!dist/world/**",
+    "!dist/lib/world/antiabuse.js",
+    "!dist/lib/world/d1-store.js",
+    "!dist/lib/world/districts.js",
+    "!dist/lib/world/handlers.js",
+    "!dist/lib/world/identity.js",
+    "!dist/lib/world/portals.js",
+    "!dist/lib/world/room-core.js",
+    "!dist/lib/world/store.js",
+    "!dist/lib/world/validate.js",
     "README.md",
     "LICENSE"
   ],
