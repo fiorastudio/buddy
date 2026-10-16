@@ -54,19 +54,63 @@ function rowToCitizen(row: Record<string, unknown>): CitizenRow {
   };
 }
 
+// Every table and index WORLD_SCHEMA_SQL creates, by name.
+const SCHEMA_OBJECTS = [
+  ...new Set(
+    Array.from(WORLD_SCHEMA_SQL.matchAll(/CREATE\s+(?:TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+(\w+)/gi), (m) => m[1])
+  ),
+];
+
+// One schema check per D1 binding per isolate (B11). A Durable Object builds a
+// fresh store every time it wakes from hibernation, and the worker builds one
+// per isolate; running the full DDL each time cost about a dozen D1 round trips
+// per wake. Keyed by the binding so each test database gets its own check.
+const schemaChecks = new WeakMap<D1Like, Promise<void>>();
+
+export function ensureWorldSchema(db: D1Like): Promise<void> {
+  let check = schemaChecks.get(db);
+  if (!check) {
+    // Forget a failed check so the next caller retries instead of reusing the
+    // rejection for the life of the isolate.
+    check = applySchemaIfMissing(db).catch((err) => {
+      schemaChecks.delete(db);
+      throw err;
+    });
+    schemaChecks.set(db, check);
+  }
+  return check;
+}
+
+// In production `wrangler d1 migrations apply` has already created everything,
+// so a binding seen for the first time (a DO wake can hand over a new one)
+// costs one sqlite_master read. The DDL itself runs only on a database that is
+// missing something: a test or fresh local database, or one a newer schema
+// object has not reached yet. Every statement is IF NOT EXISTS.
+async function applySchemaIfMissing(db: D1Like): Promise<void> {
+  const present = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM sqlite_master WHERE type IN ('table', 'index') AND name IN (${SCHEMA_OBJECTS.map(() => '?').join(', ')})`
+    )
+    .bind(...SCHEMA_OBJECTS)
+    .first<{ n: number }>();
+  if (present?.n === SCHEMA_OBJECTS.length) return;
+  // Use prepare().run(), NOT exec(): D1's exec() splits input on newlines and
+  // treats each line as its own statement, so a multi-line CREATE TABLE fails
+  // with "incomplete input". prepare() runs the whole statement as one unit.
+  for (const stmt of WORLD_SCHEMA_SQL.split(';')) {
+    const sql = stmt.trim();
+    if (sql) await db.prepare(sql).bind().run();
+  }
+}
+
 export class D1WorldStore implements WorldStore {
   private constructor(private db: D1Like) {}
 
-  // D1 migrations normally apply the schema at deploy time; exec here makes
-  // the store self-sufficient for tests and fresh databases (IF NOT EXISTS).
+  // D1 migrations normally apply the schema at deploy time; ensureWorldSchema
+  // makes the store self-sufficient for tests and fresh databases, at the cost
+  // of one sqlite_master read the first time a binding is seen (B11).
   static async create(db: D1Like): Promise<D1WorldStore> {
-    // Use prepare().run(), NOT exec(): D1's exec() splits input on newlines and
-    // treats each line as its own statement, so a multi-line CREATE TABLE fails
-    // with "incomplete input". prepare() runs the whole statement as one unit.
-    for (const stmt of WORLD_SCHEMA_SQL.split(';')) {
-      const sql = stmt.trim();
-      if (sql) await db.prepare(sql).bind().run();
-    }
+    await ensureWorldSchema(db);
     return new D1WorldStore(db);
   }
 
