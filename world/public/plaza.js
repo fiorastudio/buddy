@@ -1903,37 +1903,35 @@
   }
 
   // ── plaza music (self-hosted, original, no third-party embed) ─────────
-  // ON BY DEFAULT: a hidden <audio> plays original royalty-free ambience
-  // (Suno-generated, world/public/music/) — no YouTube iframe, no visible
-  // player, no third party, nothing copyrighted. Browsers block audible
-  // autoplay until a user gesture, so we attempt to start immediately and,
-  // if blocked, kick off on the visitor's first interaction. The 🎵 button
-  // still toggles it off/on.
+  // OPT-IN: nothing plays, and no track is fetched, until the visitor presses
+  // the 🎵 button. A hidden <audio preload="none"> plays original royalty-free
+  // ambience (Suno-generated, world/public/music/): no YouTube iframe, no
+  // visible player, no third party, nothing copyrighted. The same button stops
+  // it again. A tap on the plaza or a key press never starts it.
   const musicToggle = document.getElementById('music-toggle');
   const musicAudio = document.getElementById('music-audio');
 
   // Per-town music: each town has its own Suno-generated theme in
-  // world/public/music/. Point the <audio> at the CURRENT town's track
-  // (derived from the district) before playing; fall back to plaza-theme.
+  // world/public/music/. index.html ships Prontera's (plaza-theme) <source>s;
+  // other towns swap in their own on the first press, so loading the page
+  // never fetches audio.
   const TOWN_TRACK = {
     Prontera: 'plaza-theme', Payon: 'payon', Geffen: 'geffen',
     Alberta: 'alberta', Morroc: 'morroc', Comodo: 'comodo',
   };
-  if (musicAudio) {
-    const track = TOWN_TRACK[TOWN.name] || 'plaza-theme';
-    // Prontera keeps the static <source>s already in index.html (plaza-theme);
-    // only rebuild + load() for other towns. Calling load() unconditionally
-    // kicks off a media fetch that stalls headless networkidle0 on the landing.
-    if (track !== 'plaza-theme') {
-      musicAudio.replaceChildren();
-      for (const [ext, type] of [['ogg', 'audio/ogg'], ['mp3', 'audio/mpeg']]) {
-        const s = document.createElement('source');
-        s.src = `music/${track}.${ext}`;
-        s.type = type;
-        musicAudio.appendChild(s);
-      }
-      musicAudio.load();
+  const musicTrack = TOWN_TRACK[TOWN.name] || 'plaza-theme';
+  let musicTrackReady = musicTrack === 'plaza-theme';
+  function useTownTrack() {
+    if (musicTrackReady) return;
+    musicTrackReady = true;
+    musicAudio.replaceChildren();
+    for (const [ext, type] of [['ogg', 'audio/ogg'], ['mp3', 'audio/mpeg']]) {
+      const s = document.createElement('source');
+      s.src = `music/${musicTrack}.${ext}`;
+      s.type = type;
+      musicAudio.appendChild(s);
     }
+    musicAudio.load(); // re-run source selection with the new <source>s
   }
 
   if (musicToggle && musicAudio) {
@@ -1947,33 +1945,14 @@
       musicToggle.setAttribute('aria-pressed', 'true');
       musicToggle.setAttribute('aria-label', 'Stop plaza music');
     };
-    const start = async () => {
-      try { await musicAudio.play(); setPlaying(); return true; }
-      catch { return false; }
-    };
     musicToggle.addEventListener('click', async () => {
       if (!musicAudio.paused) { musicAudio.pause(); setIdle(); return; }
-      await start();
+      useTownTrack();
+      try { await musicAudio.play(); setPlaying(); } catch { /* missing track or blocked: stay idle */ }
     });
     // Keep the button honest if playback stops for any reason.
     musicAudio.addEventListener('pause', setIdle);
     musicAudio.addEventListener('ended', setIdle);
-
-    // On by default: try to autoplay now; if the browser blocks it, start on
-    // the first user gesture (a one-shot listener that then removes itself).
-    (async () => {
-      if (await start()) return;
-      const kickstart = (e) => {
-        window.removeEventListener('pointerdown', kickstart);
-        window.removeEventListener('keydown', kickstart);
-        // If the first gesture was the music button itself, let its own click
-        // handler run (don't start-then-toggle-off on the same click).
-        if (e && e.target && e.target.closest && e.target.closest('#music-toggle')) return;
-        if (musicAudio.paused) start();
-      };
-      window.addEventListener('pointerdown', kickstart);
-      window.addEventListener('keydown', kickstart);
-    })();
   }
 
   boot();

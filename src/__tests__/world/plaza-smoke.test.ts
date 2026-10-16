@@ -637,45 +637,75 @@ describe('plaza smoke test (headless browser)', () => {
     }
   }, 60_000);
 
-  it('plays self-hosted plaza music on by default, with no iframe ever', async () => {
+  // Stub media playback (installed before plaza.js runs) so the music toggle is
+  // deterministic without decoding a track, and every play() attempt is counted.
+  const STUB_MEDIA = `(() => {
+    window.__playCalls = 0;
+    let playing = false;
+    Object.defineProperty(HTMLMediaElement.prototype, 'paused', { get() { return !playing; }, configurable: true });
+    HTMLMediaElement.prototype.play = function () { window.__playCalls++; playing = true; return Promise.resolve(); };
+    HTMLMediaElement.prototype.pause = function () { playing = false; this.dispatchEvent(new Event('pause')); };
+  })()`;
+  type Box = { left: number; right: number; top: number; bottom: number };
+  const HUD_BOXES = `['#music-toggle', '#sfx-toggle', '#cta'].map((s) => {
+    const r = document.querySelector(s).getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+  })`;
+  const overlaps = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+  it('keeps self-hosted plaza music off until the music button is pressed, with no iframe ever (C9)', async () => {
     const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    await page.evaluateOnNewDocument(STUB_MEDIA);
+    const musicFetches: string[] = [];
+    page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/music/')) musicFetches.push(r.url()); });
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
     await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length > 0');
 
-    // A labelled toggle + a hidden self-hosted <audio> (on by default), and
-    // NO iframe / third-party request of any kind — that's the whole point.
+    // A labelled toggle + a hidden self-hosted <audio>, and NO iframe /
+    // third-party request of any kind — that's the whole point.
     const before = (await page.evaluate(`(() => ({
       hasButton: !!document.querySelector('#music-toggle'),
       label: document.querySelector('#music-toggle')?.getAttribute('aria-label') || '',
+      pressed: document.querySelector('#music-toggle')?.getAttribute('aria-pressed'),
       iframes: document.querySelectorAll('iframe').length,
       hasAudio: !!document.querySelector('#music-audio'),
       src: document.querySelector('#music-audio source')?.getAttribute('src') || '',
+      playCalls: window.__playCalls,
     }))()`)) as {
-      hasButton: boolean; label: string; iframes: number;
-      hasAudio: boolean; src: string;
+      hasButton: boolean; label: string; pressed: string; iframes: number;
+      hasAudio: boolean; src: string; playCalls: number;
     };
     expect(before.hasButton).toBe(true);
     expect(before.label.toLowerCase()).toContain('music');
+    expect(before.pressed).toBe('false');
     expect(before.iframes).toBe(0);
     expect(before.hasAudio).toBe(true);
     expect(before.src).toContain('music/plaza-theme'); // self-hosted, not YouTube
+    expect(before.playCalls).toBe(0); // no autoplay attempt
 
-    // Stub playback so the toggle is deterministic without shipping an asset.
-    await page.evaluate(`(() => {
-      const a = document.querySelector('#music-audio');
-      let playing = false;
-      Object.defineProperty(a, 'paused', { get: () => !playing, configurable: true });
-      a.play = () => { playing = true; return Promise.resolve(); };
-      a.pause = () => { playing = false; a.dispatchEvent(new Event('pause')); };
-    })()`);
+    // Tapping the plaza or pressing a key is not a request for music.
+    await page.mouse.click(600, 500);
+    await page.keyboard.press('ArrowLeft');
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await page.evaluate('window.__playCalls')).toBe(0);
+    expect(await page.evaluate(`document.querySelector('#music-toggle').getAttribute('aria-pressed')`)).toBe('false');
+    expect(musicFetches).toEqual([]); // and nothing was fetched for it
 
     await page.click('#music-toggle');
     const on = (await page.evaluate(`(() => ({
       pressed: document.querySelector('#music-toggle').getAttribute('aria-pressed'),
       iframes: document.querySelectorAll('iframe').length,
-    }))()`)) as { pressed: string; iframes: number };
+      playCalls: window.__playCalls,
+    }))()`)) as { pressed: string; iframes: number; playCalls: number };
     expect(on.pressed).toBe('true'); // now playing
+    expect(on.playCalls).toBe(1);
     expect(on.iframes).toBe(0);      // still no third-party embed, ever
+
+    // The longer "stop music" label must not slide under the sfx toggle.
+    const boxes = (await page.evaluate(HUD_BOXES)) as Box[];
+    expect(overlaps(boxes[0], boxes[1])).toBe(false);
+    expect(overlaps(boxes[1], boxes[2])).toBe(false);
 
     await page.click('#music-toggle');
     const off = (await page.evaluate(`(() => ({
@@ -684,6 +714,30 @@ describe('plaza smoke test (headless browser)', () => {
     }))()`)) as { pressed: string; iframes: number };
     expect(off.pressed).toBe('false'); // stopped
     expect(off.iframes).toBe(0);
+    await page.close();
+  }, 60_000);
+
+  it("fetches another town's track only once its music is turned on, and keeps the HUD clear on a phone (C9)", async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 360, height: 640 });
+    await page.evaluateOnNewDocument(STUB_MEDIA);
+    const musicFetches: string[] = [];
+    page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/music/')) musicFetches.push(r.url()); });
+    // networkidle0 settles: opening Payon no longer starts a media fetch.
+    await page.goto(`${baseUrl}/?district=plaza-2`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.worldLoaded');
+    expect(musicFetches).toEqual([]);
+
+    await page.click('#music-toggle');
+    expect(await page.evaluate(`document.querySelector('#music-toggle').getAttribute('aria-pressed')`)).toBe('true');
+    expect(await page.evaluate(`document.querySelector('#music-audio source').getAttribute('src')`)).toBe('music/payon.ogg');
+
+    const boxes = (await page.evaluate(HUD_BOXES)) as Box[];
+    expect(overlaps(boxes[0], boxes[1])).toBe(false);
+    expect(overlaps(boxes[0], boxes[2])).toBe(false);
+    expect(overlaps(boxes[1], boxes[2])).toBe(false);
+    for (const b of boxes) expect(b.right).toBeLessThanOrEqual(360); // nothing pushed off-screen
+    await page.close();
   }, 60_000);
 
   it('renders every sprite with WCAG AA contrast against the plaza tiles', async () => {

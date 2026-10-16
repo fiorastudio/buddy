@@ -397,7 +397,7 @@ buddy-world recall --purge  # leave and delete everything server-side
   warping is a place you walk into, not a button.
 - **Country flags** on teleport (coarse country-level only — no city or IP; hidden
   in anonymous mode).
-- **Per-town original music**, and RO-style celebrations: a **golden pillar** for a
+- **Per-town original music** (opt-in, behind the 🎵 button), and RO-style celebrations: a **golden pillar** for a
   level-up, **fireworks** for a deploy, all mirrored in the global broadcast banner.
 - **Durable metrics** — every celebration is logged to D1 (`world_events`) with a
   nightly rollup into `daily_rollups`.
