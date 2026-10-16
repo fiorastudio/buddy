@@ -14,9 +14,13 @@ import type { D1Like } from '../../lib/world/d1-store.js';
 import type { CfWebSocket, DurableObjectStateLike } from '../../world/runtime.js';
 
 // Every query resolves only after a macrotask, like a real D1 round-trip — the
-// window in which another socket event can run. `queries` counts round-trips.
-function yieldingD1(inner: D1Like, queries: { n: number } = { n: 0 }): D1Like {
-  const tick = () => new Promise((r) => setTimeout(r, 0));
+// window in which another socket event can run. `queries` counts round-trips;
+// `queries.fail` makes every query reject, like a D1 outage.
+function yieldingD1(inner: D1Like, queries: { n: number; fail?: boolean } = { n: 0 }): D1Like {
+  const tick = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    if (queries.fail) throw new Error('D1 unavailable');
+  };
   return {
     async exec(sql) {
       await tick();
@@ -83,7 +87,7 @@ function setup() {
   const http = createWorldFetchHandler({ db: sqliteAsD1(db), baseUrl: 'https://w.example', ratePerMinute: 1000 });
   const sockets: FakeWs[] = [];
   const alarm = { at: null as number | null };
-  const queries = { n: 0 };
+  const queries = { n: 0, fail: false };
   const state: DurableObjectStateLike = {
     acceptWebSocket: (ws) => void sockets.push(ws as FakeWs),
     getWebSockets: () => sockets.filter((s) => !s.closedWith),
@@ -333,5 +337,49 @@ describe('WorldRoom adapter limits (B7)', () => {
     expect(ws.closedWith?.code).toBe(1008);
     expect(ws.of('error')).toEqual([{ type: 'error', error: 'invalid control token' }]);
     expect(t.queries.n - before).toBe(1);
+  });
+});
+
+describe('WorldRoom adapter error boundary (B17)', () => {
+  let t: ReturnType<typeof setup>;
+  beforeEach(() => {
+    t = setup();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('a hello that hits a D1 failure resolves, tells the client, and closes 1011 (retryable)', async () => {
+    const ct = await t.controlToken('tok-d1down-00001', 'Shadowpaw');
+    t.queries.fail = true;
+    const ws = t.connect();
+    await expect(t.room.webSocketMessage(ws, frame({ type: 'hello', controlToken: ct }))).resolves.toBeUndefined();
+    expect(ws.of('error')).toEqual([{ type: 'error', error: 'internal error' }]);
+    expect(ws.closedWith).toEqual({ code: 1011, reason: 'internal error' });
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  it('a joined socket survives a frame that fails (portal_enter during a D1 outage)', async () => {
+    const ct = await t.controlToken('tok-d1down-00002', 'Shadowpaw');
+    const ws = await t.joined(ct);
+    t.queries.fail = true;
+    await expect(
+      t.room.webSocketMessage(ws, frame({ type: 'portal_enter', seq: 1, to: 'plaza-2', controlToken: ct }))
+    ).resolves.toBeUndefined();
+    expect(ws.of('error')).toEqual([{ type: 'error', error: 'internal error' }]);
+    expect(ws.closedWith).toBeNull();
+    // Still served afterwards.
+    await t.room.webSocketMessage(ws, frame({ type: 'ping' }));
+    expect(ws.of('pong')).toHaveLength(1);
+  });
+
+  it('a send to a socket that closed mid-frame does not fail the frame', async () => {
+    const ct = await t.controlToken('tok-racer-000003', 'Shadowpaw');
+    const ws = t.connect();
+    const hello = t.room.webSocketMessage(ws, frame({ type: 'hello', controlToken: ct }));
+    ws.close(1001, 'tab closed'); // the close event hasn't reached the room yet
+    await expect(hello).resolves.toBeUndefined();
+    expect(console.error).not.toHaveBeenCalled(); // not an error, just a race
   });
 });

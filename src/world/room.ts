@@ -158,7 +158,7 @@ export class WorldRoom {
   private port(): RoomPort<CfWebSocket> {
     return {
       now: () => Date.now(),
-      send: (ws, msg) => ws.send(JSON.stringify(msg)),
+      send: (ws, msg) => this.trySend(ws, msg),
       broadcast: (msg, except) => this.broadcastToAuthed(msg, except),
       verify: (token) => this.verify(token),
       warp: (token, to) => this.warp(token, to),
@@ -176,8 +176,31 @@ export class WorldRoom {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      this.flushSnapshot();
+      try {
+        this.flushSnapshot();
+      } catch (err) {
+        // A timer callback has no caller to catch for it; never let one throw.
+        console.error('buddy-world room snapshot failed:', err);
+      }
     }, SNAPSHOT_FLUSH_MS);
+  }
+
+  // Best-effort send (B17): a socket can close between the decision and the
+  // send. That is not this frame's failure; the close handler deals with it.
+  private trySend(ws: CfWebSocket, msg: ServerMsg): void {
+    try {
+      ws.send(JSON.stringify(msg));
+    } catch {
+      // racing close
+    }
+  }
+
+  private tryClose(ws: CfWebSocket, code: number, reason: string): void {
+    try {
+      ws.close(code, reason);
+    } catch {
+      // already closing
+    }
   }
 
   // Emit a dirty-only snapshot of everyone currently present, rebuilt from
@@ -254,7 +277,7 @@ export class WorldRoom {
       }
     }
     if (res.flush) this.scheduleFlush();
-    if (res.close) ws.close(res.close.code, res.close.reason);
+    if (res.close) this.tryClose(ws, res.close.code, res.close.reason);
   }
 
   // A recall/purge/anon change landed over HTTP: apply it to this citizen's
@@ -303,7 +326,13 @@ export class WorldRoom {
     this.state.acceptWebSocket(server);
     const connectedAt = Date.now();
     this.setAttachment(server, { district, actor: null, connectedAt });
-    await this.armAuthDeadline(connectedAt + AUTH_DEADLINE_MS);
+    try {
+      await this.armAuthDeadline(connectedAt + AUTH_DEADLINE_MS);
+    } catch (err) {
+      // Storage hiccup: the socket is already accepted, so hand it over; the
+      // next upgrade (or a later alarm) arms the deadline.
+      console.error('buddy-world room alarm arm failed:', err);
+    }
 
     return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
   }
@@ -396,9 +425,25 @@ export class WorldRoom {
     const att = this.attachmentOf(ws) ?? { district: '', actor: null };
     // Left the room (or closed) while this frame was queued: it is moot.
     if (att.left || this.closed.has(ws)) return;
-    const core = new RoomCore<CfWebSocket>(att.district, this.port());
-    const res = await core.onMessage(ws, att.actor, raw, this.peersExcept(ws));
-    this.apply(ws, res);
+    try {
+      const core = new RoomCore<CfWebSocket>(att.district, this.port());
+      const res = await core.onMessage(ws, att.actor, raw, this.peersExcept(ws));
+      this.apply(ws, res);
+    } catch (err) {
+      // B17 error boundary: an unexpected failure (D1 down, a bug) must not
+      // escape the DO's event handler. Log it and tell the client. A socket
+      // that hadn't joined can't proceed (its hello failed for a SERVER
+      // reason), so close it 1011: the plaza retries those with backoff,
+      // unlike 1008. A joined socket stays — only this one frame failed.
+      console.error('buddy-world room frame failed:', err);
+      const now = this.attachmentOf(ws);
+      if (!now || now.left || this.closed.has(ws)) return;
+      this.trySend(ws, { type: 'error', error: 'internal error' });
+      if (!now.actor) {
+        this.setAttachment(ws, { district: now.district, actor: null, left: true });
+        this.tryClose(ws, 1011, 'internal error');
+      }
+    }
   }
 
   async webSocketClose(ws: CfWebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
