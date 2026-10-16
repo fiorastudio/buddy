@@ -463,6 +463,99 @@ describe('plaza smoke test (headless browser)', () => {
     await page.close();
   }, 60_000);
 
+  // C10: flip the page's visibility the way a browser does when the tab is
+  // backgrounded or shown again.
+  const setTabHidden = (hidden: boolean) => `(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => ${hidden} });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => '${hidden ? 'hidden' : 'visible'}' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  })()`;
+
+  it('pauses polling while the tab is hidden and refreshes as soon as it is shown (C10)', async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.worldLoaded');
+    const active = async () => ((await page.evaluate('window.__PLAZA__.pollingActive()')) as string[]).sort();
+    expect(await active()).toEqual(['announcements', 'world']);
+
+    await page.evaluate(setTabHidden(true));
+    expect(await active()).toEqual([]);
+
+    const fetched: string[] = [];
+    page.on('request', (r) => fetched.push(new URL(r.url()).pathname));
+    await page.evaluate(setTabHidden(false));
+    await page.waitForFunction('window.__PLAZA__.pollingActive().length === 2');
+    await new Promise((r) => setTimeout(r, 500));
+    // Shown again: both feeds refresh at once, without waiting out the 10s interval.
+    expect(fetched).toEqual(expect.arrayContaining(['/v1/announcements', '/v1/world/plaza-1']));
+    expect(await active()).toEqual(['announcements', 'world']);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it('backs off with jitter, resets only after a stable connection, and waits for a hidden tab (C10)', async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.evaluateOnNewDocument(FAKE_ROOM_SOCKET);
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== '/v1/me') { void req.continue(); return; }
+      void req.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'buddy-0', district: 'plaza-1' }),
+      });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__WS__.length === 1');
+    await page.evaluate('window.__PLAZA__.rtSetStableMsForTest(400)');
+    type Status = { backoff: number; lastDelay: number | null; waitingForVisible: boolean };
+    const status = async () => (await page.evaluate('window.__PLAZA__.rtStatus()')) as Status;
+    const welcome = `{ type: 'welcome', district: 'plaza-1', self: 'buddy-0', actors: [] }`;
+
+    // Accepted, then dropped at once: the retry waits 0.5-1s and the backoff doubles.
+    await page.evaluate(`window.__WS__[0]._open(); window.__WS__[0]._recv(${welcome})`);
+    expect((await status()).backoff).toBe(1000);
+    await page.evaluate('window.__WS__[0].close(1006)');
+    let s = await status();
+    expect(s.lastDelay).toBeGreaterThanOrEqual(500);
+    expect(s.lastDelay).toBeLessThanOrEqual(1000);
+    expect(s.backoff).toBe(2000);
+
+    // A connection that opens and drops before it's been stable does NOT reset
+    // the backoff (the old code reset it on every open: a 1s retry loop).
+    await page.waitForFunction('window.__WS__.length === 2', { timeout: 3_000 });
+    await page.evaluate(`window.__WS__[1]._open(); window.__WS__[1]._recv(${welcome})`);
+    await page.evaluate('window.__WS__[1].close(1006)');
+    s = await status();
+    expect(s.lastDelay).toBeGreaterThanOrEqual(1000);
+    expect(s.lastDelay).toBeLessThanOrEqual(2000);
+    expect(s.backoff).toBe(4000);
+
+    // One that stays up past the stable window resets it.
+    await page.waitForFunction('window.__WS__.length === 3', { timeout: 4_000 });
+    await page.evaluate(`window.__WS__[2]._open(); window.__WS__[2]._recv(${welcome})`);
+    await new Promise((r) => setTimeout(r, 700));
+    expect((await status()).backoff).toBe(1000);
+
+    // Dropped while the tab is hidden: no reconnect until it's shown again.
+    await page.evaluate(setTabHidden(true));
+    await page.evaluate('window.__WS__[2].close(1006)');
+    expect((await status()).lastDelay).toBeLessThanOrEqual(1000);
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(await page.evaluate('window.__WS__.length')).toBe(3);
+    expect((await status()).waitingForVisible).toBe(true);
+    await page.evaluate(setTabHidden(false));
+    expect(await page.evaluate('window.__WS__.length')).toBe(4); // reconnects right away
+    expect((await status()).waitingForVisible).toBe(false);
+
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('click-to-pet spawns a heart emote on a buddy (RO /heart)', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });

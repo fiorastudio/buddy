@@ -1136,7 +1136,19 @@
     const LS_KEY = 'buddyControlToken';
     let socket = null;
     let seq = 0;
-    let backoff = 1000;
+    // Reconnect pacing. The delay doubles per failed attempt (capped), with
+    // jitter so every tab dropped by the same room restart doesn't come back in
+    // the same instant. It only resets once a connection has stayed up for
+    // STABLE_MS: a room that accepts and then drops us right away keeps backing
+    // off instead of being retried every second forever.
+    const MIN_BACKOFF_MS = 1000;
+    const MAX_BACKOFF_MS = 30_000;
+    let stableMs = 10_000;
+    let backoff = MIN_BACKOFF_MS;
+    let lastDelay = null; // test hook: the jittered wait before the last retry
+    let stableTimer = null;
+    let reconnectTimer = null;
+    let waitingForVisible = null; // the token to reconnect with once the tab is shown again
     let stopped = false; // a fatal auth close (1008) parks reconnection
     let currentToken = null; // the control token this socket authenticated with
     // True once the room has welcomed this socket. Intents only go out after
@@ -1273,7 +1285,8 @@
       socket = ws;
       joined = false;
       ws.addEventListener('open', () => {
-        backoff = 1000;
+        clearTimeout(stableTimer);
+        stableTimer = setTimeout(() => { backoff = MIN_BACKOFF_MS; }, stableMs);
         ws.send(JSON.stringify({ type: 'hello', controlToken: token, slug: state.meSlug || undefined, lastSeq: seq }));
       });
       ws.addEventListener('message', (ev) => {
@@ -1281,6 +1294,7 @@
         handleServerMsg(msg);
       });
       ws.addEventListener('close', (ev) => {
+        clearTimeout(stableTimer); // dropped before it proved stable: keep backing off
         socket = null;
         joined = false;
         // 1008 = policy/auth violation (bad/expired token, wrong room): the
@@ -1292,9 +1306,26 @@
     }
     function scheduleReconnect(token) {
       if (stopped) return;
-      setTimeout(() => connect(token), backoff);
-      backoff = Math.min(backoff * 2, 30_000); // capped exponential backoff
+      clearTimeout(reconnectTimer);
+      // "Equal jitter": somewhere between half and all of the current backoff.
+      const delay = Math.round(backoff / 2 + Math.random() * (backoff / 2));
+      lastDelay = delay;
+      backoff = Math.min(backoff * 2, MAX_BACKOFF_MS); // capped exponential backoff
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        // A hidden tab waits: it reconnects when it's shown again.
+        if (document.hidden) { waitingForVisible = token; return; }
+        connect(token);
+      }, delay);
     }
+    // Called when the tab becomes visible: pick up a reconnect deferred while hidden.
+    function resumeIfDeferred() {
+      if (!waitingForVisible || stopped || socket) return;
+      const token = waitingForVisible;
+      waitingForVisible = null;
+      connect(token);
+    }
+    function setStableMsForTest(ms) { stableMs = ms; }
 
     // Emit an owner move intent. seq is monotonic so the room drops stale/out-of
     // -order frames. Fire-and-forget: if the socket is down, the local sprite
@@ -1324,10 +1355,13 @@
     }
 
     function status() { // test hook
-      return { joined, connected: !!socket && socket.readyState === 1, pendingPortal: pendingPortal ? pendingPortal.id : null };
+      return {
+        joined, connected: !!socket && socket.readyState === 1, pendingPortal: pendingPortal ? pendingPortal.id : null,
+        backoff, lastDelay, waitingForVisible: !!waitingForVisible,
+      };
     }
 
-    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo, sendPortalEnter, status };
+    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo, sendPortalEnter, status, resumeIfDeferred, setStableMsForTest };
   })();
 
   // The sprite I control, if any (keyed by the plaza's public slug).
@@ -1400,6 +1434,7 @@
     return state.lastPortalEnter || null;
   };
   state.rtStatus = RT.status;
+  state.rtSetStableMsForTest = RT.setStableMsForTest;
 
   // ── room feedback toast (e.g. a failed warp) ──────────────────────────
   // textContent only: the reason string comes off the wire.
@@ -1849,6 +1884,28 @@
     try { await step(); } catch (err) { reportOnce(where, err); }
   }
 
+  // The 10s polls only run while the tab is visible: a background tab has no
+  // one watching it, and a few of them left open shouldn't keep hitting the
+  // API. Showing the tab again refreshes at once, then resumes the interval.
+  const POLL_MS = 10_000;
+  const pollers = [];
+  function startPolling(where, step) {
+    const p = { where, step, timer: null };
+    pollers.push(p);
+    if (!document.hidden) p.timer = setInterval(() => guarded(where, step), POLL_MS);
+  }
+  document.addEventListener('visibilitychange', () => {
+    for (const p of pollers) {
+      clearInterval(p.timer);
+      p.timer = null;
+      if (document.hidden) continue;
+      guarded(p.where, p.step);
+      p.timer = setInterval(() => guarded(p.where, p.step), POLL_MS);
+    }
+    if (!document.hidden) RT.resumeIfDeferred(); // a reconnect that waited for the tab to be shown
+  });
+  state.pollingActive = () => pollers.filter((p) => p.timer !== null).map((p) => p.where); // test hook
+
   async function boot() {
     // Paint first: the render loop never waits on the network, so a slow or
     // failing feed degrades one layer of the plaza instead of blanking it.
@@ -1858,7 +1915,7 @@
     // awaited by anything else, so a bad /v1/announcements can't hold up the
     // citizens (and a world fetch failing never stalls the banner).
     guarded('announcements', refreshAnnouncements);
-    setInterval(() => guarded('announcements', refreshAnnouncements), 10_000);
+    startPolling('announcements', refreshAnnouncements);
 
     // Static assets in parallel; each degrades on its own. They land before the
     // first world fetch on purpose: sprite metrics are cached per species on
@@ -1871,7 +1928,7 @@
     state.jobLines = jobs.status === 'fulfilled' && jobs.value && typeof jobs.value === 'object' ? jobs.value : null;
 
     await guarded('world', refresh);
-    setInterval(() => guarded('world', refresh), 10_000);
+    startPolling('world', refresh);
 
     // Real-time control bootstrap (M3). Best-effort and fully optional: any
     // failure just leaves you as a spectator on the /v1/world poll.
