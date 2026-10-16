@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import puppeteer, { type Browser } from 'puppeteer';
 import { totalXpForLevel } from '../../lib/leveling.js';
 
@@ -145,7 +146,8 @@ describe('plaza smoke test (headless browser)', () => {
     expect(errors).toEqual([]);
 
     await page.screenshot({
-      path: `${process.env.SCRATCHPAD_DIR ?? '/tmp'}/plaza_smoke.png` as `${string}.png`,
+      // os.tmpdir(), not '/tmp': on Windows '/tmp' resolves to C:\tmp.
+      path: join(process.env.SCRATCHPAD_DIR ?? tmpdir(), 'plaza_smoke.png') as `${string}.png`,
     });
   }, 60_000);
 
