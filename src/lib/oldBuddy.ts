@@ -243,6 +243,21 @@ function ccMulberry32(seed: number): () => number {
 // Cache Bun availability so we only check once per process
 let bunAvailable: boolean | undefined;
 
+// Bun.hash results by input. loadCompanion() re-rolls a rescued buddy's bones
+// on every observe/pet/status, and each roll used to spawn a `bun` process
+// (tens to hundreds of ms on the award path) for an answer that never changes
+// (X13). Only Bun results are cached: FNV-1a is computed in-process and is
+// cheap, and not caching it lets a transient Bun failure recover on the next
+// call instead of pinning the fallback stats for the life of the server.
+const bunHashCache = new Map<string, number>();
+const BUN_HASH_CACHE_MAX = 64;
+
+/** Test hook: forget cached Bun availability and hashes. */
+export function _resetCcHashCacheForTests(): void {
+  bunAvailable = undefined;
+  bunHashCache.clear();
+}
+
 /**
  * Hash matching Claude Code's runtime behavior:
  * - CC runs on Bun → uses Bun.hash() (wyhash), truncated to 32 bits
@@ -261,6 +276,8 @@ function ccHashString(s: string): { hash: number; engine: 'bun' | 'fnv1a' } {
   }
 
   if (bunAvailable) {
+    const cached = bunHashCache.get(s);
+    if (cached !== undefined) return { hash: cached, engine: 'bun' };
     try {
       // Input goes through the environment, not argv and not string
       // interpolation: `bun -e <script> <arg>` does NOT forward trailing
@@ -279,7 +296,13 @@ function ccHashString(s: string): { hash: number; engine: 'bun' | 'fnv1a' } {
         env: { ...process.env, BUDDY_CC_HASH_INPUT: s },
       });
       const hash = parseInt((result.stdout || '').trim(), 10);
-      if (!isNaN(hash)) return { hash, engine: 'bun' };
+      if (!isNaN(hash)) {
+        // A server only ever sees a handful of userIds; the cap just keeps a
+        // pathological caller from growing the map without bound.
+        if (bunHashCache.size >= BUN_HASH_CACHE_MAX) bunHashCache.clear();
+        bunHashCache.set(s, hash);
+        return { hash, engine: 'bun' };
+      }
     } catch { /* fall through */ }
   }
 

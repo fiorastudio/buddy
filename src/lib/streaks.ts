@@ -31,20 +31,32 @@ interface DbLike {
 }
 
 /**
+ * "created_at is today (UTC)" as a range, so it can use the
+ * (companion_id, created_at) index (X13). `date(created_at) = date('now')`
+ * wraps the column in a function and forces a scan of every row. created_at
+ * is SQLite's CURRENT_TIMESTAMP text ('YYYY-MM-DD HH:MM:SS', UTC), which
+ * sorts as a string, so the two forms select the same rows.
+ */
+export const CREATED_TODAY_UTC = "created_at >= date('now') AND created_at < date('now', '+1 day')";
+
+/**
  * True when the events just awarded are the first of a new UTC day AND the
  * resulting streak lands on a 7-day milestone. Owns both queries so the
  * server chokepoint stays a one-line call.
  */
 export function checkStreakMilestone(db: DbLike, companionId: string, eventsJustAwarded: number): boolean {
   const todayRow = db
-    .prepare("SELECT COUNT(*) AS n FROM xp_events WHERE companion_id = ? AND date(created_at) = date('now')")
+    .prepare(`SELECT COUNT(*) AS n FROM xp_events WHERE companion_id = ? AND ${CREATED_TODAY_UTC}`)
     .get(companionId) as { n?: number } | undefined;
   if ((todayRow?.n ?? 0) > eventsJustAwarded) return false; // not the first award of the day
 
+  // No lookback window: a streak can be arbitrarily long. The old 400-day cap
+  // truncated every streak at ~400 days (the window edge), so from day ~400
+  // on the count was pinned at 400/401 and the milestone never fired again.
+  // This query runs at most once per companion per UTC day (the early return
+  // above), so scanning the companion's full history is cheap enough.
   const dayRows = db
-    .prepare(
-      "SELECT DISTINCT date(created_at) AS d FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-400 days')"
-    )
+    .prepare("SELECT DISTINCT date(created_at) AS d FROM xp_events WHERE companion_id = ?")
     .all(companionId) as Array<{ d: string }>;
   const streak = currentStreakFromDays(
     dayRows.map((r) => r.d),
