@@ -11,6 +11,10 @@ export default defineConfig({
     env: {
       // Tests use an isolated DB so they never touch ~/.buddy/buddy.db
       BUDDY_DB_PATH: join(tmpdir(), 'buddy-test.db'),
+      // ...and an isolated Claude config dir, so BUDDY_STATUS_PATH (which
+      // honors CLAUDE_CONFIG_DIR) never resolves to the developer's real
+      // ~/.claude/buddy-status.json. mute-persistence.test.ts deletes it.
+      CLAUDE_CONFIG_DIR: join(tmpdir(), 'buddy-test-claude'),
     },
     // Several test files share the single BUDDY_DB_PATH file (doctor,
     // respawn-cleanup, mode-orthogonality, companion, self-healing). Vitest's
