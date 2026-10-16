@@ -17,10 +17,14 @@
 // time and CREATE INDEX IF NOT EXISTS is a no-op — neither takes the write lock.
 
 import type Database from 'better-sqlite3';
+import { addColumnIfMissing } from './add-column.js';
 
 export function initXpEventsSchema(conn: Database.Database): void {
-  try { conn.exec(`ALTER TABLE xp_events ADD COLUMN source TEXT`); } catch { /* exists */ }
-  try { conn.exec(`ALTER TABLE xp_events ADD COLUMN dedupe_of TEXT`); } catch { /* exists */ }
+  // Only "duplicate column name" is ignored; SQLITE_BUSY, a read-only or
+  // corrupt file etc. propagate out of initDb() instead of leaving the award
+  // INSERT to fail later on a missing column (X11).
+  addColumnIfMissing(conn, 'xp_events', 'source TEXT');
+  addColumnIfMissing(conn, 'xp_events', 'dedupe_of TEXT');
   conn.exec(`
     CREATE INDEX IF NOT EXISTS idx_xp_events_dedupe_of
       ON xp_events(dedupe_of) WHERE dedupe_of IS NOT NULL;

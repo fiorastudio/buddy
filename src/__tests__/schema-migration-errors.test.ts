@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addColumnIfMissing, initDb, isDuplicateColumnError } from '../db/schema.js';
+import { initXpEventsSchema } from '../db/xp-events-schema.js';
 
 /**
  * X11: every ADD COLUMN migration was wrapped in a bare `catch {}`, so
@@ -117,5 +118,56 @@ describe('initDb surfaces migration failures (X11)', () => {
     expect(columns(conn, 'companions')).toEqual(expect.arrayContaining([
       'observer_mode', 'cc_rescue', 'muted', 'stat_debugging', 'stat_points_available', 'zeny',
     ]));
+  });
+});
+
+describe('xp_events provenance columns (X11 follow-up to X3)', () => {
+  const legacyXpEvents = `
+    CREATE TABLE xp_events (
+      id TEXT PRIMARY KEY, companion_id TEXT, event_type TEXT NOT NULL,
+      xp_gained INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  it('adds source and dedupe_of, and is idempotent', () => {
+    const { conn } = tempDb();
+    conn.exec(legacyXpEvents);
+    initXpEventsSchema(conn);
+    initXpEventsSchema(conn);
+    expect(columns(conn, 'xp_events')).toEqual(expect.arrayContaining(['source', 'dedupe_of']));
+  });
+
+  it('rethrows SQLITE_BUSY instead of leaving the award INSERT to fail later', () => {
+    const { file, conn } = tempDb();
+    conn.exec(legacyXpEvents);
+    const other = new Database(file);
+    open.push(other);
+    other.exec('BEGIN IMMEDIATE');
+    conn.pragma('busy_timeout = 0');
+    try {
+      let caught: unknown;
+      try { initXpEventsSchema(conn); } catch (err) { caught = err; }
+      expect((caught as { code?: string } | undefined)?.code).toBe('SQLITE_BUSY');
+    } finally {
+      other.exec('ROLLBACK');
+    }
+    expect(columns(conn, 'xp_events')).not.toContain('source');
+  });
+
+  it('rethrows a read-only failure', () => {
+    const { file, conn } = tempDb();
+    conn.exec(legacyXpEvents);
+    const ro = new Database(file, { readonly: true });
+    open.push(ro);
+    expect(() => initXpEventsSchema(ro)).toThrow(/readonly/i);
+  });
+
+  it('initDb(conn) migrates the connection it was given, not the shared one', () => {
+    const { conn } = tempDb();
+    conn.exec(legacyXpEvents);
+    initDb(conn);
+    expect(columns(conn, 'xp_events')).toEqual(expect.arrayContaining(['source', 'dedupe_of']));
+    const indexes = (conn.prepare('PRAGMA index_list(xp_events)').all() as Array<{ name: string }>).map((i) => i.name);
+    expect(indexes).toContain('idx_xp_events_dedupe_of');
   });
 });

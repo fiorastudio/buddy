@@ -4,6 +4,10 @@ import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { initReasoningSchema } from '../lib/reasoning/schema.js';
 import { initXpEventsSchema } from './xp-events-schema.js';
+import { addColumnIfMissing } from './add-column.js';
+
+// Re-exported so existing callers and tests keep importing it from here.
+export { addColumnIfMissing, isDuplicateColumnError } from './add-column.js';
 
 // BUDDY_DB_PATH env var allows tests to use an isolated DB
 // instead of the production ~/.buddy/buddy.db
@@ -89,7 +93,7 @@ export function initDb(conn: Database.Database = db) {
   `);
 
   // xp_events provenance columns (source, dedupe_of).
-  initXpEventsSchema(db);
+  initXpEventsSchema(conn);
 
   // Migration: add observer_mode column (safe for existing DBs)
   addColumnIfMissing(conn, 'companions', `observer_mode TEXT DEFAULT 'both'`);
@@ -116,26 +120,6 @@ export function initDb(conn: Database.Database = db) {
 
   // One-time data backfills, gated by PRAGMA user_version.
   runVersionedMigrations(conn);
-}
-
-/** True for SQLite's "duplicate column name: x" — the column is already there. */
-export function isDuplicateColumnError(err: unknown): boolean {
-  return err instanceof Error && /duplicate column name/i.test(err.message);
-}
-
-/**
- * `ALTER TABLE <table> ADD COLUMN <columnDef>`, tolerating only the column
- * already existing. Anything else — SQLITE_BUSY past busy_timeout, a read-only
- * or corrupt DB file, a full disk — is rethrown (X11). The old bare
- * `catch {}` swallowed those too, so initDb() reported success with the column
- * missing and the first query that used it failed somewhere far away.
- */
-export function addColumnIfMissing(conn: Database.Database, table: string, columnDef: string): void {
-  try {
-    conn.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
-  } catch (err) {
-    if (!isDuplicateColumnError(err)) throw err;
-  }
 }
 
 /**
