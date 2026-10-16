@@ -16,9 +16,11 @@ import {
   type AuthResult,
   type ServerMsg,
   type WarpOutcome,
+  type HandleResult,
+  ROOM_NOTICE_PATH,
 } from '../lib/world/room-core.js';
 import { D1WorldStore, type D1Like } from '../lib/world/d1-store.js';
-import { hashToken, handlePortalWarp } from '../lib/world/handlers.js';
+import { hashToken, handlePortalWarp, publicSlug, type RoomNotice } from '../lib/world/handlers.js';
 import type {
   CfWebSocket,
   DurableObjectStateLike,
@@ -34,10 +36,13 @@ interface RoomEnv {
 
 // What each socket stores. `district` is known at connect time (even before the
 // hello authenticates), so it's available on every subsequent message without
-// DO memory. `actor` is null until the hello succeeds.
+// DO memory. `actor` is null until the hello succeeds. `citizenId` is the
+// owner (server-side only, never sent) so an HTTP recall/anon change can find
+// this citizen's live socket.
 interface SocketAttachment {
   district: string;
   actor: ActorState | null;
+  citizenId?: string;
 }
 
 const WebSocketPairCtor = (globalThis as unknown as {
@@ -73,8 +78,7 @@ export class WorldRoom {
     const found = await store.findCitizenByBrowserToken(hashToken(controlToken), Date.now());
     if (!found) return null;
     const c = found.citizen;
-    const slug = c.anon ? `anon-${hashToken(c.slug).slice(0, 6)}` : c.slug;
-    return { slug, district: c.district };
+    return { slug: publicSlug(c), district: c.district, citizenId: c.id };
   }
 
   // Presence/snapshots reach only sockets that completed the hello handshake —
@@ -161,8 +165,54 @@ export class WorldRoom {
 
   // ── Cloudflare entry points ──────────────────────────────────────────────
 
+  // Persist a RoomCore decision onto the socket and act on it.
+  private apply(ws: CfWebSocket, att: SocketAttachment, res: HandleResult): void {
+    if (res.detach) {
+      // Left the room (portal redirect / eviction): clear the actor (and owner)
+      // so this socket is gone from every presence path immediately — even
+      // during the close window and across any hibernation rehydration before
+      // the runtime drops it.
+      ws.serializeAttachment({ district: att.district, actor: null } satisfies SocketAttachment);
+    } else if (res.attach) {
+      const citizenId = res.citizenId ?? att.citizenId;
+      ws.serializeAttachment({ district: att.district, actor: res.attach, citizenId } satisfies SocketAttachment);
+    }
+    if (res.flush) this.scheduleFlush();
+    if (res.close) ws.close(res.close.code, res.close.reason);
+  }
+
+  // A recall/purge/anon change landed over HTTP: apply it to this citizen's
+  // live socket(s), if any are here. Unauthenticated sockets carry no owner.
+  private onNotice(notice: RoomNotice): number {
+    let touched = 0;
+    for (const ws of this.state.getWebSockets()) {
+      const att = this.attachmentOf(ws);
+      if (!att?.actor || att.citizenId !== notice.citizenId) continue;
+      const core = new RoomCore<CfWebSocket>(att.district, this.port());
+      try {
+        const res =
+          notice.kind === 'evict'
+            ? core.evict(ws, att.actor)
+            : core.relabel(ws, att.actor, notice.slug, this.peersExcept(ws));
+        this.apply(ws, att, res);
+      } catch {
+        // A racing close: still make sure an evicted socket is detached.
+        if (notice.kind === 'evict') {
+          ws.serializeAttachment({ district: att.district, actor: null } satisfies SocketAttachment);
+        }
+      }
+      touched++;
+    }
+    return touched;
+  }
+
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') !== 'websocket') {
+      if (request.method === 'POST' && new URL(request.url).pathname === ROOM_NOTICE_PATH) {
+        const notice = parseNotice(await request.text());
+        if (!notice) return new Response('bad notice', { status: 400 });
+        return new Response(JSON.stringify({ touched: this.onNotice(notice) }), { status: 200 });
+      }
       return new Response('expected a websocket upgrade', { status: 426 });
     }
     // The worker validated the town and forwards it as ?district=plaza-N; trust
@@ -186,16 +236,7 @@ export class WorldRoom {
     const att = this.attachmentOf(ws) ?? { district: '', actor: null };
     const core = new RoomCore<CfWebSocket>(att.district, this.port());
     const res = await core.onMessage(ws, att.actor, raw, this.peersExcept(ws));
-    if (res.detach) {
-      // Left the room (portal redirect): clear the actor so this socket is gone
-      // from every presence path immediately — even during the close window and
-      // across any hibernation rehydration before the runtime drops it.
-      ws.serializeAttachment({ district: att.district, actor: null } satisfies SocketAttachment);
-    } else if (res.attach) {
-      ws.serializeAttachment({ district: att.district, actor: res.attach } satisfies SocketAttachment);
-    }
-    if (res.flush) this.scheduleFlush();
-    if (res.close) ws.close(res.close.code, res.close.reason);
+    this.apply(ws, att, res);
   }
 
   async webSocketClose(ws: CfWebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
@@ -213,5 +254,19 @@ export class WorldRoom {
     const att = this.attachmentOf(ws);
     const core = new RoomCore<CfWebSocket>(att?.district ?? '', this.port());
     core.onClose(att?.actor ?? null);
+  }
+}
+
+function parseNotice(raw: string): RoomNotice | null {
+  try {
+    const n = JSON.parse(raw) as Partial<{ kind: unknown; citizenId: unknown; slug: unknown }>;
+    if (typeof n.citizenId !== 'string' || !n.citizenId) return null;
+    if (n.kind === 'evict') return { kind: 'evict', citizenId: n.citizenId };
+    if (n.kind === 'relabel' && typeof n.slug === 'string' && n.slug) {
+      return { kind: 'relabel', citizenId: n.citizenId, slug: n.slug };
+    }
+    return null;
+  } catch {
+    return null;
   }
 }

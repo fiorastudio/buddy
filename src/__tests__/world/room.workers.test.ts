@@ -43,8 +43,8 @@ function post(path: string, body: unknown) {
 }
 
 // Run the real M1 flow to get a scoped control token for a fresh citizen.
-async function mintControlToken(worldToken: string): Promise<string> {
-  await post('/v1/teleport', { token: worldToken, snapshot: snap() });
+async function mintControlToken(worldToken: string, district?: string): Promise<string> {
+  await post('/v1/teleport', { token: worldToken, snapshot: snap(), ...(district ? { district } : {}) });
   const link = (await (await post('/v1/browser-link', { token: worldToken })).json()) as { code: string };
   const sess = (await (await post('/v1/browser-session', { code: link.code })).json()) as { controlToken: string };
   return sess.controlToken;
@@ -54,6 +54,7 @@ interface Client {
   send(msg: unknown): void;
   next(): Promise<any>;
   close(): void;
+  closed: Promise<{ code: number; reason: string }>;
 }
 
 async function connect(district: string): Promise<Client> {
@@ -61,6 +62,9 @@ async function connect(district: string): Promise<Client> {
   expect(res.status).toBe(101);
   const ws = res.webSocket!;
   ws.accept();
+  const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+    ws.addEventListener('close', (e: CloseEvent) => resolve({ code: e.code, reason: e.reason }))
+  );
 
   const queue: any[] = [];
   const waiters: Array<(m: any) => void> = [];
@@ -80,6 +84,7 @@ async function connect(district: string): Promise<Client> {
         else waiters.push(resolve);
       }),
     close: () => ws.close(),
+    closed,
   };
 }
 
@@ -213,6 +218,95 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     expect(welcomeC.actors.length).toBe(2);
 
     a.close();
+    b.close();
+    c.close();
+  });
+
+  // B9: HTTP privacy changes reach sockets that are ALREADY live. Own towns
+  // (plaza-3/plaza-4) so plaza-1's shared roster is untouched.
+  it('anon on relabels a live buddy in place: peers see real leave + masked join, owner is re-welcomed', async () => {
+    const ctA = await mintControlToken('ws-anon-token-aaa', 'plaza-3');
+    const ctB = await mintControlToken('ws-anon-token-bbb', 'plaza-3');
+
+    const a = await connect('plaza-3');
+    a.send({ type: 'hello', controlToken: ctA });
+    const welcomeA = await a.next();
+    const realSlug = welcomeA.self as string;
+    expect(realSlug).toMatch(/^shadowpaw-/);
+
+    const b = await connect('plaza-3');
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next(); // B welcome
+    await a.next(); // A hears B join
+
+    expect((await post('/v1/anon', { token: 'ws-anon-token-aaa', anon: true })).status).toBe(200);
+
+    // The masked id is exactly the one the plaza (/v1/world) renders.
+    const world = (await (await SELF.fetch(`${BASE}/v1/world/plaza-3`)).json()) as {
+      citizens: Array<{ slug: string; name: string }>;
+    };
+    const masked = world.citizens.find((c) => c.slug.startsWith('anon-'))!.slug;
+
+    const rewelcome = await a.next();
+    expect(rewelcome).toMatchObject({ type: 'welcome', district: 'plaza-3', self: masked });
+
+    const leave = await b.next();
+    expect(leave).toEqual({ type: 'leave', slug: realSlug });
+    const join = await b.next();
+    expect(join.type).toBe('join');
+    expect(join.actor.slug).toBe(masked);
+
+    // From now on the real slug never reaches peers: A's next move is masked.
+    a.send({ type: 'move_to', seq: 1, x: 0.2, y: 0.8, clientTs: 1 });
+    let snap: any;
+    for (let i = 0; i < 5 && !snap; i++) {
+      const m = await b.next();
+      if (m.type === 'snapshot') snap = m;
+    }
+    expect(snap.actors.map((x: any) => x.slug)).toContain(masked);
+    expect(JSON.stringify(snap)).not.toContain(realSlug);
+
+    a.close();
+    b.close();
+  });
+
+  it('recall evicts a live socket (even across hibernation) and its control token can no longer join', async () => {
+    const ctA = await mintControlToken('ws-recall-token-aaa', 'plaza-4');
+    const ctB = await mintControlToken('ws-recall-token-bbb', 'plaza-4');
+
+    const a = await connect('plaza-4');
+    a.send({ type: 'hello', controlToken: ctA });
+    const slugA = (await a.next()).self as string;
+    const b = await connect('plaza-4');
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next();
+    await a.next(); // A hears B join
+
+    // The owner id must survive on the socket attachment through hibernation.
+    // (Also proves the HTTP notice leaves no open subrequest behind: an undrained
+    // DO response made this eviction hang.)
+    const stub = env.ROOM.get(env.ROOM.idFromName('plaza-4'));
+    await evictDurableObject(stub);
+
+    expect((await post('/v1/recall', { token: 'ws-recall-token-aaa', purge: false })).status).toBe(200);
+
+    expect(await a.next()).toEqual({ type: 'error', error: 'recalled' });
+    expect((await a.closed).code).toBe(1008); // client parks reconnection on 1008
+    expect(await b.next()).toEqual({ type: 'leave', slug: slugA });
+
+    // A reconnect with the revoked control token is refused...
+    const again = await connect('plaza-4');
+    again.send({ type: 'hello', controlToken: ctA });
+    expect(await again.next()).toEqual({ type: 'error', error: 'invalid control token' });
+
+    // ...and a fresh joiner's roster no longer lists the recalled buddy.
+    const ctC = await mintControlToken('ws-recall-token-ccc', 'plaza-4');
+    const c = await connect('plaza-4');
+    c.send({ type: 'hello', controlToken: ctC });
+    const welcomeC = await c.next();
+    expect(welcomeC.actors.map((x: any) => x.slug)).not.toContain(slugA);
+
+    again.close();
     b.close();
     c.close();
   });
