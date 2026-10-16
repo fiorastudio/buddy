@@ -95,7 +95,7 @@ describe('resolveSessionTrace', () => {
     expect(trace.source).toBe('codex');
     expect(trace.cwd).toBe(CODEX_CWD);
     expect(trace.codexSessionId).toBe('codex-abc123');
-    expect(trace.codexSessionFile).toContain('.codex/sessions');
+    expect(trace.codexSessionFile).toContain(join('.codex', 'sessions'));
   });
 
   it('does not match a transcript belonging to a different cwd', () => {
@@ -126,5 +126,67 @@ describe('resolveSessionTrace', () => {
     expect(trace.cwd).toBe(bigCwd);
     expect(trace.source).toBe('claude');
     rmSync(big, { force: true });
+  });
+});
+
+describe('first record longer than a read chunk', () => {
+  // X15: a fixed 32 KiB read cut a long first record mid-line, discarded it as
+  // partial, and the session never matched. The header is now read to its
+  // first newline regardless of length.
+  const sizes = [40 * 1024, 32 * 1024 - 20, 200 * 1024];
+
+  for (const size of sizes) {
+    it(`matches a Claude transcript whose first line is ${size} bytes`, () => {
+      const dir = join(home, '.claude', 'projects', 'fixture-long');
+      mkdirSync(dir, { recursive: true });
+      const cwd = `/fixture/workspace/long-claude-${size}`;
+      // cwd is serialized AFTER a long field, so it sits past the old cutoff.
+      const first = JSON.stringify({ pad: 'x'.repeat(size), cwd });
+      expect(first.length).toBeGreaterThan(size);
+      writeFileSync(join(dir, `long-${size}.jsonl`), first + '\n' + JSON.stringify({ type: 'user' }) + '\n');
+
+      const trace = resolveSessionTrace(deriveSessionId(cwd, Date.UTC(2026, 4, 12)), { home });
+      expect(trace.source).toBe('claude');
+      expect(trace.cwd).toBe(cwd);
+      rmSync(join(dir, `long-${size}.jsonl`), { force: true });
+    });
+  }
+
+  it('matches a Codex session_meta line longer than 32 KiB', () => {
+    const dir = join(home, '.codex', 'sessions', '2026', '07', '21');
+    mkdirSync(dir, { recursive: true });
+    const cwd = '/fixture/workspace/long-codex';
+    writeFileSync(
+      join(dir, 'rollout-long.jsonl'),
+      JSON.stringify({ type: 'session_meta', payload: { instructions: 'y'.repeat(100 * 1024), id: 'codex-long', cwd } }) + '\n',
+    );
+
+    const trace = resolveSessionTrace(deriveSessionId(cwd, Date.UTC(2026, 4, 12)), { home });
+    expect(trace.source).toBe('codex');
+    expect(trace.codexSessionId).toBe('codex-long');
+    rmSync(join(dir, 'rollout-long.jsonl'), { force: true });
+  });
+
+  it('finds the first line when the file has no trailing newline', () => {
+    const dir = join(home, '.claude', 'projects', 'fixture-long');
+    mkdirSync(dir, { recursive: true });
+    const cwd = '/fixture/workspace/no-newline';
+    writeFileSync(join(dir, 'nonl.jsonl'), JSON.stringify({ cwd }));
+
+    const trace = resolveSessionTrace(deriveSessionId(cwd, Date.UTC(2026, 4, 12)), { home });
+    expect(trace.cwd).toBe(cwd);
+    rmSync(join(dir, 'nonl.jsonl'), { force: true });
+  });
+
+  it('skips an unterminated first line beyond the backstop (no half records)', () => {
+    const dir = join(home, '.claude', 'projects', 'fixture-long');
+    mkdirSync(dir, { recursive: true });
+    const cwd = '/fixture/workspace/never-ends';
+    // 5 MiB with no newline: beyond the backstop, so it is skipped, not mis-parsed.
+    writeFileSync(join(dir, 'huge-line.jsonl'), JSON.stringify({ pad: 'z'.repeat(5 * 1024 * 1024), cwd }));
+
+    const trace = resolveSessionTrace(deriveSessionId(cwd, Date.UTC(2026, 4, 12)), { home });
+    expect(trace.source).toBeUndefined();
+    rmSync(join(dir, 'huge-line.jsonl'), { force: true });
   });
 });
