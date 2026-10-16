@@ -41,10 +41,13 @@ export function checkStreakMilestone(db: DbLike, companionId: string, eventsJust
     .get(companionId) as { n?: number } | undefined;
   if ((todayRow?.n ?? 0) > eventsJustAwarded) return false; // not the first award of the day
 
+  // No lookback window: a streak can be arbitrarily long. The old 400-day cap
+  // truncated every streak at ~400 days (the window edge), so from day ~400
+  // on the count was pinned at 400/401 and the milestone never fired again.
+  // This query runs at most once per companion per UTC day (the early return
+  // above), so scanning the companion's full history is cheap enough.
   const dayRows = db
-    .prepare(
-      "SELECT DISTINCT date(created_at) AS d FROM xp_events WHERE companion_id = ? AND created_at > datetime('now', '-400 days')"
-    )
+    .prepare("SELECT DISTINCT date(created_at) AS d FROM xp_events WHERE companion_id = ?")
     .all(companionId) as Array<{ d: string }>;
   const streak = currentStreakFromDays(
     dayRows.map((r) => r.d),
