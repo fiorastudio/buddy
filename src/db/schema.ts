@@ -90,6 +90,17 @@ export function initDb(conn: Database.Database = db) {
       context_summary TEXT,
       FOREIGN KEY(companion_id) REFERENCES companions(id)
     );
+
+    -- Every award reads xp_events by companion and time window (daily
+    -- self-report cap, cross-session dedupe, streak, mood) and recalcMood
+    -- counts the last hour's memories. Without these each of those queries
+    -- was a full table scan, growing with every award ever made (X13). Keep
+    -- the queries as range predicates on created_at (not date(created_at))
+    -- or they can't use the index.
+    CREATE INDEX IF NOT EXISTS idx_xp_events_companion_created
+      ON xp_events(companion_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_memories_companion_created
+      ON memories(companion_id, created_at);
   `);
 
   // xp_events provenance columns (source, dedupe_of).

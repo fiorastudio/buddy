@@ -16,7 +16,7 @@ import { randomUUID } from 'crypto';
 import { hasXpReward, xpRewardFor, levelFromXp, applyBlessing } from './leveling.js';
 import { zenyForEvent } from './zeny.js';
 import { isWorldBlessed } from './world/client.js';
-import { checkStreakMilestone } from './streaks.js';
+import { checkStreakMilestone, CREATED_TODAY_UTC } from './streaks.js';
 import { shouldDampenSelfReport } from './xp-classify.js';
 
 type DB = BetterSqlite3.Database;
@@ -157,7 +157,7 @@ export function awardWithGates(
     if (isElevated(selfType)) {
       const elevated = (db.prepare(
         `SELECT COUNT(*) AS n FROM xp_events
-          WHERE companion_id = ? AND date(created_at) = date('now')
+          WHERE companion_id = ? AND ${CREATED_TODAY_UTC}
             AND event_type IN ('commit','tests_passed','bug_fix','deploy')
             AND COALESCE(source, 'self') = 'self'`
       ).get(companionId) as any)?.n ?? 0;
