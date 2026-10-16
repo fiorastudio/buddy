@@ -148,6 +148,9 @@ if [ "$KEEP_DATA" -eq 1 ]; then
   echo "  Local Buddy data will be preserved."
 else
   echo "  Local Buddy data in ~/.buddy will also be removed."
+  if [ -f "$DATA_DIR/world.json" ]; then
+    echo "  Your buddy will be recalled from Buddy World and its server data deleted."
+  fi
 fi
 
 if [ "$ASSUME_YES" -ne 1 ]; then
@@ -245,6 +248,27 @@ if [ -f "$STATUS_FILE" ]; then
   echo -e "  ${GREEN}✓${NC} Removed Buddy status file ${DIM}($STATUS_FILE)${NC}"
 fi
 
+# world.json holds the only token that can delete this buddy's Buddy World
+# data. Purge while the CLI is still installed; if that fails (offline), keep
+# the token so the user can still purge later.
+WORLD_CFG="$DATA_DIR/world.json"
+WORLD_KEPT=0
+if [ "$KEEP_DATA" -eq 0 ] && [ -f "$WORLD_CFG" ]; then
+  echo ""
+  echo "  Recalling your buddy from Buddy World..."
+  WORLD_CLI="$INSTALL_DIR/dist/cli/world-cli.js"
+  if [ -n "$NODE_BIN" ] && [ -f "$WORLD_CLI" ]; then
+    "$NODE_BIN" "$WORLD_CLI" recall --purge >/dev/null 2>&1 || true
+  fi
+  # world-cli deletes world.json only after the server confirms the purge.
+  if [ -f "$WORLD_CFG" ]; then
+    WORLD_KEPT=1
+    echo -e "  ${YELLOW}!${NC} Could not reach Buddy World. Kept your world token ${DIM}($WORLD_CFG)${NC}"
+  else
+    echo -e "  ${GREEN}✓${NC} Recalled your buddy and deleted its Buddy World data"
+  fi
+fi
+
 echo ""
 echo "  Removing local files..."
 if [ -d "$INSTALL_DIR" ]; then
@@ -252,7 +276,13 @@ if [ -d "$INSTALL_DIR" ]; then
   echo -e "  ${GREEN}✓${NC} Removed install directory ${DIM}($INSTALL_DIR)${NC}"
 fi
 
-if [ "$KEEP_DATA" -eq 0 ] && [ -d "$DATA_DIR" ]; then
+if [ "$KEEP_DATA" -eq 0 ] && [ "$WORLD_KEPT" -eq 1 ]; then
+  find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name world.json -exec rm -rf {} +
+  echo -e "  ${GREEN}✓${NC} Removed data directory except world.json ${DIM}($DATA_DIR)${NC}"
+  echo -e "  ${YELLOW}  To delete your Buddy World data later, reinstall Buddy and run:${NC}"
+  echo -e "  ${YELLOW}    buddy-world recall --purge${NC}"
+  echo -e "  ${DIM}  Or delete $WORLD_CFG to leave that data behind.${NC}"
+elif [ "$KEEP_DATA" -eq 0 ] && [ -d "$DATA_DIR" ]; then
   rm -rf "$DATA_DIR"
   echo -e "  ${GREEN}✓${NC} Removed data directory ${DIM}($DATA_DIR)${NC}"
 elif [ "$KEEP_DATA" -eq 1 ]; then

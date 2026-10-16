@@ -60,6 +60,9 @@ if ($KeepData) {
   Write-Host "  Local Buddy data will be preserved."
 } else {
   Write-Host "  Local Buddy data in $DataDir will also be removed."
+  if (Test-Path "$DataDir\world.json") {
+    Write-Host "  Your buddy will be recalled from Buddy World and its server data deleted."
+  }
 }
 
 if (-not $Force) {
@@ -142,6 +145,28 @@ if (Test-Path $StatusFile) {
   Write-Host "  ✓ Removed Buddy status file ($StatusFile)" -ForegroundColor Green
 }
 
+# world.json holds the only token that can delete this buddy's Buddy World
+# data. Purge while the CLI is still installed; if that fails (offline), keep
+# the token so the user can still purge later.
+$WorldCfg = "$DataDir\world.json"
+$WorldKept = $false
+if (-not $KeepData -and (Test-Path $WorldCfg)) {
+  Write-Host ""
+  Write-Host "  Recalling your buddy from Buddy World..."
+  $WorldCli = "$InstallDir\dist\cli\world-cli.js"
+  $NodeBin = if ($env:BUDDY_NODE_BIN) { $env:BUDDY_NODE_BIN } else { (Get-Command node -ErrorAction SilentlyContinue).Source }
+  if ($NodeBin -and (Test-Path $WorldCli)) {
+    try { & $NodeBin $WorldCli recall --purge *> $null } catch { }
+  }
+  # world-cli deletes world.json only after the server confirms the purge.
+  if (Test-Path $WorldCfg) {
+    $WorldKept = $true
+    Write-Host "  ! Could not reach Buddy World. Kept your world token ($WorldCfg)" -ForegroundColor Yellow
+  } else {
+    Write-Host "  ✓ Recalled your buddy and deleted its Buddy World data" -ForegroundColor Green
+  }
+}
+
 Write-Host ""
 Write-Host "  Removing local files..."
 if (Test-Path $InstallDir) {
@@ -149,7 +174,13 @@ if (Test-Path $InstallDir) {
   Write-Host "  ✓ Removed install directory ($InstallDir)" -ForegroundColor Green
 }
 
-if (-not $KeepData -and (Test-Path $DataDir)) {
+if (-not $KeepData -and $WorldKept) {
+  Get-ChildItem $DataDir -Force | Where-Object { $_.Name -ne 'world.json' } | Remove-Item -Recurse -Force
+  Write-Host "  ✓ Removed data directory except world.json ($DataDir)" -ForegroundColor Green
+  Write-Host "    To delete your Buddy World data later, reinstall Buddy and run:" -ForegroundColor Yellow
+  Write-Host "      buddy-world recall --purge" -ForegroundColor Yellow
+  Write-Host "    Or delete $WorldCfg to leave that data behind." -ForegroundColor DarkGray
+} elseif (-not $KeepData -and (Test-Path $DataDir)) {
   Remove-Item $DataDir -Recurse -Force
   Write-Host "  ✓ Removed data directory ($DataDir)" -ForegroundColor Green
 } elseif ($KeepData) {
