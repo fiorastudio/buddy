@@ -66,4 +66,50 @@ describe('validateSnapshot', () => {
     const snap = { ...validSnapshot(), xp: totalXpForLevel(6) - 1, level: 5 };
     expect(validateSnapshot(snap).ok).toBe(true);
   });
+
+  // Release audit B4: whatever passes validation is stored and served to every
+  // viewer, so the result must be rebuilt from known fields only.
+  it('returns a canonical snapshot: unknown top-level and stat keys are dropped', () => {
+    const input = {
+      ...validSnapshot(),
+      bio: 'x'.repeat(10_000),
+      stats: { ...validSnapshot().stats, junk: 'y'.repeat(10_000), nested: { a: 1 } },
+    };
+    const result = validateSnapshot(input);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(Object.keys(result.snapshot).sort()).toEqual(
+      ['avatar', 'eye', 'hat', 'level', 'mood', 'name', 'rarity', 'shiny', 'species', 'stats', 'xp'].sort()
+    );
+    expect(result.snapshot.stats).toEqual(validSnapshot().stats);
+    expect(result.snapshot).not.toBe(input);
+  });
+
+  it('rejects a non-object or missing stats block and non-numeric stats', () => {
+    expect(validateSnapshot({ ...validSnapshot(), stats: undefined }).ok).toBe(false);
+    expect(validateSnapshot({ ...validSnapshot(), stats: [60, 40, 80, 30, 70] }).ok).toBe(false);
+    expect(validateSnapshot({ ...validSnapshot(), stats: { ...validSnapshot().stats, snark: '70' } }).ok).toBe(false);
+    expect(validateSnapshot({ ...validSnapshot(), stats: { ...validSnapshot().stats, wisdom: -1 } }).ok).toBe(false);
+  });
+
+  it('keeps chibi-1..chibi-8 avatars and drops anything else (never a 400)', () => {
+    for (let i = 1; i <= 8; i++) {
+      expect(validateSnapshot({ ...validSnapshot(), avatar: `chibi-${i}` }).ok).toBe(true);
+    }
+    const none = validateSnapshot({ ...validSnapshot(), avatar: undefined });
+    expect(none.ok && none.snapshot.avatar).toBe(undefined);
+    expect(validateSnapshot({ ...validSnapshot(), avatar: null }).ok).toBe(true);
+    for (const avatar of ['chibi-0', 'chibi-9', 'chibi-10', 'chibi-1 ', 'x'.repeat(5000), 3, { a: 1 }, '']) {
+      const r = validateSnapshot({ ...validSnapshot(), avatar });
+      expect(r.ok, String(avatar).slice(0, 20)).toBe(true);
+      expect(r.ok && 'avatar' in r.snapshot, String(avatar).slice(0, 20)).toBe(false);
+    }
+  });
+
+  it('rejects non-string enum fields, a non-boolean shiny, and a non-safe-integer xp', () => {
+    expect(validateSnapshot({ ...validSnapshot(), hat: ['none'] }).ok).toBe(false);
+    expect(validateSnapshot({ ...validSnapshot(), species: { toString: () => 'Void Cat' } }).ok).toBe(false);
+    expect(validateSnapshot({ ...validSnapshot(), shiny: 'yes' }).ok).toBe(false);
+    expect(validateSnapshot({ ...validSnapshot(), xp: 1e300, level: 50 }).ok).toBe(false);
+  });
 });
