@@ -4,9 +4,16 @@
 // SQL here MUST stay semantically identical to SqliteWorldStore.
 
 import { randomUUID } from 'node:crypto';
-import { WORLD_SCHEMA_SQL, WORLD_EVENT_TYPES, ANNOUNCE_EVENT_TYPES, type WorldEventType } from './schema-sql.js';
+import {
+  WORLD_SCHEMA_SQL,
+  WORLD_EVENT_TYPES,
+  ANNOUNCE_EVENT_TYPES,
+  ANNOUNCE_MAX_PER_CITIZEN,
+  type WorldEventType,
+} from './schema-sql.js';
 import { makeSlug } from './identity.js';
-import type { WorldSnapshot } from './validate.js';
+import { HUB_DISTRICT, WORLD_CITIZEN_LIMIT } from './districts.js';
+import { pickStats, pickAvatar, type WorldSnapshot } from './validate.js';
 import type {
   WorldStore,
   CitizenRow,
@@ -16,15 +23,19 @@ import type {
   AnnouncementRow,
 } from './store.js';
 
+export interface D1BoundStatement {
+  run(): Promise<unknown>;
+  all<T>(): Promise<{ results: T[] }>;
+  first<T>(): Promise<T | null>;
+}
+
 export interface D1Like {
   exec(sql: string): Promise<unknown>;
   prepare(sql: string): {
-    bind(...args: unknown[]): {
-      run(): Promise<unknown>;
-      all<T>(): Promise<{ results: T[] }>;
-      first<T>(): Promise<T | null>;
-    };
+    bind(...args: unknown[]): D1BoundStatement;
   };
+  // D1 runs a batch as one implicit transaction: all statements land or none do.
+  batch(statements: D1BoundStatement[]): Promise<unknown[]>;
 }
 
 function rowToCitizen(row: Record<string, unknown>): CitizenRow {
@@ -36,14 +47,14 @@ function rowToCitizen(row: Record<string, unknown>): CitizenRow {
     level: row.level as number,
     xp: row.xp as number,
     mood: row.mood as string,
-    stats: JSON.parse(row.stats as string),
+    stats: pickStats(JSON.parse(row.stats as string)),
     rarity: row.rarity as string,
     shiny: !!row.shiny,
     hat: row.hat as string,
     eye: row.eye as string,
     anon: !!row.anon,
     skin: row.skin as string,
-    avatar: (row.avatar as string) ?? null,
+    avatar: pickAvatar(row.avatar),
     country: (row.country as string) ?? null,
     district: row.district as string,
     hidden: !!row.hidden,
@@ -85,13 +96,13 @@ export class D1WorldStore implements WorldStore {
       const district = desiredDistrict ?? (existing.district as string);
       await this.db
         .prepare('UPDATE citizens SET hidden = 0, avatar = COALESCE(?, avatar), district = ?, country = COALESCE(?, country) WHERE id = ?')
-        .bind(snap.avatar ?? null, district, country ?? null, existing.id)
+        .bind(pickAvatar(snap.avatar), district, country ?? null, existing.id)
         .run();
       return { created: false, slug: existing.slug as string, district };
     }
 
     // Everyone lands in the same place (Prontera) — from there they can `warp`.
-    const district = desiredDistrict ?? 'plaza-1';
+    const district = desiredDistrict ?? HUB_DISTRICT;
     const id = randomUUID();
     let slug = makeSlug(snap.name);
     while (await this.db.prepare('SELECT 1 FROM citizens WHERE slug = ?').bind(slug).first()) {
@@ -112,12 +123,12 @@ export class D1WorldStore implements WorldStore {
         snap.level,
         snap.xp,
         snap.mood,
-        JSON.stringify(snap.stats),
+        JSON.stringify(pickStats(snap.stats)),
         snap.rarity,
         snap.shiny ? 1 : 0,
         snap.hat,
         snap.eye,
-        snap.avatar ?? null,
+        pickAvatar(snap.avatar),
         country ?? null,
         district,
         nowMs,
@@ -153,7 +164,7 @@ export class D1WorldStore implements WorldStore {
         snap.level,
         snap.xp,
         snap.mood,
-        JSON.stringify(snap.stats),
+        JSON.stringify(pickStats(snap.stats)),
         snap.rarity,
         snap.shiny ? 1 : 0,
         snap.hat,
@@ -173,24 +184,26 @@ export class D1WorldStore implements WorldStore {
   }
 
   async recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number> {
+    // Collected and sent as ONE db.batch() (a transaction): a failure part-way
+    // through writes nothing, so the client's retry cannot insert duplicates.
+    const writes: D1BoundStatement[] = [];
     let accepted = 0;
     let maxTs = 0;
     for (const ev of events) {
       if (!(WORLD_EVENT_TYPES as readonly string[]).includes(ev.type)) continue;
       if (!Number.isFinite(ev.ts)) continue;
-      await this.db
+      writes.push(this.db
         .prepare('INSERT INTO world_events (citizen_id, type, ts) VALUES (?, ?, ?)')
-        .bind(citizenId, ev.type, ev.ts)
-        .run();
+        .bind(citizenId, ev.type, ev.ts));
       accepted++;
       maxTs = Math.max(maxTs, ev.ts);
     }
     if (maxTs > 0) {
-      await this.db
+      writes.push(this.db
         .prepare('UPDATE citizens SET last_seen_at = MAX(last_seen_at, ?) WHERE id = ?')
-        .bind(maxTs, citizenId)
-        .run();
+        .bind(maxTs, citizenId));
     }
+    if (writes.length > 0) await this.db.batch(writes);
     return accepted;
   }
 
@@ -204,25 +217,43 @@ export class D1WorldStore implements WorldStore {
       await this.db.prepare('DELETE FROM browser_sessions WHERE citizen_id = ?').bind(citizen.id).run();
       await this.db.prepare('DELETE FROM citizens WHERE id = ?').bind(citizen.id).run();
     } else {
+      // Recall = leave the world: revoke every browser credential too, so a
+      // stale control token can't rejoin a live room or read /v1/me. A later
+      // re-teleport un-hides the citizen; the owner mints a fresh link then.
+      await this.db.prepare('DELETE FROM link_codes WHERE citizen_id = ?').bind(citizen.id).run();
+      await this.db.prepare('DELETE FROM browser_sessions WHERE citizen_id = ?').bind(citizen.id).run();
       await this.db.prepare('UPDATE citizens SET hidden = 1 WHERE id = ?').bind(citizen.id).run();
     }
     return true;
   }
 
-  async district(name: string, sinceMs: number): Promise<DistrictView> {
+  async district(
+    name: string,
+    sinceMs: number,
+    untilMs: number,
+    residentSinceMs = 0,
+    limit = WORLD_CITIZEN_LIMIT
+  ): Promise<DistrictView> {
+    // Most-recently-seen residents win the LIMIT; the outer ORDER BY keeps the
+    // response in stable arrival order for the plaza.
     const citizenRows = await this.db
-      .prepare('SELECT * FROM citizens WHERE district = ? AND hidden = 0 ORDER BY created_at')
-      .bind(name)
+      .prepare(
+        `SELECT * FROM (
+           SELECT * FROM citizens WHERE district = ? AND hidden = 0 AND last_seen_at >= ?
+           ORDER BY MIN(last_seen_at, ?) DESC, created_at DESC LIMIT ?
+         ) ORDER BY created_at`
+      )
+      .bind(name, residentSinceMs, untilMs, limit)
       .all<Record<string, unknown>>();
 
     const eventRows = await this.db
       .prepare(
         `SELECT c.slug AS citizen_slug, e.type, e.ts
          FROM world_events e JOIN citizens c ON c.id = e.citizen_id
-         WHERE c.district = ? AND c.hidden = 0 AND e.ts >= ?
+         WHERE c.district = ? AND c.hidden = 0 AND e.ts >= ? AND e.ts <= ?
          ORDER BY e.ts DESC LIMIT 200`
       )
-      .bind(name, sinceMs)
+      .bind(name, sinceMs, untilMs)
       .all<Record<string, unknown>>();
 
     return {
@@ -240,16 +271,20 @@ export class D1WorldStore implements WorldStore {
     };
   }
 
-  async announcements(limit: number): Promise<AnnouncementRow[]> {
+  async announcements(limit: number, sinceMs: number, untilMs: number): Promise<AnnouncementRow[]> {
     const placeholders = ANNOUNCE_EVENT_TYPES.map(() => '?').join(', ');
+    // ROW_NUMBER per citizen enforces ANNOUNCE_MAX_PER_CITIZEN.
     const rows = await this.db
       .prepare(
-        `SELECT e.id, c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts
-         FROM world_events e JOIN citizens c ON c.id = e.citizen_id
-         WHERE c.hidden = 0 AND e.type IN (${placeholders})
-         ORDER BY e.ts DESC, e.id DESC LIMIT ?`
+        `SELECT id, slug, name, species, anon, level, district, type, ts FROM (
+           SELECT e.id, c.slug, c.name, c.species, c.anon, c.level, c.district, e.type, e.ts,
+             ROW_NUMBER() OVER (PARTITION BY e.citizen_id ORDER BY e.ts DESC, e.id DESC) AS rn
+           FROM world_events e JOIN citizens c ON c.id = e.citizen_id
+           WHERE c.hidden = 0 AND e.type IN (${placeholders}) AND e.ts >= ? AND e.ts <= ?
+         ) WHERE rn <= ?
+         ORDER BY ts DESC, id DESC LIMIT ?`
       )
-      .bind(...ANNOUNCE_EVENT_TYPES, limit)
+      .bind(...ANNOUNCE_EVENT_TYPES, sinceMs, untilMs, ANNOUNCE_MAX_PER_CITIZEN, limit)
       .all<Record<string, unknown>>();
     return rows.results.map(
       (row): AnnouncementRow => ({
@@ -266,12 +301,13 @@ export class D1WorldStore implements WorldStore {
     );
   }
 
-  async districtCounts(): Promise<Record<string, number>> {
+  async districtCounts(sinceMs: number): Promise<Record<string, number>> {
     // hidden = 0 only: a recalled/hidden citizen isn't shown in the town, so it
-    // must not count against the town's capacity either.
+    // must not count against the town's capacity either. Same for a citizen not
+    // seen since `sinceMs` — it has wandered off and frees its slot.
     const rows = await this.db
-      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 GROUP BY district')
-      .bind()
+      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 AND last_seen_at >= ? GROUP BY district')
+      .bind(sinceMs)
       .all<{ district: string; n: number }>();
     return Object.fromEntries(rows.results.map((r) => [r.district, r.n]));
   }
@@ -365,7 +401,7 @@ export class D1WorldStore implements WorldStore {
       .prepare(
         `SELECT c.*, s.scope AS session_scope FROM browser_sessions s
          JOIN citizens c ON c.id = s.citizen_id
-         WHERE s.token_hash = ? AND s.expires_at > ?`
+         WHERE s.token_hash = ? AND s.expires_at > ? AND c.hidden = 0`
       )
       .bind(tokenHash, nowMs)
       .first<Record<string, unknown>>();

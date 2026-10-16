@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createWorldFetchHandler } from '../../world/worker-core.js';
+import { createWorldFetchHandler, MAX_BODY_BYTES } from '../../world/worker-core.js';
+import { MAX_EVENT_BATCH, WORLD_EVENT_TYPES } from '../../lib/world/schema-sql.js';
+import { EYES, HATS } from '../../lib/types.js';
+import { SPECIES_LIST } from '../../lib/species.js';
+import { publicSlug } from '../../lib/world/handlers.js';
 import { sqliteAsD1 } from './d1-shim.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
 import type { WorldSnapshot } from '../../lib/world/validate.js';
@@ -58,13 +62,14 @@ describe('world worker fetch handler', () => {
 
   it('GET /v1/announcements returns the global celebration feed with CORS', async () => {
     await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
-    await post('/v1/events', { token: TOKEN, events: [{ type: 'level_up', ts: 1_800_000_100_000 }] });
+    // level_up is server-derived only, so a client-reported deploy drives the feed.
+    await post('/v1/events', { token: TOKEN, events: [{ type: 'deploy', ts: Date.now() }] });
 
     const res = await fetchHandler(new Request('https://world.example.com/v1/announcements'));
     expect(res.status).toBe(200);
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
     const body = (await res.json()) as { announcements: Array<{ type: string; town: string; name: string }> };
-    expect(body.announcements.some((a) => a.type === 'level_up')).toBe(true);
+    expect(body.announcements.some((a) => a.type === 'deploy')).toBe(true);
     expect(body.announcements[0].town).toBe('Prontera');
   });
 
@@ -119,6 +124,30 @@ describe('world worker fetch handler', () => {
     expect(third.status).toBe(429);
   });
 
+  it('throttles NEW citizens per IP so one network cannot mint a town-filling crowd (B2)', async () => {
+    const tight = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      ratePerMinute: 60,
+      newCitizensPerDay: 2,
+    });
+    const teleport = (token: string, ip = '203.0.113.9') =>
+      tight(
+        new Request('https://world.example.com/v1/teleport', {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': ip },
+          body: JSON.stringify({ token, snapshot: snap() }),
+        })
+      );
+    expect((await teleport('minted-0-0123456789abcdef')).status).toBe(200);
+    expect((await teleport('minted-1-0123456789abcdef')).status).toBe(200);
+    expect((await teleport('minted-2-0123456789abcdef')).status).toBe(429); // 3rd new citizen, same IP
+    // Re-teleporting an EXISTING citizen is never throttled.
+    expect((await teleport('minted-0-0123456789abcdef')).status).toBe(200);
+    // Another network has its own budget.
+    expect((await teleport('minted-3-0123456789abcdef', '198.51.100.4')).status).toBe(200);
+  });
+
   it('sets CORS headers so the plaza page can fetch world state', async () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/world/plaza-1'));
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
@@ -150,6 +179,164 @@ describe('world worker fetch handler', () => {
   it('GET /v1/me without a Bearer control token is 401', async () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/me'));
     expect(res.status).toBe(401);
+  });
+});
+
+// Release audit B16: rate limit before parsing, bounded body, object-only JSON.
+describe('world worker request bodies', () => {
+  const URL_EVENTS = 'https://world.example.com/v1/events';
+  const longest = (xs: readonly string[]) => xs.reduce((a, b) => (Buffer.byteLength(b) > Buffer.byteLength(a) ? b : a));
+
+  function handler(ratePerMinute = 1000) {
+    return createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      ratePerMinute,
+    });
+  }
+
+  it('the largest legitimate request fits well inside the cap', async () => {
+    const h = handler();
+    const token = 'f'.repeat(32); // generateToken(): 32 hex chars
+    expect((await h(new Request('https://world.example.com/v1/teleport', {
+      method: 'POST',
+      body: JSON.stringify({ token, snapshot: snap() }),
+    }))).status).toBe(200);
+    // Worst case: a full batch of the longest event type, a max-length name of
+    // 3-byte characters, and the longest species/hat/eye.
+    const body = JSON.stringify({
+      token,
+      events: Array.from({ length: MAX_EVENT_BATCH }, () => ({
+        type: longest(WORLD_EVENT_TYPES),
+        ts: Number.MAX_SAFE_INTEGER,
+      })),
+      snapshot: snap({ name: '鬼'.repeat(32), species: longest(SPECIES_LIST), hat: longest(HATS), eye: longest(EYES) }),
+    });
+    expect(Buffer.byteLength(body)).toBeLessThan(MAX_BODY_BYTES / 4);
+    const res = await h(new Request(URL_EVENTS, { method: 'POST', body }));
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a body over the cap with 413 (no content-length needed)', async () => {
+    const body = JSON.stringify({ token: TOKEN, events: [], pad: 'x'.repeat(MAX_BODY_BYTES) });
+    const res = await handler()(new Request(URL_EVENTS, { method: 'POST', body }));
+    expect(res.status).toBe(413);
+  });
+
+  it('rejects a declared content-length over the cap without reading the body', async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(new TextEncoder().encode('{}'));
+        controller.close();
+      },
+    }, { highWaterMark: 0 }); // no eager pull: only a real read pulls
+    const req = new Request(URL_EVENTS, {
+      method: 'POST',
+      headers: { 'content-length': String(MAX_BODY_BYTES + 1) },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    const res = await handler()(req);
+    expect(res.status).toBe(413);
+    expect(pulled).toBe(0); // never read: the header check rejects first
+  });
+
+  it('stops reading an endless chunked body as soon as it passes the cap', async () => {
+    let sent = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = new Uint8Array(1024).fill(0x20); // whitespace: valid JSON padding
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const req = new Request(URL_EVENTS, { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
+    const res = await handler()(req);
+    expect(res.status).toBe(413);
+    expect(cancelled).toBe(true);
+    expect(sent).toBeLessThan(MAX_BODY_BYTES * 2);
+  });
+
+  it('a lying (too small) content-length does not lift the cap', async () => {
+    const body = JSON.stringify({ token: TOKEN, events: [], pad: 'x'.repeat(MAX_BODY_BYTES) });
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(body));
+        controller.close();
+      },
+    });
+    const req = new Request(URL_EVENTS, {
+      method: 'POST',
+      headers: { 'content-length': '10' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    expect((await handler()(req)).status).toBe(413);
+  });
+
+  it('rejects JSON that is not an object with 400', async () => {
+    const h = handler();
+    for (const body of ['[]', '"token"', 'null', '42', 'true', '[{"token":"x"}]']) {
+      const res = await h(new Request(URL_EVENTS, { method: 'POST', body }));
+      expect(res.status, body).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/object/);
+    }
+  });
+
+  it('rejects an empty body with 400', async () => {
+    const res = await handler()(new Request(URL_EVENTS, { method: 'POST' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('applies the IP rate limit before reading or parsing the body', async () => {
+    const h = handler(2);
+    const ok = () =>
+      h(new Request(URL_EVENTS, { method: 'POST', body: JSON.stringify({ token: TOKEN, events: [] }) }));
+    await ok();
+    await ok();
+    let pulled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled = true;
+        controller.enqueue(new TextEncoder().encode('{not json'));
+        controller.close();
+      },
+    }, { highWaterMark: 0 });
+    const limited = await h(new Request(URL_EVENTS, { method: 'POST', body: stream, duplex: 'half' } as RequestInit));
+    expect(limited.status).toBe(429);
+    expect(pulled).toBe(false);
+  });
+});
+
+// B10: the anon mask is keyed by the deployment's ANON_SECRET.
+describe('world worker anon masking', () => {
+  it('masks anon buddies with the configured secret', async () => {
+    const handler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      anonSecret: 'worker-test-secret',
+    });
+    const post = (path: string, body: unknown) =>
+      handler(
+        new Request(`https://world.example.com${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      );
+    const { slug } = (await (await post('/v1/teleport', { token: TOKEN, snapshot: snap() })).json()) as { slug: string };
+    await post('/v1/anon', { token: TOKEN, anon: true });
+    const world = (await (await handler(new Request('https://world.example.com/v1/world/plaza-1'))).json()) as {
+      citizens: Array<{ slug: string }>;
+    };
+    expect(world.citizens[0].slug).toBe(publicSlug({ slug, anon: true }, 'worker-test-secret'));
+    expect(world.citizens[0].slug).not.toBe(publicSlug({ slug, anon: true })); // not the dev key
   });
 });
 
@@ -218,9 +405,124 @@ describe('world worker live (WS upgrade) routing', () => {
     expect(res.status).toBe(503);
   });
 
+  // B7: each upgrade is a socket the room holds (and a D1 lookup on hello).
+  it('websocket upgrades are rate-limited per client IP', async () => {
+    const { handler } = makeHandlerWithRoom();
+    const from = (ip: string) =>
+      new Request('https://world.example.com/v1/live/plaza-1', {
+        headers: { Upgrade: 'websocket', 'cf-connecting-ip': ip },
+      });
+    for (let i = 0; i < 30; i++) {
+      expect((await handler(from('203.0.113.7'))).headers.get('x-room-forwarded')).toBe('1');
+    }
+    const limited = await handler(from('203.0.113.7'));
+    expect(limited.status).toBe(429);
+    // Another client is unaffected.
+    expect((await handler(from('203.0.113.8'))).headers.get('x-room-forwarded')).toBe('1');
+  });
+
   it('a GET without the Upgrade header does not hijack the live path', async () => {
     const { handler } = makeHandlerWithRoom();
     const res = await handler(new Request('https://world.example.com/v1/live/plaza-1'));
     expect(res.status).toBe(404); // falls through to not-found, not a 101
+  });
+});
+
+// B9: /v1/recall and /v1/anon must reach the live rooms, not just D1.
+describe('world worker room notices (recall / anon reach live rooms)', () => {
+  interface Notice {
+    district: string;
+    url: string;
+    method: string;
+    upgrade: string | null;
+    body: { kind: string; citizenId: string; slug?: string };
+  }
+
+  function makeHandler(opts: { failRoom?: string; noRooms?: boolean } = {}) {
+    const notices: Notice[] = [];
+    const roomNamespace = {
+      idFromName: (name: string) => ({ toString: () => name }),
+      get(id: { toString(): string }) {
+        return {
+          async fetch(req: Request) {
+            const district = id.toString();
+            if (district === opts.failRoom) throw new Error('room unreachable');
+            notices.push({
+              district,
+              url: req.url,
+              method: req.method,
+              upgrade: req.headers.get('Upgrade'),
+              body: (await req.json()) as Notice['body'],
+            });
+            return new Response('{}', { status: 200 });
+          },
+        };
+      },
+    };
+    const handler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      roomNamespace: opts.noRooms ? undefined : roomNamespace,
+    });
+    const post = (path: string, body: unknown) =>
+      handler(
+        new Request(`https://world.example.com${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      );
+    return { handler, post, notices };
+  }
+
+  it('recall sends an evict notice to EVERY town room over the internal (non-upgrade) path', async () => {
+    const { post, notices } = makeHandler();
+    await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
+    expect((await post('/v1/recall', { token: TOKEN, purge: false })).status).toBe(200);
+
+    expect(notices.map((n) => n.district).sort()).toEqual([
+      'plaza-1',
+      'plaza-2',
+      'plaza-3',
+      'plaza-4',
+      'plaza-5',
+      'plaza-6',
+    ]);
+    for (const n of notices) {
+      expect(n.method).toBe('POST');
+      expect(new URL(n.url).pathname).toBe('/__internal/notice');
+      expect(n.upgrade).toBeNull();
+      expect(n.body).toEqual({ kind: 'evict', citizenId: expect.any(String) });
+    }
+  });
+
+  it('anon on sends a relabel carrying the same masked slug /v1/world shows', async () => {
+    const { handler, post, notices } = makeHandler();
+    await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
+    expect((await post('/v1/anon', { token: TOKEN, anon: true })).status).toBe(200);
+
+    const world = (await (await handler(new Request('https://world.example.com/v1/world/plaza-1'))).json()) as {
+      citizens: Array<{ slug: string }>;
+    };
+    expect(notices).toHaveLength(6);
+    for (const n of notices) {
+      expect(n.body).toEqual({ kind: 'relabel', citizenId: expect.any(String), slug: world.citizens[0].slug });
+    }
+    expect(world.citizens[0].slug).toMatch(/^anon-[0-9a-f]{6}$/);
+  });
+
+  it('an unreachable room never fails the owner request', async () => {
+    const { post, notices } = makeHandler({ failRoom: 'plaza-3' });
+    await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
+    const res = await post('/v1/recall', { token: TOKEN, purge: true });
+    expect(res.status).toBe(200);
+    expect(notices).toHaveLength(5); // the other rooms were still told
+  });
+
+  it('without a ROOM binding recall/anon still succeed (no-op notifier)', async () => {
+    const { post } = makeHandler({ noRooms: true });
+    await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
+    expect((await post('/v1/anon', { token: TOKEN, anon: true })).status).toBe(200);
+    expect((await post('/v1/recall', { token: TOKEN, purge: false })).status).toBe(200);
   });
 });
