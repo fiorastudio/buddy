@@ -43,29 +43,43 @@
     #broadcast { justify-content: center; }
     #broadcast .broadcast-msg { padding-left: 0; animation: none !important; }
   }
+  /* Room feedback (e.g. a failed warp): a brief centered notice under the banners. */
+  #toast {
+    position: fixed; top: 72px; left: 50%; transform: translateX(-50%); z-index: 13;
+    max-width: calc(100% - 32px);
+    background: rgba(15, 12, 41, 0.95); border: 1px solid var(--gold); border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; color: #ffe082; text-align: center;
+  }
+  #toast[hidden] { display: none; }
   #plaza { display: block; }
+  /* Bottom HUD: the sound toggles on the left, the adopt link on the right.
+     One flex row, so a label that grows ("🔇 stop music") pushes its
+     neighbour along instead of sliding under it, and a narrow screen wraps
+     the row instead of overlapping it. The bar itself lets clicks through to
+     the canvas; only its controls take them. */
+  #hud {
+    position: fixed; left: 14px; right: 14px; bottom: 12px; z-index: 11;
+    display: flex; flex-wrap: wrap-reverse; align-items: flex-end;
+    justify-content: space-between; gap: 8px;
+    pointer-events: none;
+  }
+  #hud > * { pointer-events: auto; }
+  .hud-audio { display: flex; gap: 8px; }
   #cta {
-    position: fixed; bottom: 12px; right: 14px; z-index: 10;
+    margin-left: auto;
     background: rgba(15, 12, 41, 0.92); border: 1px solid #3a2f6b; border-radius: 8px;
     padding: 8px 14px; font-size: 12px; color: #e1bee7;
   }
   #cta a { color: var(--gold); text-decoration: none; }
   /* Warp is no longer a button — travel by walking your sprite into an
      in-world portal gate (drawn on the canvas; see plaza.js drawPortals). */
-  #sfx-toggle {
-    position: fixed; bottom: 12px; left: 112px; z-index: 11;
+  #music-toggle, #sfx-toggle {
     background: rgba(15, 12, 41, 0.92); border: 1px solid #3a2f6b; border-radius: 8px;
     padding: 8px 12px; font-size: 13px; color: #e1bee7; cursor: pointer;
-    font-family: inherit;
+    font-family: inherit; white-space: nowrap;
   }
+  #music-toggle:hover, #music-toggle:focus-visible,
   #sfx-toggle:hover, #sfx-toggle:focus-visible { border-color: var(--gold); color: var(--gold); }
-  #music-toggle {
-    position: fixed; bottom: 12px; left: 14px; z-index: 11;
-    background: rgba(15, 12, 41, 0.92); border: 1px solid #3a2f6b; border-radius: 8px;
-    padding: 8px 12px; font-size: 13px; color: #e1bee7; cursor: pointer;
-    font-family: inherit;
-  }
-  #music-toggle:hover, #music-toggle:focus-visible { border-color: var(--gold); color: var(--gold); }
   /* music is a hidden <audio> element — no visible player, no iframe */
   .visually-hidden {
     position: absolute; width: 1px; height: 1px; margin: -1px;
@@ -76,11 +90,16 @@
 <body>
   <div id="ticker" aria-live="polite"><span class="brand">⛲ BUDDY WORLD</span></div>
   <div id="broadcast" role="status" aria-live="polite" hidden></div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
   <canvas id="plaza" role="img" aria-label="Buddy World plaza"></canvas>
   <ul id="sr-citizens" class="visually-hidden" aria-label="Buddies currently in the plaza"></ul>
-  <div id="cta">no buddy yet? <a href="https://github.com/fiorastudio/buddy" target="_blank" rel="noopener">adopt your own →</a></div>
-  <button id="music-toggle" aria-label="Play plaza music" aria-pressed="false">🎵 music</button>
-  <button id="sfx-toggle" aria-label="Enable sound effects (level-up chimes, deploy fireworks)" aria-pressed="false">🔔 sfx</button>
+  <div id="hud">
+    <div class="hud-audio">
+      <button id="music-toggle" aria-label="Play plaza music" aria-pressed="false">🎵 music</button>
+      <button id="sfx-toggle" aria-label="Enable sound effects (level-up chimes, deploy fireworks)" aria-pressed="false">🔔 sfx</button>
+    </div>
+    <div id="cta">no buddy yet? <a href="https://github.com/fiorastudio/buddy" target="_blank" rel="noopener">adopt your own →</a></div>
+  </div>
   <audio id="music-audio" loop preload="none">
     <source src="music/plaza-theme.ogg" type="audio/ogg">
     <source src="music/plaza-theme.mp3" type="audio/mpeg">

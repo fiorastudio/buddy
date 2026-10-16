@@ -16,7 +16,10 @@
 
   const params = new URLSearchParams(location.search);
   const district = params.get('district') || 'plaza-1';
-  const API_BASE = params.get('api') || '';
+  // The API is always same-origin: the Worker serves this page and /v1 together.
+  // There is deliberately no ?api= override, because the control code and token
+  // would follow it to whatever origin the link named.
+  const API_BASE = '';
 
   const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -147,7 +150,39 @@
     actorFrames: {}, spriteBottoms: {},
     porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
     sfxEnabled: false, spawnXpPopup: null, petBuddy: null, // bound below
+    worldLoaded: false, frameErrors: 0, failNextFrameForTest: false,
   };
+  // Exposed from the start (not only after the first world fetch) so a failed
+  // or slow feed still leaves the plaza inspectable.
+  window.__PLAZA__ = state;
+
+  // Log a failure once per (where, message): a frame that throws 60x/second, or
+  // a feed that fails every poll, must not flood the console.
+  const reportedErrors = new Set();
+  function reportOnce(where, err) {
+    const key = `${where}: ${err && err.message ? err.message : String(err)}`;
+    if (reportedErrors.has(key) || reportedErrors.size >= 20) return;
+    reportedErrors.add(key);
+    try { console.error(`[plaza] ${key}`); } catch { /* no console */ }
+  }
+
+  // Every startup/poll fetch goes through here: an AbortController timeout so a
+  // hung endpoint can't stall the plaza, and the JSON parse inside the guard so
+  // a garbage body (HTML error page, truncated JSON) rejects like any failure.
+  // Callers catch and degrade — one bad feed never blanks the page.
+  const FETCH_TIMEOUT_MS = 8000;
+  async function fetchJson(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch(url, ctl ? { ...init, signal: ctl.signal } : init);
+      if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
+      return await res.json();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   // Test instrumentation: resolve the rendered nameplate job label by slug.
   // (Assigned after `state` exists — jobLabel is hoisted so it's safe here.)
   state.jobLabelForSlug = (slug) => {
@@ -880,7 +915,30 @@
     );
   }
 
+  // The render loop. The next frame is scheduled in `finally`, so one bad frame
+  // (a malformed citizen, a canvas hiccup) costs a single frame instead of
+  // freezing the plaza for good. Repeat failures are counted, not re-logged.
   function tick() {
+    try {
+      if (state.failNextFrameForTest) {
+        state.failNextFrameForTest = false;
+        throw new Error('forced frame failure (test hook)');
+      }
+      drawFrame();
+    } catch (err) {
+      state.frameErrors += 1;
+      reportOnce('frame', err);
+      // A throw can leave the context mid-save()/transform; start the next frame clean.
+      try {
+        if (typeof ctx.reset === 'function') ctx.reset();
+        else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; }
+      } catch { /* nothing more to do */ }
+    } finally {
+      requestAnimationFrame(tick);
+    }
+  }
+
+  function drawFrame() {
     const now = Date.now();
     drawGround();
     flameSlugs = computeFlameSlugs(now);
@@ -947,9 +1005,10 @@
     drawClickMarkers(now);
     drawCelebrations(now);
     drawXpPopups(now);
-    if (state.citizens.length === 0) drawQuietTown();
+    // Only call a town "quiet" once the world feed has actually answered — the
+    // loop now paints before the first fetch lands.
+    if (state.citizens.length === 0 && state.worldLoaded) drawQuietTown();
     drawMinimap();
-    requestAnimationFrame(tick);
   }
 
   // ── Poring: RO's mascot jelly, ambient plaza life ─────────────────────
@@ -1080,6 +1139,15 @@
     let backoff = 1000;
     let stopped = false; // a fatal auth close (1008) parks reconnection
     let currentToken = null; // the control token this socket authenticated with
+    // True once the room has welcomed this socket. Intents only go out after
+    // that: a frame that races the hello (still authenticating) is refused as
+    // unauthenticated and closes the socket for good.
+    let joined = false;
+    let pendingPortal = null; // a gate entered while offline, replayed on the next welcome
+
+    function canSend() {
+      return joined && !!socket && socket.readyState === 1;
+    }
 
     function storedToken() {
       try { return localStorage.getItem(LS_KEY); } catch { return null; }
@@ -1092,16 +1160,14 @@
       if (!m) return;
       let redeemed = false;
       try {
-        const res = await fetch(`${API_BASE}/v1/browser-session`, {
+        const data = await fetchJson(`${API_BASE}/v1/browser-session`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ code: m[1] }),
         });
-        if (res.ok) {
-          const { controlToken } = await res.json();
-          if (controlToken) { try { localStorage.setItem(LS_KEY, controlToken); } catch {} redeemed = true; }
-        }
-      } catch { /* offline: leave the code so a reload can retry */ }
+        const controlToken = data && data.controlToken;
+        if (controlToken) { try { localStorage.setItem(LS_KEY, controlToken); } catch {} redeemed = true; }
+      } catch { /* offline/rejected/timeout: leave the code so a reload can retry */ }
       // Only scrub the one-time code once it's actually been consumed — a
       // failed/offline attempt keeps it so reopening the tab can retry.
       if (redeemed) history.replaceState(null, '', location.pathname + location.search);
@@ -1109,8 +1175,7 @@
 
     async function fetchMe(token) {
       try {
-        const res = await fetch(`${API_BASE}/v1/me`, { headers: { authorization: `Bearer ${token}` } });
-        return res.ok ? await res.json() : null;
+        return await fetchJson(`${API_BASE}/v1/me`, { headers: { authorization: `Bearer ${token}` } });
       } catch { return null; }
     }
 
@@ -1152,13 +1217,30 @@
           // The room's public id for me (anon-masked, matching the plaza's own
           // key) is the sprite I control — not necessarily /v1/me's real slug.
           if (msg.self) state.meSlug = msg.self;
+          joined = true;
           applySnapshot(msg.actors);
+          resyncAfterWelcome();
           break;
         case 'join': applySnapshot([msg.actor]); break;
         case 'snapshot': applySnapshot(msg.actors); break;
         case 'leave': { const a = actors.get(msg.slug); if (a) a.remote = false; break; }
         case 'room_redirect': doRedirect(msg); break;
+        case 'warp_failed': showToast(warpFailedText(msg)); break;
       }
+    }
+
+    // Every hello (first connect or reconnect) puts me at the room's spawn. If
+    // I've been driving my sprite, tell the room where it really is so peers
+    // don't see me at the fountain, then replay a gate I walked into while the
+    // socket was down — but only if I'm still standing in it.
+    function resyncAfterWelcome() {
+      const actor = ownerActor();
+      const pending = pendingPortal;
+      pendingPortal = null;
+      if (!actor || !actor.owned) return;
+      const f = toFraction(actor.x, actor.y);
+      sendMoveTo(f.x, f.y);
+      if (pending && actor.inPortal === pending.id) sendPortalEnter(pending);
     }
 
     // Portal warp landed server-side: my buddy now lives in msg.district. A DO
@@ -1189,6 +1271,7 @@
       let ws;
       try { ws = new WebSocket(wsUrl()); } catch { scheduleReconnect(token); return; }
       socket = ws;
+      joined = false;
       ws.addEventListener('open', () => {
         backoff = 1000;
         ws.send(JSON.stringify({ type: 'hello', controlToken: token, slug: state.meSlug || undefined, lastSeq: seq }));
@@ -1199,6 +1282,7 @@
       });
       ws.addEventListener('close', (ev) => {
         socket = null;
+        joined = false;
         // 1008 = policy/auth violation (bad/expired token, wrong room): the
         // token won't get better on retry, so stop hammering the room.
         if (ev && ev.code === 1008) { stopped = true; return; }
@@ -1214,26 +1298,36 @@
 
     // Emit an owner move intent. seq is monotonic so the room drops stale/out-of
     // -order frames. Fire-and-forget: if the socket is down, the local sprite
-    // still walks; peers catch up on the next connected frame.
+    // still walks; the next welcome re-sends where it ended up.
     function sendMoveTo(fx, fy) {
       seq += 1;
       const msg = { type: 'move_to', seq, x: fx, y: fy, clientTs: Date.now() };
       state.lastMoveTo = msg; // test hook
-      if (socket && socket.readyState === 1) { try { socket.send(JSON.stringify(msg)); } catch {} }
+      if (canSend()) { try { socket.send(JSON.stringify(msg)); } catch {} }
     }
 
     // Emit a portal-enter intent when the owner sprite walks into a gate. Reuses
     // the monotonic seq (shared with move_to) so the room drops a duplicate
     // portal_enter. Carries the control token so the room can validate the move
-    // against my own citizen (and only mine). Fire-and-forget like move_to.
+    // against my own citizen (and only mine). NOT fire-and-forget: checkPortal
+    // latches after one attempt, so an attempt made while the socket is down is
+    // queued and replayed on the next welcome instead of silently lost.
     function sendPortalEnter(portal) {
       seq += 1;
       const msg = { type: 'portal_enter', seq, portal: portal.id, to: portal.to, controlToken: currentToken || undefined };
       state.lastPortalEnter = msg; // test hook
-      if (socket && socket.readyState === 1) { try { socket.send(JSON.stringify(msg)); } catch {} }
+      if (canSend()) {
+        try { socket.send(JSON.stringify(msg)); pendingPortal = null; return true; } catch {}
+      }
+      pendingPortal = portal;
+      return false;
     }
 
-    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo, sendPortalEnter };
+    function status() { // test hook
+      return { joined, connected: !!socket && socket.readyState === 1, pendingPortal: pendingPortal ? pendingPortal.id : null };
+    }
+
+    return { storedToken, redeemCodeFromFragment, fetchMe, connect, toPixel, toFraction, applySnapshot, handleServerMsg, sendMoveTo, sendPortalEnter, status };
   })();
 
   // The sprite I control, if any (keyed by the plaza's public slug).
@@ -1263,7 +1357,8 @@
   // DRIVEN owner (owned === true, i.e. you've clicked at least once) can warp,
   // so a fresh spawn that happens to sit on a gate never auto-travels. Firing is
   // EDGE-triggered: portal_enter goes out once on entry, not every resident
-  // frame; leaving the rect re-arms it.
+  // frame; leaving the rect re-arms it. If the socket is down at that moment,
+  // RT queues the attempt and replays it on reconnect while I'm still inside.
   function checkPortal(actor) {
     if (!actor || !actor.owned || !portalsHere.length) return;
     const f = RT.toFraction(actor.x, actor.y);
@@ -1299,10 +1394,34 @@
     if (!actor || !portalsHere.length) return null;
     const p = portalsHere[i % portalsHere.length];
     const c = RT.toPixel(p.rect.x + p.rect.w / 2, p.rect.y + p.rect.h / 2);
-    actor.x = c.x; actor.y = c.y; actor.owned = true; actor.inPortal = null;
+    actor.x = c.x; actor.y = c.y; actor.tx = c.x; actor.ty = c.y; // park in the gate
+    actor.owned = true; actor.inPortal = null;
     checkPortal(actor);
     return state.lastPortalEnter || null;
   };
+  state.rtStatus = RT.status;
+
+  // ── room feedback toast (e.g. a failed warp) ──────────────────────────
+  // textContent only: the reason string comes off the wire.
+  const toastEl = document.getElementById('toast');
+  let toastTimer = null;
+  function showToast(text) {
+    state.lastToast = text; // test hook
+    if (!toastEl) return;
+    toastEl.textContent = text;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.hidden = true; toastEl.textContent = ''; }, 5000);
+  }
+  function warpFailedText(msg) {
+    const to = msg && typeof msg.to === 'string' && /^plaza-\d+$/.test(msg.to) ? townFor(msg.to).name : 'that town';
+    switch (msg && msg.reason) {
+      case 'town_full': return `🚧 ${to} is full right now. Try the gate again in a bit.`;
+      case 'no_portal':
+      case 'unknown_town': return `🌀 That gate doesn't lead anywhere from here.`;
+      default: return `🌀 The warp to ${to} didn't go through. Step out and back into the gate to retry.`;
+    }
+  }
 
   canvas.addEventListener('click', (ev) => {
     const rect = canvas.getBoundingClientRect();
@@ -1564,6 +1683,7 @@
     state.announcements = list;
     const fresh = [];
     for (const a of list) {
+      if (!a || typeof a !== 'object') continue; // malformed feed row
       // Prefer the stable world_events id (distinct even for two same-ms
       // same-type events); fall back to the composite only if a feed row
       // somehow lacks an id, so nothing silently re-broadcasts.
@@ -1578,15 +1698,17 @@
   }
 
   async function refreshAnnouncements() {
-    let res;
+    let data;
     try {
-      res = await fetch(`${API_BASE}/v1/announcements`);
-    } catch {
-      return; // offline/refused: keep the last banner state
+      data = await fetchJson(`${API_BASE}/v1/announcements`);
+    } catch (err) {
+      reportOnce('announcements', err);
+      return; // offline/refused/timeout/garbage: keep the last banner state
     }
-    if (!res.ok) return;
-    const data = await res.json();
-    ingestAnnouncements(Array.isArray(data.announcements) ? data.announcements : []);
+    // A body that isn't the feed shape is a failed poll, not an empty feed —
+    // don't let it consume the first-load seeding.
+    if (!data || !Array.isArray(data.announcements)) return;
+    ingestAnnouncements(data.announcements);
   }
 
   function updateAccessibility() {
@@ -1606,17 +1728,19 @@
   }
 
   async function refresh() {
-    let res;
+    let data;
     try {
-      res = await fetch(`${API_BASE}/v1/world/${district}`);
-    } catch {
-      return; // offline/refused: keep rendering the last known state
+      data = await fetchJson(`${API_BASE}/v1/world/${district}`);
+    } catch (err) {
+      reportOnce('world', err);
+      return; // offline/refused/timeout/garbage: keep rendering the last known state
     }
-    if (!res.ok) return;
-    const data = await res.json();
+    if (!data || !Array.isArray(data.citizens)) return; // not a district payload
     const prevSeen = seenEventKeys;
-    state.citizens = data.citizens || [];
-    state.events = data.events || [];
+    // Drop malformed rows here so they can't throw inside every frame.
+    state.citizens = data.citizens.filter((c) => c && typeof c.slug === 'string');
+    state.events = Array.isArray(data.events) ? data.events.filter((e) => e && typeof e === 'object') : [];
+    state.worldLoaded = true;
     const now = Date.now();
     state.celebrations = state.events.filter(
       (e) => now - e.ts < CELEBRATION_WINDOW_MS && e.type !== 'observe' && e.type !== 'session'
@@ -1638,7 +1762,6 @@
     firstLoad = false;
     updateTicker();
     updateAccessibility();
-    window.__PLAZA__ = state;
   }
 
   let seenEventKeys = new Set();
@@ -1721,29 +1844,34 @@
     });
   }
 
+  // Run one boot/poll step so that whatever it throws stays inside it.
+  async function guarded(where, step) {
+    try { await step(); } catch (err) { reportOnce(where, err); }
+  }
+
   async function boot() {
-    try {
-      const res = await fetch('sprites.json');
-      const data = await res.json();
-      state.sprites = data.sprites;
-      state.palettes = data.palettes;
-    } catch {
-      state.sprites = {};
-      state.palettes = {};
-    }
-    try {
-      state.jobLines = await (await fetch('jobs.json')).json();
-    } catch {
-      state.jobLines = null;
-    }
-    await refresh();
-    setInterval(refresh, 10_000);
-    // Global celebration feed → RO-yellow broadcast banner. Its own light poll
-    // (same cadence) so a per-town world fetch failing never stalls the banner,
-    // and every town shows the same cross-town celebrations.
-    await refreshAnnouncements();
-    setInterval(refreshAnnouncements, 10_000);
+    // Paint first: the render loop never waits on the network, so a slow or
+    // failing feed degrades one layer of the plaza instead of blanking it.
     requestAnimationFrame(tick);
+
+    // Global celebration feed → RO-yellow broadcast banner. Its own poll, never
+    // awaited by anything else, so a bad /v1/announcements can't hold up the
+    // citizens (and a world fetch failing never stalls the banner).
+    guarded('announcements', refreshAnnouncements);
+    setInterval(() => guarded('announcements', refreshAnnouncements), 10_000);
+
+    // Static assets in parallel; each degrades on its own. They land before the
+    // first world fetch on purpose: sprite metrics are cached per species on
+    // first draw, so citizens shouldn't render before the sprite sheet does.
+    const [sprites, jobs] = await Promise.allSettled([fetchJson('sprites.json'), fetchJson('jobs.json')]);
+    const sheet = sprites.status === 'fulfilled' && sprites.value && typeof sprites.value === 'object' ? sprites.value : {};
+    state.sprites = sheet.sprites && typeof sheet.sprites === 'object' ? sheet.sprites : {};
+    state.palettes = sheet.palettes && typeof sheet.palettes === 'object' ? sheet.palettes : {};
+    if (sprites.status === 'rejected') reportOnce('sprites', sprites.reason);
+    state.jobLines = jobs.status === 'fulfilled' && jobs.value && typeof jobs.value === 'object' ? jobs.value : null;
+
+    await guarded('world', refresh);
+    setInterval(() => guarded('world', refresh), 10_000);
 
     // Real-time control bootstrap (M3). Best-effort and fully optional: any
     // failure just leaves you as a spectator on the /v1/world poll.
@@ -1775,37 +1903,35 @@
   }
 
   // ── plaza music (self-hosted, original, no third-party embed) ─────────
-  // ON BY DEFAULT: a hidden <audio> plays original royalty-free ambience
-  // (Suno-generated, world/public/music/) — no YouTube iframe, no visible
-  // player, no third party, nothing copyrighted. Browsers block audible
-  // autoplay until a user gesture, so we attempt to start immediately and,
-  // if blocked, kick off on the visitor's first interaction. The 🎵 button
-  // still toggles it off/on.
+  // OPT-IN: nothing plays, and no track is fetched, until the visitor presses
+  // the 🎵 button. A hidden <audio preload="none"> plays original royalty-free
+  // ambience (Suno-generated, world/public/music/): no YouTube iframe, no
+  // visible player, no third party, nothing copyrighted. The same button stops
+  // it again. A tap on the plaza or a key press never starts it.
   const musicToggle = document.getElementById('music-toggle');
   const musicAudio = document.getElementById('music-audio');
 
   // Per-town music: each town has its own Suno-generated theme in
-  // world/public/music/. Point the <audio> at the CURRENT town's track
-  // (derived from the district) before playing; fall back to plaza-theme.
+  // world/public/music/. index.html ships Prontera's (plaza-theme) <source>s;
+  // other towns swap in their own on the first press, so loading the page
+  // never fetches audio.
   const TOWN_TRACK = {
     Prontera: 'plaza-theme', Payon: 'payon', Geffen: 'geffen',
     Alberta: 'alberta', Morroc: 'morroc', Comodo: 'comodo',
   };
-  if (musicAudio) {
-    const track = TOWN_TRACK[TOWN.name] || 'plaza-theme';
-    // Prontera keeps the static <source>s already in index.html (plaza-theme);
-    // only rebuild + load() for other towns. Calling load() unconditionally
-    // kicks off a media fetch that stalls headless networkidle0 on the landing.
-    if (track !== 'plaza-theme') {
-      musicAudio.replaceChildren();
-      for (const [ext, type] of [['ogg', 'audio/ogg'], ['mp3', 'audio/mpeg']]) {
-        const s = document.createElement('source');
-        s.src = `music/${track}.${ext}`;
-        s.type = type;
-        musicAudio.appendChild(s);
-      }
-      musicAudio.load();
+  const musicTrack = TOWN_TRACK[TOWN.name] || 'plaza-theme';
+  let musicTrackReady = musicTrack === 'plaza-theme';
+  function useTownTrack() {
+    if (musicTrackReady) return;
+    musicTrackReady = true;
+    musicAudio.replaceChildren();
+    for (const [ext, type] of [['ogg', 'audio/ogg'], ['mp3', 'audio/mpeg']]) {
+      const s = document.createElement('source');
+      s.src = `music/${musicTrack}.${ext}`;
+      s.type = type;
+      musicAudio.appendChild(s);
     }
+    musicAudio.load(); // re-run source selection with the new <source>s
   }
 
   if (musicToggle && musicAudio) {
@@ -1819,33 +1945,14 @@
       musicToggle.setAttribute('aria-pressed', 'true');
       musicToggle.setAttribute('aria-label', 'Stop plaza music');
     };
-    const start = async () => {
-      try { await musicAudio.play(); setPlaying(); return true; }
-      catch { return false; }
-    };
     musicToggle.addEventListener('click', async () => {
       if (!musicAudio.paused) { musicAudio.pause(); setIdle(); return; }
-      await start();
+      useTownTrack();
+      try { await musicAudio.play(); setPlaying(); } catch { /* missing track or blocked: stay idle */ }
     });
     // Keep the button honest if playback stops for any reason.
     musicAudio.addEventListener('pause', setIdle);
     musicAudio.addEventListener('ended', setIdle);
-
-    // On by default: try to autoplay now; if the browser blocks it, start on
-    // the first user gesture (a one-shot listener that then removes itself).
-    (async () => {
-      if (await start()) return;
-      const kickstart = (e) => {
-        window.removeEventListener('pointerdown', kickstart);
-        window.removeEventListener('keydown', kickstart);
-        // If the first gesture was the music button itself, let its own click
-        // handler run (don't start-then-toggle-off on the same click).
-        if (e && e.target && e.target.closest && e.target.closest('#music-toggle')) return;
-        if (musicAudio.paused) start();
-      };
-      window.addEventListener('pointerdown', kickstart);
-      window.addEventListener('keydown', kickstart);
-    })();
   }
 
   boot();

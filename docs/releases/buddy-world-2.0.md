@@ -22,7 +22,8 @@ into portals, and everyone sees each other move — and celebrate — in real ti
 - **Country flags.** On teleport, your buddy flies the flag of your connection's
   country (derived server-side from the request — coarse country-level only, no
   city or IP stored; hidden in anonymous mode).
-- **Per-town music.** Each town has its own original, self-hosted theme.
+- **Per-town music.** Each town has its own original, self-hosted theme. It's
+  opt-in: nothing plays until you press 🎵.
 - **RO-style celebrations.** Level-ups, deploys, and 7-day streaks trigger a
   **yellow world-broadcast banner** that sweeps across the top **in every town**
   (`📢 buddy shipped to production! — in Prontera`), plus in-world effects: a
