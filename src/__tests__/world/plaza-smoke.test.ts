@@ -603,6 +603,60 @@ describe('plaza smoke test (headless browser)', () => {
     expect(popup.text).toContain('60'); // deploy pays 60 XP
   }, 60_000);
 
+  it('floating XP shows the real gain between polls (world blessing included)', async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    // First poll: the fixture. Every poll after `next` is set: the same town a
+    // moment later, with new events and the XP the server actually credited.
+    let next: ReturnType<typeof fixtureDistrict> | null = null;
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== '/v1/world/plaza-1' || !next) { void req.continue(); return; }
+      void req.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(next) });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length === 8');
+    // Nothing pops on the first load; it only seeds what's been seen.
+    expect(await page.evaluate('window.__PLAZA__.xpPopups.length')).toBe(0);
+
+    const later = fixtureDistrict();
+    const ts = Date.now();
+    const gain: Record<string, number> = {
+      'buddy-3': 9, // observe, blessed: round(8 * 1.1)
+      'buddy-4': 28 + 6, // commit + session, blessed
+      'buddy-5': 25, // commit, not blessed
+      'buddy-6': 10, // deploy, clamped by the server's XP budget
+    };
+    for (const c of later.citizens) c.xp += gain[c.slug] ?? 0;
+    // A buddy that just arrived has no earlier XP to compare: table value.
+    later.citizens.push({ ...later.citizens[7], slug: 'buddy-new', name: 'Newcomer' });
+    later.events.push(
+      { citizen_slug: 'buddy-3', type: 'observe', ts },
+      { citizen_slug: 'buddy-4', type: 'commit', ts: ts - 1 },
+      { citizen_slug: 'buddy-4', type: 'session', ts: ts - 2 },
+      { citizen_slug: 'buddy-5', type: 'commit', ts },
+      { citizen_slug: 'buddy-6', type: 'deploy', ts },
+      { citizen_slug: 'buddy-new', type: 'commit', ts },
+    );
+    next = later;
+    await page.evaluate('window.__PLAZA__.refreshWorldForTest()');
+
+    const popups = (await page.evaluate(
+      'window.__PLAZA__.xpPopups.map((p) => p.slug + " " + p.text)'
+    )) as string[];
+    expect(popups.sort()).toEqual([
+      'buddy-3 +9 XP',
+      'buddy-4 +28 XP',
+      'buddy-4 +6 XP',
+      'buddy-5 +25 XP',
+      'buddy-6 +10 XP',
+      'buddy-new +25 XP',
+    ]);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('offers an accessible SFX toggle, off by default', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });

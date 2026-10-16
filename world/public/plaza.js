@@ -85,7 +85,8 @@
   };
   const BUBBLE_TTL_MS = 90_000;
 
-  // Client-side mirror of XP_REWARDS for the floating damage numbers.
+  // Client-side mirror of XP_REWARDS. The floating numbers prefer the real
+  // XP gain (see splitXpDelta); this table is the fallback and the weights.
   const XP_VALUES = { observe: 8, session: 5, commit: 25, tests_passed: 20, bug_fix: 35, deploy: 60, level_up: 0, streak_7: 0 };
 
   // RO job class from peak stat + level (JOB_LINES loaded from jobs.json,
@@ -1544,8 +1545,8 @@
   }
 
   const MAX_XP_POPUPS = 40;
-  function spawnXpPopup(slug, type) {
-    const xp = XP_VALUES[type] ?? 0;
+  // xp: what the buddy actually earned for this event; defaults to the table.
+  function spawnXpPopup(slug, type, xp = XP_VALUES[type] ?? 0) {
     const text = xp > 0 ? `+${xp} XP` : (type === 'level_up' ? 'LEVEL UP!' : '');
     if (!text) return;
     state.xpPopups.push({ slug, text, born: Date.now() });
@@ -1556,6 +1557,29 @@
     }
   }
   state.spawnXpPopup = spawnXpPopup;
+
+  // What each of a citizen's new events actually paid. A buddy's events and
+  // its XP snapshot arrive in the same /v1/events batch, so the rise in its xp
+  // between two polls is the real gain, world blessing (+10%) and server clamp
+  // included. That gain is split across the new events in proportion to their
+  // table values, so the popups add up to it exactly. The table is used as-is
+  // only when there's no usable gain (first sighting, or xp didn't rise).
+  function splitXpDelta(delta, types) {
+    const bases = types.map((t) => XP_VALUES[t] ?? 0);
+    const total = bases.reduce((s, b) => s + b, 0);
+    if (!(delta > 0) || total <= 0) return bases;
+    // Blessed buddies earn round(base * 1.1) per event (leveling.ts applyBlessing).
+    const blessed = bases.map((b) => Math.round(b * 1.1));
+    if (blessed.reduce((s, b) => s + b, 0) === delta) return blessed;
+    // Anything else (clamped, mixed batches): largest-remainder split.
+    const raw = bases.map((b) => (delta * b) / total);
+    const out = raw.map(Math.floor);
+    const left = delta - out.reduce((s, v) => s + v, 0);
+    const order = raw.map((v, i) => i).sort((a, b) => (raw[b] - out[b]) - (raw[a] - out[a]));
+    for (let k = 0; k < left; k++) out[order[k % order.length]]++;
+    return out;
+  }
+
   function drawXpPopups(now) {
     const LIFE = 1600;
     state.xpPopups = state.xpPopups.filter((p) => now - p.born < LIFE);
@@ -1737,6 +1761,7 @@
     }
     if (!data || !Array.isArray(data.citizens)) return; // not a district payload
     const prevSeen = seenEventKeys;
+    const prevXp = new Map(state.citizens.map((c) => [c.slug, c.xp]));
     // Drop malformed rows here so they can't throw inside every frame.
     state.citizens = data.citizens.filter((c) => c && typeof c.slug === 'string');
     state.events = Array.isArray(data.events) ? data.events.filter((e) => e && typeof e === 'object') : [];
@@ -1751,12 +1776,20 @@
     // last hour of history when you open the page.
     seenEventKeys = new Set(state.events.map((e) => `${e.citizen_slug}:${e.type}:${e.ts}`));
     if (!firstLoad) {
-      for (const e of state.events) {
-        const key = `${e.citizen_slug}:${e.type}:${e.ts}`;
-        if (!prevSeen.has(key) && now - e.ts < CELEBRATION_WINDOW_MS) {
-          spawnXpPopup(e.citizen_slug, e.type);
-          playSfx(e.type);
-        }
+      const fresh = state.events.filter(
+        (e) => !prevSeen.has(`${e.citizen_slug}:${e.type}:${e.ts}`) && now - e.ts < CELEBRATION_WINDOW_MS
+      );
+      // Per citizen: the XP each fresh event really paid, in event order.
+      const xpNow = new Map(state.citizens.map((c) => [c.slug, c.xp]));
+      const earned = new Map();
+      for (const slug of new Set(fresh.map((e) => e.citizen_slug))) {
+        const before = prevXp.get(slug), after = xpNow.get(slug);
+        const delta = Number.isFinite(before) && Number.isFinite(after) ? after - before : NaN;
+        earned.set(slug, splitXpDelta(delta, fresh.filter((e) => e.citizen_slug === slug).map((e) => e.type)));
+      }
+      for (const e of fresh) {
+        spawnXpPopup(e.citizen_slug, e.type, earned.get(e.citizen_slug).shift());
+        playSfx(e.type);
       }
     }
     firstLoad = false;
@@ -1766,6 +1799,7 @@
 
   let seenEventKeys = new Set();
   let firstLoad = true;
+  state.refreshWorldForTest = () => refresh(); // tests drive polls instead of waiting 10s
 
   // Overhead RO emote bubbles for activity in the last 90s.
   function rebuildBubbles(now) {
