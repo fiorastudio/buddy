@@ -50,6 +50,12 @@
     background: rgba(15, 12, 41, 0.95); border: 1px solid var(--gold); border-radius: 8px;
     padding: 8px 14px; font-size: 13px; color: #ffe082; text-align: center;
   }
+  #toast .toast-action {
+    margin-left: 6px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+    background: transparent; border: 1px solid var(--gold); color: var(--gold);
+    font: inherit;
+  }
+  #toast .toast-action:hover, #toast .toast-action:focus-visible { background: var(--gold); color: #0f0c29; }
   #toast[hidden] { display: none; }
   #plaza { display: block; }
   #cta {

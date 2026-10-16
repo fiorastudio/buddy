@@ -1144,6 +1144,9 @@
     // unauthenticated and closes the socket for good.
     let joined = false;
     let pendingPortal = null; // a gate entered while offline, replayed on the next welcome
+    // The room retired this socket because a newer tab took over my buddy (B6:
+    // newest wins). Reconnection stays parked; the owner may take it back.
+    let takenOver = false;
 
     function canSend() {
       return joined && !!socket && socket.readyState === 1;
@@ -1226,6 +1229,7 @@
         case 'leave': { const a = actors.get(msg.slug); if (a) a.remote = false; break; }
         case 'room_redirect': doRedirect(msg); break;
         case 'warp_failed': showToast(warpFailedText(msg)); break;
+        case 'error': if (msg.error === 'taken over') takenOver = true; break;
       }
     }
 
@@ -1285,10 +1289,23 @@
         joined = false;
         // 1008 = policy/auth violation (bad/expired token, wrong room): the
         // token won't get better on retry, so stop hammering the room.
-        if (ev && ev.code === 1008) { stopped = true; return; }
+        if (ev && ev.code === 1008) {
+          stopped = true;
+          // Retired for a newer tab, not refused: say so instead of going quiet.
+          if (takenOver || ev.reason === 'taken over') showTakenOver(() => takeBack(token));
+          return;
+        }
         scheduleReconnect(token);
       });
       ws.addEventListener('error', () => { try { ws.close(); } catch {} });
+    }
+    // Reconnecting makes THIS tab the newest socket for my buddy, so the room
+    // hands control back here and retires the other tab the same way.
+    function takeBack(token) {
+      if (!takenOver || socket) return;
+      takenOver = false;
+      stopped = false;
+      connect(token);
     }
     function scheduleReconnect(token) {
       if (stopped) return;
@@ -1412,6 +1429,26 @@
     toastEl.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { toastEl.hidden = true; toastEl.textContent = ''; }, 5000);
+  }
+  // A newer tab took over my buddy. Unlike other notices this one stays up
+  // (this tab is parked until the owner acts) and offers the way back.
+  function showTakenOver(takeBack) {
+    const text = '🔀 Your buddy is now being driven in another tab.';
+    state.lastToast = text; // test hook
+    if (!toastEl) return;
+    clearTimeout(toastTimer);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = 'Take back control';
+    btn.addEventListener('click', () => {
+      toastEl.hidden = true;
+      toastEl.textContent = '';
+      takeBack();
+    });
+    toastEl.textContent = text + ' ';
+    toastEl.append(btn);
+    toastEl.hidden = false;
   }
   function warpFailedText(msg) {
     const to = msg && typeof msg.to === 'string' && /^plaza-\d+$/.test(msg.to) ? townFor(msg.to).name : 'that town';

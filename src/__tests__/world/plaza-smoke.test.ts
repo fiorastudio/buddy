@@ -603,6 +603,93 @@ describe('plaza smoke test (headless browser)', () => {
     expect(popup.text).toContain('60'); // deploy pays 60 XP
   }, 60_000);
 
+  // B6: the room retires the older tab for the same buddy with an error frame
+  // and a 1008 "taken over" close. The parked tab must say so, and offer a way
+  // to take control back, instead of silently going quiet.
+  it('tells the owner another tab took over their buddy, and "take back control" reconnects', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.evaluateOnNewDocument(FAKE_ROOM_SOCKET);
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== '/v1/me') { void req.continue(); return; }
+      void req.respond({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'buddy-0', district: 'plaza-1' }),
+      });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__WS__.length === 1');
+    const welcome = `{ type: 'welcome', district: 'plaza-1', self: 'buddy-0', actors: [] }`;
+    await page.evaluate('window.__WS__[0]._open()');
+    await page.evaluate(`window.__WS__[0]._recv(${welcome})`);
+
+    const toast = () =>
+      page.evaluate(`(() => {
+        const el = document.querySelector('#toast');
+        const btn = el.querySelector('button');
+        return { hidden: el.hidden, text: el.textContent, button: btn ? btn.textContent : null };
+      })()`) as Promise<{ hidden: boolean; text: string; button: string | null }>;
+    // The server side of a takeover, exactly as the room sends it.
+    const takeOver = (i: number) =>
+      page.evaluate(`(() => {
+        const ws = window.__WS__[${i}];
+        ws._recv({ type: 'error', error: 'taken over' });
+        ws.readyState = 3;
+        ws.dispatchEvent(new CloseEvent('close', { code: 1008, reason: 'taken over' }));
+      })()`);
+
+    await takeOver(0);
+    let t = await toast();
+    expect(t.hidden).toBe(false);
+    expect(t.text).toContain('Your buddy is now being driven in another tab');
+    expect(t.button).toBe('Take back control');
+
+    // Parked: no reconnect on its own (well past the 1s first backoff), and the
+    // notice stays up rather than timing out like a warp toast.
+    await new Promise((r) => setTimeout(r, 6_000));
+    expect(await page.evaluate('window.__WS__.length')).toBe(1);
+    expect((await toast()).hidden).toBe(false);
+
+    // Taking it back opens a fresh socket with a fresh hello: this tab is the
+    // newest again, so the room hands it control.
+    await page.click('#toast button');
+    await page.waitForFunction('window.__WS__.length === 2', { timeout: 2_000 });
+    t = await toast();
+    expect(t.hidden).toBe(true);
+    await page.evaluate('window.__WS__[1]._open()');
+    expect(((await page.evaluate('window.__WS__[1].sent')) as Array<{ type: string; controlToken?: string }>)[0]).toMatchObject({
+      type: 'hello',
+      controlToken: 'test-control-token',
+    });
+    await page.evaluate(`window.__WS__[1]._recv(${welcome})`);
+    expect(await page.evaluate('window.__PLAZA__.rtStatus().joined')).toBe(true);
+
+    // ...and it can be taken over (and back) again.
+    await takeOver(1);
+    expect((await toast()).button).toBe('Take back control');
+
+    // Any other 1008 (a revoked or expired token) is still a quiet, final stop.
+    await page.click('#toast button');
+    await page.waitForFunction('window.__WS__.length === 3', { timeout: 2_000 });
+    await page.evaluate('window.__WS__[2]._open()');
+    await page.evaluate(`(() => {
+      const ws = window.__WS__[2];
+      ws._recv({ type: 'error', error: 'invalid control token' });
+      ws.readyState = 3;
+      ws.dispatchEvent(new CloseEvent('close', { code: 1008, reason: 'auth' }));
+    })()`);
+    expect((await toast()).hidden).toBe(true);
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect(await page.evaluate('window.__WS__.length')).toBe(3);
+
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it('offers an accessible SFX toggle, off by default', async () => {
     const page = await browser.newPage();
     await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
