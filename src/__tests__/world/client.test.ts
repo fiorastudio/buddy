@@ -11,7 +11,9 @@ import {
   deleteWorldConfig,
   isWorldBlessed,
   WorldSync,
+  MAX_QUEUED_EVENTS,
 } from '../../lib/world/client.js';
+import { MAX_EVENT_BATCH } from '../../lib/world/schema-sql.js';
 import { validateSnapshot } from '../../lib/world/validate.js';
 import { createWorldFetchHandler } from '../../world/worker-core.js';
 import { sqliteAsD1 } from './d1-shim.js';
@@ -41,7 +43,7 @@ function companion(): Companion {
 describe('buildWorldSnapshot', () => {
   it('maps a Companion to a snapshot that passes validation', () => {
     const snap = buildWorldSnapshot(companion(), 'chibi-2');
-    expect(validateSnapshot(snap)).toEqual({ ok: true });
+    expect(validateSnapshot(snap)).toEqual({ ok: true, snapshot: snap });
     expect(snap.stats.debugging).toBe(60);
     expect(snap.avatar).toBe('chibi-2');
   });
@@ -125,6 +127,115 @@ describe('WorldSync against a real handler (end to end)', () => {
     const world = await fetchHandler(new Request(`https://world.example.com/v1/world/${res.district}`));
     const body = (await world.json()) as { citizens: unknown[] };
     expect(body.citizens).toHaveLength(0);
+  });
+});
+
+describe('WorldSync batching and failure handling (B3: sync must never wedge)', () => {
+  const API = 'https://world.example.com';
+  let fetchHandler: (req: Request) => Promise<Response>;
+  let clock: { now: number };
+  let sent: Array<{ events: unknown[]; snapshot?: unknown; status: number }>;
+  let cfg: { token: string; apiUrl: string };
+  let sync: WorldSync;
+
+  // Real handler + sqlite D1, with every /v1/events POST recorded.
+  const recordingFetch = async (url: string, init?: RequestInit) => {
+    const res = await fetchHandler(new Request(url, init));
+    if (url.endsWith('/v1/events')) {
+      const body = JSON.parse(String(init?.body)) as { events: unknown[]; snapshot?: unknown };
+      sent.push({ events: body.events, snapshot: body.snapshot, status: res.status });
+    }
+    return res;
+  };
+
+  async function commitsInWorld(district: string): Promise<number> {
+    const res = await fetchHandler(new Request(`${API}/v1/world/${district}`));
+    const body = (await res.json()) as { events: Array<{ type: string }> };
+    return body.events.filter((e) => e.type === 'commit').length;
+  }
+
+  beforeEach(() => {
+    clock = { now: T0 };
+    sent = [];
+    fetchHandler = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: API,
+      now: () => clock.now,
+    });
+    cfg = { token: generateToken(), apiUrl: API };
+    sync = new WorldSync(cfg, { fetchFn: recordingFetch, now: () => clock.now });
+  });
+
+  it('drains a backlog larger than MAX_EVENT_BATCH in server-sized chunks', async () => {
+    const tp = await sync.teleport(buildWorldSnapshot(companion()));
+    for (let i = 0; i < 120; i++) sync.queue('commit'); // a long offline stretch
+
+    expect(await sync.flush(buildWorldSnapshot(companion()))).toBe(true);
+    expect(sent[0].events).toHaveLength(MAX_EVENT_BATCH);
+    expect(sync.pending).toBe(120 - MAX_EVENT_BATCH);
+
+    for (let i = 0; i < 10 && sync.pending > 0; i++) expect(await sync.flush()).toBe(true);
+    expect(sync.pending).toBe(0);
+    expect(sent.every((r) => r.status === 200 && r.events.length <= MAX_EVENT_BATCH)).toBe(true);
+    expect(await commitsInWorld(tp.district)).toBe(120);
+  });
+
+  it('caps the offline queue, dropping the oldest events', async () => {
+    const offline = new WorldSync(
+      { token: generateToken(), apiUrl: API },
+      { fetchFn: () => Promise.reject(new Error('ECONNREFUSED')), now: () => clock.now }
+    );
+    for (let i = 0; i < MAX_QUEUED_EVENTS + 250; i++) offline.queue('commit');
+    expect(offline.pending).toBe(MAX_QUEUED_EVENTS);
+    expect(await offline.flush()).toBe(false); // network failure: requeued, still capped
+    expect(offline.pending).toBe(MAX_QUEUED_EVENTS);
+  });
+
+  it('keeps events queued across a 5xx and delivers them once the server recovers', async () => {
+    const tp = await sync.teleport(buildWorldSnapshot(companion()));
+    let down = true;
+    const flaky = new WorldSync(cfg, {
+      fetchFn: (url, init) =>
+        down
+          ? Promise.resolve(new Response('{"error":"internal error"}', { status: 500 }))
+          : recordingFetch(url, init),
+      now: () => clock.now,
+    });
+    flaky.queue('commit');
+    flaky.queue('commit');
+    expect(await flaky.flush()).toBe(false);
+    expect(flaky.pending).toBe(2);
+    down = false;
+    expect(await flaky.flush()).toBe(true);
+    expect(flaky.pending).toBe(0);
+    expect(await commitsInWorld(tp.district)).toBe(2);
+  });
+
+  it('a rejected snapshot does not wedge the queue: events land exactly once, without it', async () => {
+    const tp = await sync.teleport(buildWorldSnapshot(companion()));
+    const bad = buildWorldSnapshot({ ...companion(), name: "O'Malley" }); // validator rejects quotes
+    expect(validateSnapshot(bad).ok).toBe(false);
+
+    sync.queue('commit');
+    sync.queue('commit');
+    await sync.flush(bad);
+    expect(sync.pending).toBe(0);
+    await sync.flush(bad); // the same bad snapshot again must not re-deliver anything
+    expect(sync.pending).toBe(0);
+    expect(await commitsInWorld(tp.district)).toBe(2);
+  });
+
+  it('drops a batch the server will never accept (4xx) instead of retrying forever', async () => {
+    // Never teleported: the token is unknown, so every POST is a 401.
+    sync.queue('commit');
+    expect(await sync.flush()).toBe(false);
+    expect(sync.pending).toBe(0);
+    for (let i = 0; i < 5; i++) {
+      sync.queue('commit');
+      await sync.flush();
+    }
+    expect(sync.pending).toBe(0);
+    expect(sent.every((r) => r.status === 401 && r.events.length === 1)).toBe(true); // nothing piled up
   });
 });
 
