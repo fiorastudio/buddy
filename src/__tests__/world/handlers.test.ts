@@ -149,6 +149,20 @@ describe('world handlers', () => {
     expect(res.status).toBe(400);
   });
 
+  it('a rejected snapshot writes nothing, so a client retry cannot duplicate events', async () => {
+    await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
+    const payload = {
+      token: 'tok-0123456789abcdef',
+      events: [{ type: 'commit', ts: T0 + 1 }],
+      snapshot: snap({ name: "O'Malley", mood: 'grumpy' }), // validator rejects quotes
+    };
+    for (let i = 0; i < 3; i++) {
+      expect((await handleEvents(payload, store, OPTS)).status).toBe(400);
+    }
+    expect((await store.district('plaza-1', 0)).events).toHaveLength(0);
+    expect((await store.findByTokenHash(hashToken('tok-0123456789abcdef')))!.mood).toBe('happy');
+  });
+
   it('strips internal flags from the public world view', async () => {
     await handleTeleport({ token: 'tok-0123456789abcdef', snapshot: snap() }, store, OPTS);
     const res = await handleWorld('plaza-1', store, OPTS);

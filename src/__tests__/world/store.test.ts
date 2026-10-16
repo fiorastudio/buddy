@@ -181,3 +181,25 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(rollups[0].event_counts).toEqual({ commit: 2, deploy: 1 });
   });
 });
+
+describe('D1WorldStore.recordEvents atomicity', () => {
+  it('writes a batch all-or-nothing, so a failed request leaves nothing for a retry to duplicate', async () => {
+    const raw = new Database(':memory:');
+    const store = await D1WorldStore.create(sqliteAsD1(raw));
+    await store.teleport('tokenhash-1', snap(), T0);
+    const citizen = (await store.findByTokenHash('tokenhash-1'))!;
+    // Fail the SECOND insert of the batch, after the first has run.
+    raw.exec(
+      `CREATE TRIGGER boom BEFORE INSERT ON world_events WHEN NEW.ts = ${T0 + 2}
+       BEGIN SELECT RAISE(ABORT, 'boom'); END`
+    );
+    await expect(
+      store.recordEvents(citizen.id, [
+        { type: 'commit', ts: T0 + 1 },
+        { type: 'commit', ts: T0 + 2 },
+      ])
+    ).rejects.toThrow(/boom/);
+    expect((await store.district('plaza-1', 0)).events).toHaveLength(0);
+    expect((await store.findByTokenHash('tokenhash-1'))!.last_seen_at).toBe(T0);
+  });
+});

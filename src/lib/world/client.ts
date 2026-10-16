@@ -10,7 +10,12 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Companion } from '../types.js';
 import type { WorldSnapshot } from './validate.js';
-import { INSTANT_WORLD_EVENTS } from './schema-sql.js';
+import { INSTANT_WORLD_EVENTS, MAX_EVENT_BATCH } from './schema-sql.js';
+
+// Ceiling on events held while the world is unreachable. Events are cosmetic
+// (plaza feed, rollups), so past this the oldest are dropped instead of a long
+// offline stretch growing the MCP server's memory without bound.
+export const MAX_QUEUED_EVENTS = 500;
 
 export interface WorldConfig {
   token: string;
@@ -148,6 +153,24 @@ export class WorldSync {
 
   queue(type: string): void {
     this.queued.push({ type, ts: this.now() });
+    this.capQueue();
+  }
+
+  /** Events waiting to be delivered. */
+  get pending(): number {
+    return this.queued.length;
+  }
+
+  private capQueue(): void {
+    const excess = this.queued.length - MAX_QUEUED_EVENTS;
+    if (excess > 0) this.queued.splice(0, excess); // drop the oldest
+  }
+
+  // Worth retrying later: no response (network/timeout), 5xx, 408, 429.
+  // Any other non-200 is the server rejecting the request itself, and
+  // resending the same request would fail the same way forever.
+  private static isTransient(res: Response | null): boolean {
+    return !res || res.status >= 500 || res.status === 408 || res.status === 429;
   }
 
   /** Debounce-aware flush; awaitable but designed to be fire-and-forget. */
@@ -156,21 +179,37 @@ export class WorldSync {
     await this.flush(snapshot);
   }
 
-  /** Returns true when the batch was delivered. Never throws. */
+  /**
+   * Sends at most one server-sized batch (the rest stays queued for the next
+   * window). Returns true when that batch's events were delivered. Never throws.
+   */
   async flush(snapshot?: WorldSnapshot): Promise<boolean> {
-    const events = this.queued;
-    this.queued = [];
-    const res = await this.post('/v1/events', {
+    const events = this.queued.splice(0, MAX_EVENT_BATCH);
+    let res = await this.post('/v1/events', {
       token: this.cfg.token,
       events,
       ...(snapshot ? { snapshot } : {}),
     });
-    if (!res || res.status !== 200) {
-      this.queued = events.concat(this.queued); // requeue for the next window
-      return false;
+    // A 400 with a snapshot attached is most likely the snapshot (e.g. a name
+    // the server's validator rejects). The server writes nothing on a 400, so
+    // resend the events alone once rather than lose them with it.
+    if (res?.status === 400 && snapshot && events.length > 0) {
+      res = await this.post('/v1/events', { token: this.cfg.token, events });
     }
-    this.lastFlush = this.now();
-    return true;
+    if (res?.status === 200) {
+      this.lastFlush = this.now();
+      return true;
+    }
+    if (WorldSync.isTransient(res)) {
+      this.queued = events.concat(this.queued); // requeue for the next window
+      this.capQueue();
+    } else {
+      // Rejected outright (4xx): it can never succeed, so drop the batch rather
+      // than wedge the queue behind it. Start a new debounce window too, so a
+      // permanently refused token isn't retried on every single tool call.
+      this.lastFlush = this.now();
+    }
+    return false;
   }
 
   async recall(purge: boolean): Promise<boolean> {
