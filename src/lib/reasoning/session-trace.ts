@@ -56,37 +56,49 @@ function walkFiles(root: string, exts: string[], depth: number = 4): string[] {
 // reading each file whole made this scale with total transcript volume
 // instead of with the header we actually parse. On a machine with real
 // history it never finished.
-// 32 KiB comfortably covers a first JSONL record while keeping a full scan of
-// a few hundred transcripts in the tens of megabytes rather than the tens of
-// gigabytes. A whole .json still gets parsed as one object, so it has its own
-// (larger) ceiling.
-const HEAD_BYTES = 32 * 1024;
+//
+// We therefore read in small chunks and stop as soon as we have the lines we
+// need — the first newline for Claude. A fixed byte count was the wrong bound:
+// a first record longer than it (Codex's session_meta embeds the full
+// instructions) was cut mid-line, discarded as partial, and the session never
+// matched. The line, not the byte count, is the unit. MAX_RECORD_BYTES is only
+// a backstop against a pathological file with no newline at all.
+// A whole .json still gets parsed as one object, so it has its own (larger)
+// ceiling.
+const CHUNK_BYTES = 32 * 1024;
+const MAX_RECORD_BYTES = 4 * 1024 * 1024;
 const MAX_WHOLE_JSON_BYTES = 256 * 1024;
 
-// Reads at most `bytes` from the front of a file. `truncated` says whether
-// the file continued past what we read, so callers can discard a trailing
-// partial line rather than trying to parse half a JSON object.
-function readHead(file: string, bytes: number = HEAD_BYTES): { text: string; truncated: boolean } {
+// Returns up to `maxLines` complete, non-empty lines from the front of a file,
+// reading chunk by chunk until that many newlines have been seen (or EOF, or
+// the backstop). A trailing line is only returned if the file really ended
+// there — a read cut off by the backstop never yields half a JSON object.
+function headLines(file: string, maxLines: number, maxBytes: number = MAX_RECORD_BYTES): string[] {
   let fd: number | undefined;
   try {
     fd = openSync(file, 'r');
-    const buf = Buffer.allocUnsafe(bytes);
-    const got = readSync(fd, buf, 0, bytes, 0);
-    return { text: buf.toString('utf-8', 0, got), truncated: got === bytes };
+    const chunk = Buffer.allocUnsafe(CHUNK_BYTES);
+    const parts: Buffer[] = [];
+    let total = 0;
+    let newlines = 0;
+    let eof = false;
+    while (total < maxBytes && newlines < maxLines) {
+      const got = readSync(fd, chunk, 0, CHUNK_BYTES, total);
+      if (got === 0) { eof = true; break; }
+      const piece = Buffer.from(chunk.subarray(0, got));
+      for (let i = 0; i < got; i++) if (piece[i] === 0x0a) newlines++;
+      parts.push(piece);
+      total += got;
+      if (got < CHUNK_BYTES) { eof = true; break; }
+    }
+    const lines = Buffer.concat(parts).toString('utf-8').split('\n');
+    if (!eof) lines.pop(); // may be cut mid-line
+    return lines.filter(Boolean).slice(0, maxLines);
   } catch {
-    return { text: '', truncated: false };
+    return [];
   } finally {
     if (fd !== undefined) { try { closeSync(fd); } catch { /* ignore */ } }
   }
-}
-
-// Complete lines only — a truncated read almost always ends mid-line.
-function headLines(file: string, bytes: number = HEAD_BYTES): string[] {
-  const { text, truncated } = readHead(file, bytes);
-  if (!text) return [];
-  const lines = text.split('\n');
-  if (truncated) lines.pop();
-  return lines.filter(Boolean);
 }
 
 function tryMatchCwd(trace: SessionTrace, cwd: string): boolean {
@@ -106,7 +118,7 @@ function resolveClaudeTrace(trace: SessionTrace, home: string): boolean {
         // the first record.
         let firstLine: string;
         if (file.endsWith('.jsonl')) {
-          firstLine = headLines(file)[0] ?? '';
+          firstLine = headLines(file, 1)[0] ?? '';
         } else {
           let size = 0;
           try { size = statSync(file).size; } catch { continue; }
@@ -131,7 +143,7 @@ function resolveCodexTrace(trace: SessionTrace, home: string): boolean {
   const root = join(home, '.codex', 'sessions');
   for (const file of walkFiles(root, ['.jsonl'], 4)) {
     try {
-      const lines = headLines(file).slice(0, 12);
+      const lines = headLines(file, 12);
       for (const line of lines) {
         const row = JSON.parse(line) as any;
         const payload = row?.payload;
