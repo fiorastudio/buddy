@@ -163,7 +163,7 @@ describe('world handlers', () => {
     for (let i = 0; i < 3; i++) {
       expect((await handleEvents(payload, store, OPTS)).status).toBe(400);
     }
-    expect((await store.district('plaza-1', 0)).events).toHaveLength(0);
+    expect((await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER)).events).toHaveLength(0);
     expect((await store.findByTokenHash(hashToken('tok-0123456789abcdef')))!.mood).toBe('happy');
   });
 

@@ -273,7 +273,7 @@ describe('D1WorldStore.recordEvents atomicity', () => {
         { type: 'commit', ts: T0 + 2 },
       ])
     ).rejects.toThrow(/boom/);
-    expect((await store.district('plaza-1', 0)).events).toHaveLength(0);
+    expect((await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER)).events).toHaveLength(0);
     expect((await store.findByTokenHash('tokenhash-1'))!.last_seen_at).toBe(T0);
   });
 });
