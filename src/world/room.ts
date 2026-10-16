@@ -16,9 +16,13 @@ import {
   type AuthResult,
   type ServerMsg,
   type WarpOutcome,
+  type HandleResult,
+  type Peer,
+  ROOM_NOTICE_PATH,
+  CLOSE_TAKEN_OVER,
 } from '../lib/world/room-core.js';
 import { D1WorldStore, type D1Like } from '../lib/world/d1-store.js';
-import { hashToken, handlePortalWarp } from '../lib/world/handlers.js';
+import { hashToken, handlePortalWarp, publicSlug, type RoomNotice } from '../lib/world/handlers.js';
 import type {
   CfWebSocket,
   DurableObjectStateLike,
@@ -34,10 +38,16 @@ interface RoomEnv {
 
 // What each socket stores. `district` is known at connect time (even before the
 // hello authenticates), so it's available on every subsequent message without
-// DO memory. `actor` is null until the hello succeeds.
+// DO memory. `actor` is null until the hello succeeds. `citizenId` is the
+// owner (server-side only, never sent) so an HTTP recall/anon change can find
+// this citizen's live socket. `left` marks a socket that has left the room
+// (warped, evicted, taken over) and is only waiting for its close: its frames
+// are ignored, so it can never re-enter presence (e.g. by re-sending hello).
 interface SocketAttachment {
   district: string;
   actor: ActorState | null;
+  citizenId?: string;
+  left?: boolean;
 }
 
 const WebSocketPairCtor = (globalThis as unknown as {
@@ -47,6 +57,11 @@ const WebSocketPairCtor = (globalThis as unknown as {
 // Coalesce move_to bursts (owner sends 5–10 Hz) into one snapshot per window.
 const SNAPSHOT_FLUSH_MS = 60;
 
+// Frames a socket may have queued behind one in-flight D1 call (a hello or a
+// portal_enter). Real clients queue a handful at most; past this the socket is
+// flooding and further frames are dropped until the queue drains.
+const MAX_QUEUED_FRAMES = 32;
+
 export class WorldRoom {
   private storePromise: Promise<D1WorldStore> | null = null;
   // Ephemeral batching state. Safe to lose on hibernation: positions live on the
@@ -55,6 +70,17 @@ export class WorldRoom {
   // actively moving, so it never blocks an IDLE room from hibernating.
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBroadcast = new Map<string, ActorState>();
+  // B5: frames are handled ONE AT A TIME PER SOCKET. A DO's input gate does not
+  // hold across D1 I/O, so without this a second frame from the same socket
+  // runs while the first awaits D1 — two portal_enters both passing the seq
+  // dedupe (double warp/leave/redirect), two hellos each broadcasting a join,
+  // a move_to refused as "expected hello" mid-handshake. Memory only, and safe
+  // to lose: a socket with a frame in flight keeps the DO awake, and an empty
+  // queue is deleted, so hibernation never strands one.
+  private queues = new Map<CfWebSocket, { tail: Promise<void>; depth: number }>();
+  // Sockets whose close/error already ran, so an in-flight frame that resumes
+  // after its D1 await doesn't announce a socket that is gone.
+  private closed = new WeakSet<CfWebSocket>();
 
   constructor(private state: DurableObjectStateLike, private env: RoomEnv) {}
 
@@ -73,8 +99,7 @@ export class WorldRoom {
     const found = await store.findCitizenByBrowserToken(hashToken(controlToken), Date.now());
     if (!found) return null;
     const c = found.citizen;
-    const slug = c.anon ? `anon-${hashToken(c.slug).slice(0, 6)}` : c.slug;
-    return { slug, district: c.district };
+    return { slug: publicSlug(c), district: c.district, citizenId: c.id };
   }
 
   // Presence/snapshots reach only sockets that completed the hello handshake —
@@ -115,6 +140,11 @@ export class WorldRoom {
       broadcast: (msg, except) => this.broadcastToAuthed(msg, except),
       verify: (token) => this.verify(token),
       warp: (token, to) => this.warp(token, to),
+      current: (ws) => {
+        const att = this.attachmentOf(ws);
+        return { gone: this.closed.has(ws) || !att || !!att.left, actor: att?.actor ?? null };
+      },
+      peers: (ws) => this.peersExcept(ws),
     };
   }
 
@@ -149,20 +179,83 @@ export class WorldRoom {
   }
 
   // Every OTHER authenticated socket, rebuilt from attachments (hibernation-safe).
-  private peersExcept(self: CfWebSocket) {
-    const peers: Array<{ socket: CfWebSocket; state: ActorState }> = [];
+  // Each carries its owner id (server-side only) so a hello can find an older
+  // socket for the same buddy.
+  private peersExcept(self: CfWebSocket): Peer<CfWebSocket>[] {
+    const peers: Peer<CfWebSocket>[] = [];
     for (const ws of this.state.getWebSockets()) {
       if (ws === self) continue;
       const att = this.attachmentOf(ws);
-      if (att?.actor) peers.push({ socket: ws, state: att.actor });
+      if (att?.actor) peers.push({ socket: ws, state: att.actor, citizenId: att.citizenId });
     }
     return peers;
   }
 
   // ── Cloudflare entry points ──────────────────────────────────────────────
 
+  // Persist a RoomCore decision onto the socket and act on it. The attachment
+  // is re-read HERE, not passed in: a decision reached after a D1 await must
+  // merge onto what is stored now, never write back a pre-await copy.
+  private apply(ws: CfWebSocket, res: HandleResult<CfWebSocket>): void {
+    const att = this.attachmentOf(ws) ?? { district: '', actor: null };
+    if (att.left) return; // already out of the room; nothing left to decide
+    if (res.detach) {
+      // Left the room (portal redirect / eviction): clear the actor (and owner)
+      // so this socket is gone from every presence path immediately — even
+      // during the close window and across any hibernation rehydration before
+      // the runtime drops it.
+      ws.serializeAttachment({ district: att.district, actor: null, left: true } satisfies SocketAttachment);
+    } else if (res.attach) {
+      const citizenId = res.citizenId ?? att.citizenId;
+      ws.serializeAttachment({ district: att.district, actor: res.attach, citizenId } satisfies SocketAttachment);
+    }
+    // Newest wins: older sockets for this buddy leave presence silently (the
+    // buddy never left — no `leave`, and their close handler finds no actor).
+    for (const old of res.takeover ?? []) {
+      const oldAtt = this.attachmentOf(old);
+      try {
+        old.serializeAttachment({ district: oldAtt?.district ?? att.district, actor: null, left: true } satisfies SocketAttachment);
+        old.close(CLOSE_TAKEN_OVER.code, CLOSE_TAKEN_OVER.reason);
+      } catch {
+        // already closing — its close handler will find no actor either way
+      }
+    }
+    if (res.flush) this.scheduleFlush();
+    if (res.close) ws.close(res.close.code, res.close.reason);
+  }
+
+  // A recall/purge/anon change landed over HTTP: apply it to this citizen's
+  // live socket(s), if any are here. Unauthenticated sockets carry no owner.
+  private onNotice(notice: RoomNotice): number {
+    let touched = 0;
+    for (const ws of this.state.getWebSockets()) {
+      const att = this.attachmentOf(ws);
+      if (!att?.actor || att.citizenId !== notice.citizenId) continue;
+      const core = new RoomCore<CfWebSocket>(att.district, this.port());
+      try {
+        const res =
+          notice.kind === 'evict'
+            ? core.evict(ws, att.actor)
+            : core.relabel(ws, att.actor, notice.slug, this.peersExcept(ws));
+        this.apply(ws, res);
+      } catch {
+        // A racing close: still make sure an evicted socket is detached.
+        if (notice.kind === 'evict') {
+          ws.serializeAttachment({ district: att.district, actor: null, left: true } satisfies SocketAttachment);
+        }
+      }
+      touched++;
+    }
+    return touched;
+  }
+
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') !== 'websocket') {
+      if (request.method === 'POST' && new URL(request.url).pathname === ROOM_NOTICE_PATH) {
+        const notice = parseNotice(await request.text());
+        if (!notice) return new Response('bad notice', { status: 400 });
+        return new Response(JSON.stringify({ touched: this.onNotice(notice) }), { status: 200 });
+      }
       return new Response('expected a websocket upgrade', { status: 426 });
     }
     // The worker validated the town and forwards it as ?district=plaza-N; trust
@@ -181,27 +274,37 @@ export class WorldRoom {
     return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
   }
 
-  async webSocketMessage(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
-    const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
+  webSocketMessage(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
+    // Chain behind this socket's previous frame (see `queues`).
+    const q = this.queues.get(ws) ?? { tail: Promise.resolve(), depth: 0 };
+    if (q.depth >= MAX_QUEUED_FRAMES) return Promise.resolve();
+    q.depth++;
+    this.queues.set(ws, q);
+    const run = q.tail.then(() => this.handleFrame(ws, message));
+    q.tail = run
+      .catch(() => {})
+      .then(() => {
+        if (--q.depth === 0 && this.queues.get(ws) === q) this.queues.delete(ws);
+      });
+    return run;
+  }
+
+  private async handleFrame(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
     const att = this.attachmentOf(ws) ?? { district: '', actor: null };
+    // Left the room (or closed) while this frame was queued: it is moot.
+    if (att.left || this.closed.has(ws)) return;
+    const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
     const core = new RoomCore<CfWebSocket>(att.district, this.port());
     const res = await core.onMessage(ws, att.actor, raw, this.peersExcept(ws));
-    if (res.detach) {
-      // Left the room (portal redirect): clear the actor so this socket is gone
-      // from every presence path immediately — even during the close window and
-      // across any hibernation rehydration before the runtime drops it.
-      ws.serializeAttachment({ district: att.district, actor: null } satisfies SocketAttachment);
-    } else if (res.attach) {
-      ws.serializeAttachment({ district: att.district, actor: res.attach } satisfies SocketAttachment);
-    }
-    if (res.flush) this.scheduleFlush();
-    if (res.close) ws.close(res.close.code, res.close.reason);
+    this.apply(ws, res);
   }
 
   async webSocketClose(ws: CfWebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     // A portal-redirect close already detached the actor (null) and broadcast the
     // leave, so onClose(null) no-ops — no double announcement. A normal drop
     // still carries its actor and gets the usual single leave.
+    if (this.closed.has(ws)) return; // an error already announced it
+    this.closed.add(ws);
     const att = this.attachmentOf(ws);
     const core = new RoomCore<CfWebSocket>(att?.district ?? '', this.port());
     core.onClose(att?.actor ?? null);
@@ -210,8 +313,24 @@ export class WorldRoom {
   async webSocketError(ws: CfWebSocket, _error: unknown): Promise<void> {
     // Treat a socket error like a close for presence purposes (same detach-aware
     // no-op behavior as webSocketClose).
+    if (this.closed.has(ws)) return; // close already announced it
+    this.closed.add(ws);
     const att = this.attachmentOf(ws);
     const core = new RoomCore<CfWebSocket>(att?.district ?? '', this.port());
     core.onClose(att?.actor ?? null);
+  }
+}
+
+function parseNotice(raw: string): RoomNotice | null {
+  try {
+    const n = JSON.parse(raw) as Partial<{ kind: unknown; citizenId: unknown; slug: unknown }>;
+    if (typeof n.citizenId !== 'string' || !n.citizenId) return null;
+    if (n.kind === 'evict') return { kind: 'evict', citizenId: n.citizenId };
+    if (n.kind === 'relabel' && typeof n.slug === 'string' && n.slug) {
+      return { kind: 'relabel', citizenId: n.citizenId, slug: n.slug };
+    }
+    return null;
+  } catch {
+    return null;
   }
 }

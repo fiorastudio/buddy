@@ -41,6 +41,23 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+// The id a citizen is known by in PUBLIC surfaces (/v1/world, live rooms): the
+// real slug, or a stable `anon-xxxxxx` mask when anon. One definition so the
+// room's wire identity can never drift from the plaza's masking.
+export function publicSlug(c: { slug: string; anon: boolean }): string {
+  return c.anon ? `anon-${hashToken(c.slug).slice(0, 6)}` : c.slug;
+}
+
+// Privacy changes made over HTTP must reach sockets already live in a room
+// (a Durable Object). The host injects this; the handlers stay host-agnostic
+// and it is simply absent (no-op) where there are no rooms (tests, self-host).
+//   evict   — recall/purge: drop the citizen's live socket(s) for good.
+//   relabel — anon toggle: re-key the live actor under its new public slug.
+export type RoomNotice =
+  | { kind: 'evict'; citizenId: string }
+  | { kind: 'relabel'; citizenId: string; slug: string };
+export type RoomNotifier = (notice: RoomNotice) => Promise<void>;
+
 // Sanitize an origin country to a bare ISO 3166-1 alpha-2 code, or null.
 // Cloudflare uses `XX`/`T1` sentinels for unknown/Tor — those normalize away
 // (not `[A-Z]{2}` real countries, or explicitly filtered) so they show no flag.
@@ -165,22 +182,36 @@ export async function handleEvents(
 
 export async function handleRecall(
   payload: { token?: unknown; purge?: unknown },
-  store: WorldStore
+  store: WorldStore,
+  notifyRooms?: RoomNotifier
 ): Promise<HandlerResult> {
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
-  const ok = await store.recall(hashToken(payload.token), payload.purge === true);
-  if (!ok) return bad(401, 'unknown token');
+  const tokenHash = hashToken(payload.token);
+  // Resolve the id BEFORE the write: a purge deletes the row.
+  const citizen = await store.findByTokenHash(tokenHash);
+  const ok = await store.recall(tokenHash, payload.purge === true);
+  if (!ok || !citizen) return bad(401, 'unknown token');
+  // The store already revoked every control token; this kicks the socket(s)
+  // that are connected right now, which never re-authenticate on their own.
+  await notifyRooms?.({ kind: 'evict', citizenId: citizen.id });
   return { status: 200, body: { recalled: true, purged: payload.purge === true } };
 }
 
 export async function handleAnon(
   payload: { token?: unknown; anon?: unknown },
-  store: WorldStore
+  store: WorldStore,
+  notifyRooms?: RoomNotifier
 ): Promise<HandlerResult> {
   if (typeof payload.token !== 'string') return bad(401, 'unknown token');
-  const ok = await store.setAnon(hashToken(payload.token), payload.anon === true);
+  const anon = payload.anon === true;
+  const tokenHash = hashToken(payload.token);
+  const ok = await store.setAnon(tokenHash, anon);
   if (!ok) return bad(401, 'unknown token');
-  return { status: 200, body: { anon: payload.anon === true } };
+  const citizen = await store.findByTokenHash(tokenHash);
+  // A live socket keeps the identity it joined with; re-key it to the new
+  // public slug (masked exactly like /v1/world) so `anon on` takes effect now.
+  if (citizen) await notifyRooms?.({ kind: 'relabel', citizenId: citizen.id, slug: publicSlug({ ...citizen, anon }) });
+  return { status: 200, body: { anon } };
 }
 
 // browser-link: the owner proves control with the REAL world token and gets a
@@ -327,7 +358,7 @@ export async function handleWorld(
     // Internal moderation/accounting fields never leave the server.
     const { flagged: _f, hidden: _h, xp_bucket: _b, ...pub } = c;
     if (!pub.anon) return pub;
-    const masked = `anon-${hashToken(pub.slug).slice(0, 6)}`;
+    const masked = publicSlug(pub);
     anonSlugByReal.set(pub.slug, masked);
     // Anon = minimal identity: no real name, no country flag.
     return { ...pub, name: `a wild ${pub.species}`, slug: masked, country: null };

@@ -16,8 +16,10 @@ import {
   handleMe,
   RateLimiter,
   type HandlerResult,
+  type RoomNotifier,
 } from '../lib/world/handlers.js';
-import { districtForTown } from '../lib/world/towns.js';
+import { districtForTown, TOWN_NAMES } from '../lib/world/towns.js';
+import { ROOM_NOTICE_PATH } from '../lib/world/room-core.js';
 import type { WorldStore } from '../lib/world/store.js';
 import type { DurableObjectNamespaceLike } from './runtime.js';
 
@@ -38,6 +40,39 @@ const CORS_HEADERS = {
   'access-control-allow-headers': 'content-type, authorization',
 };
 
+// Push a recall/anon change into the live rooms. EVERY town's room is told, not
+// just the citizen's stored district: a socket is only district-checked at
+// hello, so one can still be live in a town its owner has since teleported out
+// of. Six rooms, rare action — cheap. Best-effort: the D1 write (and token
+// revocation) already happened, so a room that can't be reached must not fail
+// the owner's request.
+export function roomNotifier(ns: DurableObjectNamespaceLike | undefined): RoomNotifier | undefined {
+  if (!ns) return undefined;
+  return async (notice) => {
+    const body = JSON.stringify(notice);
+    const results = await Promise.allSettled(
+      TOWN_NAMES.map(async (_, i) => {
+        const district = `plaza-${i + 1}`;
+        const stub = ns.get(ns.idFromName(district));
+        const res = await stub.fetch(
+          new Request(`https://room.internal${ROOM_NOTICE_PATH}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body,
+          })
+        );
+        // Always drain the body: an unread DO response keeps the subrequest
+        // open (and the room unable to hibernate) until it is GC'd.
+        await res.text();
+        if (!res.ok) throw new Error(`room ${district} answered ${res.status}`);
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'rejected') console.error('buddy-world room notice failed:', r.reason);
+    }
+  };
+}
+
 function json(result: HandlerResult): Response {
   return new Response(JSON.stringify(result.body), {
     status: result.status,
@@ -49,6 +84,7 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
   const limiter = new RateLimiter(config.ratePerMinute ?? 60, 60_000);
   const now = config.now ?? (() => Date.now());
   let storePromise: Promise<WorldStore> | null = null;
+  const notifyRooms = roomNotifier(config.roomNamespace);
 
   function store(): Promise<WorldStore> {
     // Lazy: D1 migrations may not have applied when the isolate boots. Clear the
@@ -141,9 +177,9 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
           case '/v1/events':
             return json(await handleEvents(payload, s, opts));
           case '/v1/recall':
-            return json(await handleRecall(payload, s));
+            return json(await handleRecall(payload, s, notifyRooms));
           case '/v1/anon':
-            return json(await handleAnon(payload, s));
+            return json(await handleAnon(payload, s, notifyRooms));
           case '/v1/browser-link':
             return json(await handleBrowserLink(payload, s, opts));
           case '/v1/browser-session':
