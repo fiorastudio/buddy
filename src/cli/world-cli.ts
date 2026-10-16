@@ -189,11 +189,23 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
       if (cfg.recalled && !purge) {
         return ['Your buddy is already recalled. Its world data is still kept on the server.', PURGE_HINT];
       }
-      const ok = await makeSync(cfg, deps).recall(purge);
-      if (!ok) {
+      const outcome = await makeSync(cfg, deps).recallOutcome(purge);
+      if (outcome === 'unknown_token') {
+        // The server has no citizen for this token: its data is already gone
+        // (purged before, or never created). The token can't purge anything
+        // any more, so drop it rather than leave a dead credential behind.
+        deleteWorldConfig(configPath);
+        return [
+          'Buddy World has no data for this buddy — it was already purged (or never arrived).',
+          `Removed the leftover token from ${configPath}. Welcome home.`,
+        ];
+      }
+      if (outcome !== 'recalled') {
         // Never delete the only token on an unconfirmed server call — the
         // user would lose the ability to purge their data later.
-        return ['Could not reach Buddy World to recall — your token is kept so you can try again.'];
+        return outcome === 'unreachable'
+          ? ['Could not reach Buddy World to recall — your token is kept so you can try again.']
+          : ['Buddy World did not confirm the recall — your token is kept so you can try again later.'];
       }
       if (purge) {
         deleteWorldConfig(configPath);

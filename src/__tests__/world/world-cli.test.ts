@@ -84,6 +84,60 @@ describe('worldCommand', () => {
     expect(loadWorldConfig(configPath)).not.toBeNull(); // token preserved for retry
   });
 
+  describe('recall when the server no longer knows the token', () => {
+    // Purge the citizen behind the CLI's back (another machine, a script).
+    async function purgeOnServer(token: string): Promise<void> {
+      const res = await fetchHandler(
+        new Request('https://world.example.com/v1/recall', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ token, purge: true }),
+        })
+      );
+      expect(res.status).toBe(200);
+    }
+
+    it('recall --purge on a 401 says the data is already gone and deletes world.json', async () => {
+      await worldCommand(['teleport'], deps);
+      await purgeOnServer(loadWorldConfig(configPath)!.token);
+      const out = (await worldCommand(['recall', '--purge'], deps)).join('\n');
+      expect(out).toMatch(/already purged/i);
+      expect(out).not.toMatch(/could not reach/i);
+      expect(loadWorldConfig(configPath)).toBeNull();
+    });
+
+    it('the same from a recalled config', async () => {
+      await worldCommand(['teleport'], deps);
+      await worldCommand(['recall'], deps);
+      await purgeOnServer(loadWorldConfig(configPath)!.token);
+      const out = (await worldCommand(['recall', '--purge'], deps)).join('\n');
+      expect(out).toMatch(/already purged/i);
+      expect(loadWorldConfig(configPath)).toBeNull();
+    });
+
+    it('a plain recall on a 401 also drops the dead token', async () => {
+      await worldCommand(['teleport'], deps);
+      await purgeOnServer(loadWorldConfig(configPath)!.token);
+      const out = (await worldCommand(['recall'], deps)).join('\n');
+      expect(out).toMatch(/already purged/i);
+      expect(loadWorldConfig(configPath)).toBeNull();
+    });
+
+    it.each([
+      ['a 5xx', 503, '{"error":"internal error"}'],
+      ['a 404 from a host that is not Buddy World', 404, '{"error":"not found"}'],
+      ['a 401 that is not the world server answering', 401, '<html>Access denied</html>'],
+    ])('keeps the token on %s', async (_label, status, body) => {
+      await worldCommand(['teleport'], deps);
+      const before = loadWorldConfig(configPath);
+      const out = (
+        await worldCommand(['recall', '--purge'], { ...deps, fetchFn: async () => new Response(body, { status }) })
+      ).join('\n');
+      expect(out).toMatch(/token is kept/i);
+      expect(loadWorldConfig(configPath)).toEqual(before);
+    });
+  });
+
   describe('plain recall keeps the token (server data is kept)', () => {
     async function plaza(district = 'plaza-1'): Promise<Array<{ slug: string }>> {
       const res = await fetchHandler(new Request(`https://world.example.com/v1/world/${district}`));

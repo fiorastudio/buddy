@@ -100,6 +100,8 @@ export function buildWorldSnapshot(c: Companion, avatar?: string): WorldSnapshot
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
+export type RecallOutcome = 'recalled' | 'unknown_token' | 'unreachable' | 'refused';
+
 export interface WorldSyncOpts {
   fetchFn?: FetchLike;
   now?: () => number;
@@ -186,8 +188,29 @@ export class WorldSync {
   }
 
   async recall(purge: boolean): Promise<boolean> {
+    return (await this.recallOutcome(purge)) === 'recalled';
+  }
+
+  /**
+   * Like recall(), but says why it failed. 'unknown_token' means the server
+   * answered 401 "unknown token": it has no citizen for this token (already
+   * purged, or never created), so there is nothing left to hide or purge.
+   * Anything else that isn't a 200 — no answer, a 5xx, a 404 from a host
+   * that isn't Buddy World — proves nothing about the data.
+   */
+  async recallOutcome(purge: boolean): Promise<RecallOutcome> {
     const res = await this.post('/v1/recall', { token: this.cfg.token, purge });
-    return res?.status === 200;
+    if (!res) return 'unreachable';
+    if (res.status === 200) return 'recalled';
+    if (res.status === 401) {
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (body.error === 'unknown token') return 'unknown_token';
+      } catch {
+        // not the world server's JSON: unconfirmed
+      }
+    }
+    return 'refused';
   }
 
   async setAnon(anon: boolean): Promise<boolean> {
