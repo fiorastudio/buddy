@@ -580,4 +580,83 @@ describe('plaza smoke test (headless browser)', () => {
       expect(ratio, `contrast for ${slug}`).toBeGreaterThanOrEqual(4.5);
     }
   }, 60_000);
+
+  // ── C3: startup and render-loop resilience ─────────────────────────────
+  // Sampled non-transparent canvas pixels: > 1000 means the plaza painted.
+  const PAINTED = `(() => {
+    const canvas = document.querySelector('#plaza');
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let n = 0;
+    for (let i = 3; i < data.length; i += 40) if (data[i] > 0) n++;
+    return n;
+  })() > 1000`;
+
+  // Open the plaza with one endpoint overridden: a canned response, or
+  // 'hang' to never answer at all.
+  async function openWithFault(path: string, fault: { status: number; body: string } | 'hang') {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname !== path) { void req.continue(); return; }
+      if (fault === 'hang') return; // never answered — only the client timeout ends it
+      void req.respond({ status: fault.status, contentType: 'text/html', body: fault.body });
+    });
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'domcontentloaded' });
+    return { page, errors };
+  }
+
+  for (const [label, fault] of [
+    ['a 500', { status: 500, body: '<h1>Internal Server Error</h1>' }],
+    ['a garbage body', { status: 200, body: '{"announcements": [tru' }],
+    ['no answer at all', 'hang'],
+  ] as const) {
+    it(`still renders every citizen when /v1/announcements gives ${label}`, async () => {
+      const { page, errors } = await openWithFault('/v1/announcements', fault);
+      await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.citizens.length === 8', { timeout: 15_000 });
+      await page.waitForFunction(PAINTED, { timeout: 15_000 });
+      expect(await page.evaluate('window.__PLAZA__.broadcast')).toBeNull();
+      expect(errors).toEqual([]);
+      await page.close();
+    }, 60_000);
+  }
+
+  it('still paints the town when the world feed returns garbage', async () => {
+    const { page, errors } = await openWithFault('/v1/world/plaza-1', { status: 200, body: '<html>oops' });
+    await page.waitForFunction(PAINTED, { timeout: 15_000 });
+    // Survived the bad payload: no citizens, no misleading "quiet town", and
+    // the static assets that loaded independently are still in place.
+    const s = (await page.evaluate(`(() => ({
+      citizens: window.__PLAZA__.citizens.length,
+      worldLoaded: window.__PLAZA__.worldLoaded,
+      hasSprites: !!window.__PLAZA__.sprites && Object.keys(window.__PLAZA__.sprites).length > 0,
+    }))()`)) as { citizens: number; worldLoaded: boolean; hasSprites: boolean };
+    expect(s).toEqual({ citizens: 0, worldLoaded: false, hasSprites: true });
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
+  it('keeps animating after a frame throws (the loop always schedules the next frame)', async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAZA__ && window.__PLAZA__.actorFrames && Object.keys(window.__PLAZA__.actorFrames).length === 8'
+    );
+    await page.evaluate('window.__PLAZA__.failNextFrameForTest = true');
+    await page.waitForFunction('window.__PLAZA__.frameErrors === 1', { timeout: 5_000 });
+    const before = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    await new Promise((r) => setTimeout(r, 1300));
+    const after = (await page.evaluate('({...window.__PLAZA__.actorFrames})')) as Record<string, number>;
+    for (const slug of Object.keys(before)) {
+      // ~450ms per sprite frame: 1.3s of live frames advances each one.
+      expect(after[slug] - before[slug], `frames kept advancing for ${slug}`).toBeGreaterThanOrEqual(1);
+    }
+    expect(await page.evaluate('window.__PLAZA__.frameErrors')).toBe(1); // one bad frame, not a stuck loop
+    expect(errors).toEqual([]); // caught and logged once, never an uncaught page error
+    await page.close();
+  }, 60_000);
 });

@@ -147,7 +147,39 @@
     actorFrames: {}, spriteBottoms: {},
     porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
     sfxEnabled: false, spawnXpPopup: null, petBuddy: null, // bound below
+    worldLoaded: false, frameErrors: 0, failNextFrameForTest: false,
   };
+  // Exposed from the start (not only after the first world fetch) so a failed
+  // or slow feed still leaves the plaza inspectable.
+  window.__PLAZA__ = state;
+
+  // Log a failure once per (where, message): a frame that throws 60x/second, or
+  // a feed that fails every poll, must not flood the console.
+  const reportedErrors = new Set();
+  function reportOnce(where, err) {
+    const key = `${where}: ${err && err.message ? err.message : String(err)}`;
+    if (reportedErrors.has(key) || reportedErrors.size >= 20) return;
+    reportedErrors.add(key);
+    try { console.error(`[plaza] ${key}`); } catch { /* no console */ }
+  }
+
+  // Every startup/poll fetch goes through here: an AbortController timeout so a
+  // hung endpoint can't stall the plaza, and the JSON parse inside the guard so
+  // a garbage body (HTML error page, truncated JSON) rejects like any failure.
+  // Callers catch and degrade — one bad feed never blanks the page.
+  const FETCH_TIMEOUT_MS = 8000;
+  async function fetchJson(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch(url, ctl ? { ...init, signal: ctl.signal } : init);
+      if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
+      return await res.json();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   // Test instrumentation: resolve the rendered nameplate job label by slug.
   // (Assigned after `state` exists — jobLabel is hoisted so it's safe here.)
   state.jobLabelForSlug = (slug) => {
@@ -880,7 +912,30 @@
     );
   }
 
+  // The render loop. The next frame is scheduled in `finally`, so one bad frame
+  // (a malformed citizen, a canvas hiccup) costs a single frame instead of
+  // freezing the plaza for good. Repeat failures are counted, not re-logged.
   function tick() {
+    try {
+      if (state.failNextFrameForTest) {
+        state.failNextFrameForTest = false;
+        throw new Error('forced frame failure (test hook)');
+      }
+      drawFrame();
+    } catch (err) {
+      state.frameErrors += 1;
+      reportOnce('frame', err);
+      // A throw can leave the context mid-save()/transform; start the next frame clean.
+      try {
+        if (typeof ctx.reset === 'function') ctx.reset();
+        else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; }
+      } catch { /* nothing more to do */ }
+    } finally {
+      requestAnimationFrame(tick);
+    }
+  }
+
+  function drawFrame() {
     const now = Date.now();
     drawGround();
     flameSlugs = computeFlameSlugs(now);
@@ -947,9 +1002,10 @@
     drawClickMarkers(now);
     drawCelebrations(now);
     drawXpPopups(now);
-    if (state.citizens.length === 0) drawQuietTown();
+    // Only call a town "quiet" once the world feed has actually answered — the
+    // loop now paints before the first fetch lands.
+    if (state.citizens.length === 0 && state.worldLoaded) drawQuietTown();
     drawMinimap();
-    requestAnimationFrame(tick);
   }
 
   // ── Poring: RO's mascot jelly, ambient plaza life ─────────────────────
@@ -1092,16 +1148,14 @@
       if (!m) return;
       let redeemed = false;
       try {
-        const res = await fetch(`${API_BASE}/v1/browser-session`, {
+        const data = await fetchJson(`${API_BASE}/v1/browser-session`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ code: m[1] }),
         });
-        if (res.ok) {
-          const { controlToken } = await res.json();
-          if (controlToken) { try { localStorage.setItem(LS_KEY, controlToken); } catch {} redeemed = true; }
-        }
-      } catch { /* offline: leave the code so a reload can retry */ }
+        const controlToken = data && data.controlToken;
+        if (controlToken) { try { localStorage.setItem(LS_KEY, controlToken); } catch {} redeemed = true; }
+      } catch { /* offline/rejected/timeout: leave the code so a reload can retry */ }
       // Only scrub the one-time code once it's actually been consumed — a
       // failed/offline attempt keeps it so reopening the tab can retry.
       if (redeemed) history.replaceState(null, '', location.pathname + location.search);
@@ -1109,8 +1163,7 @@
 
     async function fetchMe(token) {
       try {
-        const res = await fetch(`${API_BASE}/v1/me`, { headers: { authorization: `Bearer ${token}` } });
-        return res.ok ? await res.json() : null;
+        return await fetchJson(`${API_BASE}/v1/me`, { headers: { authorization: `Bearer ${token}` } });
       } catch { return null; }
     }
 
@@ -1564,6 +1617,7 @@
     state.announcements = list;
     const fresh = [];
     for (const a of list) {
+      if (!a || typeof a !== 'object') continue; // malformed feed row
       // Prefer the stable world_events id (distinct even for two same-ms
       // same-type events); fall back to the composite only if a feed row
       // somehow lacks an id, so nothing silently re-broadcasts.
@@ -1578,15 +1632,17 @@
   }
 
   async function refreshAnnouncements() {
-    let res;
+    let data;
     try {
-      res = await fetch(`${API_BASE}/v1/announcements`);
-    } catch {
-      return; // offline/refused: keep the last banner state
+      data = await fetchJson(`${API_BASE}/v1/announcements`);
+    } catch (err) {
+      reportOnce('announcements', err);
+      return; // offline/refused/timeout/garbage: keep the last banner state
     }
-    if (!res.ok) return;
-    const data = await res.json();
-    ingestAnnouncements(Array.isArray(data.announcements) ? data.announcements : []);
+    // A body that isn't the feed shape is a failed poll, not an empty feed —
+    // don't let it consume the first-load seeding.
+    if (!data || !Array.isArray(data.announcements)) return;
+    ingestAnnouncements(data.announcements);
   }
 
   function updateAccessibility() {
@@ -1606,17 +1662,19 @@
   }
 
   async function refresh() {
-    let res;
+    let data;
     try {
-      res = await fetch(`${API_BASE}/v1/world/${district}`);
-    } catch {
-      return; // offline/refused: keep rendering the last known state
+      data = await fetchJson(`${API_BASE}/v1/world/${district}`);
+    } catch (err) {
+      reportOnce('world', err);
+      return; // offline/refused/timeout/garbage: keep rendering the last known state
     }
-    if (!res.ok) return;
-    const data = await res.json();
+    if (!data || !Array.isArray(data.citizens)) return; // not a district payload
     const prevSeen = seenEventKeys;
-    state.citizens = data.citizens || [];
-    state.events = data.events || [];
+    // Drop malformed rows here so they can't throw inside every frame.
+    state.citizens = data.citizens.filter((c) => c && typeof c.slug === 'string');
+    state.events = Array.isArray(data.events) ? data.events.filter((e) => e && typeof e === 'object') : [];
+    state.worldLoaded = true;
     const now = Date.now();
     state.celebrations = state.events.filter(
       (e) => now - e.ts < CELEBRATION_WINDOW_MS && e.type !== 'observe' && e.type !== 'session'
@@ -1638,7 +1696,6 @@
     firstLoad = false;
     updateTicker();
     updateAccessibility();
-    window.__PLAZA__ = state;
   }
 
   let seenEventKeys = new Set();
@@ -1721,29 +1778,34 @@
     });
   }
 
+  // Run one boot/poll step so that whatever it throws stays inside it.
+  async function guarded(where, step) {
+    try { await step(); } catch (err) { reportOnce(where, err); }
+  }
+
   async function boot() {
-    try {
-      const res = await fetch('sprites.json');
-      const data = await res.json();
-      state.sprites = data.sprites;
-      state.palettes = data.palettes;
-    } catch {
-      state.sprites = {};
-      state.palettes = {};
-    }
-    try {
-      state.jobLines = await (await fetch('jobs.json')).json();
-    } catch {
-      state.jobLines = null;
-    }
-    await refresh();
-    setInterval(refresh, 10_000);
-    // Global celebration feed → RO-yellow broadcast banner. Its own light poll
-    // (same cadence) so a per-town world fetch failing never stalls the banner,
-    // and every town shows the same cross-town celebrations.
-    await refreshAnnouncements();
-    setInterval(refreshAnnouncements, 10_000);
+    // Paint first: the render loop never waits on the network, so a slow or
+    // failing feed degrades one layer of the plaza instead of blanking it.
     requestAnimationFrame(tick);
+
+    // Global celebration feed → RO-yellow broadcast banner. Its own poll, never
+    // awaited by anything else, so a bad /v1/announcements can't hold up the
+    // citizens (and a world fetch failing never stalls the banner).
+    guarded('announcements', refreshAnnouncements);
+    setInterval(() => guarded('announcements', refreshAnnouncements), 10_000);
+
+    // Static assets in parallel; each degrades on its own. They land before the
+    // first world fetch on purpose: sprite metrics are cached per species on
+    // first draw, so citizens shouldn't render before the sprite sheet does.
+    const [sprites, jobs] = await Promise.allSettled([fetchJson('sprites.json'), fetchJson('jobs.json')]);
+    const sheet = sprites.status === 'fulfilled' && sprites.value && typeof sprites.value === 'object' ? sprites.value : {};
+    state.sprites = sheet.sprites && typeof sheet.sprites === 'object' ? sheet.sprites : {};
+    state.palettes = sheet.palettes && typeof sheet.palettes === 'object' ? sheet.palettes : {};
+    if (sprites.status === 'rejected') reportOnce('sprites', sprites.reason);
+    state.jobLines = jobs.status === 'fulfilled' && jobs.value && typeof jobs.value === 'object' ? jobs.value : null;
+
+    await guarded('world', refresh);
+    setInterval(() => guarded('world', refresh), 10_000);
 
     // Real-time control bootstrap (M3). Best-effort and fully optional: any
     // failure just leaves you as a spectator on the /v1/world poll.
