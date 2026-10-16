@@ -15,6 +15,8 @@ import {
   handleBrowserSession,
   handleMe,
   RateLimiter,
+  NEW_CITIZENS_PER_IP_PER_DAY,
+  NEW_CITIZEN_WINDOW_MS,
   type HandlerResult,
   type RoomNotifier,
 } from '../lib/world/handlers.js';
@@ -27,6 +29,8 @@ export interface WorldWorkerConfig {
   db: D1Like;
   baseUrl: string;
   ratePerMinute?: number;
+  // Brand-new citizens one IP may create per day (default NEW_CITIZENS_PER_IP_PER_DAY).
+  newCitizensPerDay?: number;
   // Live-room websocket upgrades per client IP per minute (default 30). Each
   // upgrade is a socket the room holds and, on hello, a D1 lookup; the plaza
   // reconnects with capped exponential backoff, so a real viewer needs few.
@@ -87,8 +91,71 @@ function json(result: HandlerResult): Response {
   });
 }
 
+// Request body cap for the JSON POST routes (B16). The largest legitimate body
+// is /v1/events with a full batch: MAX_EVENT_BATCH (50) events of roughly 45
+// bytes each, plus a snapshot of about 350 bytes and a 32-hex token. That is
+// about 3 KB (see the worker test that builds the worst case). 16 KB leaves
+// more than 5x headroom for future fields while bounding how much an anonymous
+// caller can make the isolate buffer and parse.
+export const MAX_BODY_BYTES = 16 * 1024;
+
+type ParsedBody = { ok: true; payload: Record<string, unknown> } | { ok: false; result: HandlerResult };
+
+// Read at most `limit` bytes of the body and parse it as a JSON object.
+// Content-Length is checked up front, but it may be absent (chunked) or lie,
+// so the byte count is enforced again while streaming: we stop reading (and
+// cancel the stream) as soon as it goes over.
+async function readJsonObject(req: Request, limit: number): Promise<ParsedBody> {
+  const tooLarge: ParsedBody = {
+    ok: false,
+    result: { status: 413, body: { error: `request body exceeds ${limit} bytes` } },
+  };
+  const invalid: ParsedBody = { ok: false, result: { status: 400, body: { error: 'invalid JSON' } } };
+
+  const declared = req.headers.get('content-length');
+  if (declared !== null && Number(declared) > limit) return tooLarge;
+  if (!req.body) return invalid;
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      return tooLarge;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.byteLength;
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return invalid;
+  }
+  // Every route reads named fields off the payload; a bare string, number,
+  // array or null is a client bug (or a probe), not a request.
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, result: { status: 400, body: { error: 'request body must be a JSON object' } } };
+  }
+  return { ok: true, payload: value as Record<string, unknown> };
+}
+
 export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Request) => Promise<Response> {
   const limiter = new RateLimiter(config.ratePerMinute ?? 60, 60_000);
+  const newCitizenLimiter = new RateLimiter(
+    config.newCitizensPerDay ?? NEW_CITIZENS_PER_IP_PER_DAY,
+    NEW_CITIZEN_WINDOW_MS
+  );
   const upgradeLimiter = new RateLimiter(config.upgradesPerMinute ?? 30, 60_000);
   const now = config.now ?? (() => Date.now());
   let storePromise: Promise<WorldStore> | null = null;
@@ -164,20 +231,20 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
           url.pathname
         )
       ) {
-        let payload: Record<string, unknown>;
-        try {
-          payload = (await req.json()) as Record<string, unknown>;
-        } catch {
-          return json({ status: 400, body: { error: 'invalid JSON' } });
-        }
-
-        // IP limit first — attacker-chosen tokens must not mint fresh buckets
-        // (limiter-rotation finding). Token bucket is a secondary, tighter
-        // scope for legitimate multi-user NATs.
+        // IP limit first, BEFORE the body is read or parsed (B16): a limited
+        // client must not get the server to buffer and parse its payload. It
+        // also comes before the token limit so attacker-chosen tokens can't
+        // mint fresh buckets (limiter-rotation finding).
         const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
         if (!limiter.allow(`ip:${ip}`, opts.now)) {
           return json({ status: 429, body: { error: 'rate limited' } });
         }
+
+        const parsed = await readJsonObject(req, MAX_BODY_BYTES);
+        if (!parsed.ok) return json(parsed.result);
+        const payload = parsed.payload;
+
+        // Token bucket: a secondary, tighter scope for legitimate multi-user NATs.
         if (typeof payload.token === 'string' && !limiter.allow(`t:${payload.token}`, opts.now)) {
           return json({ status: 429, body: { error: 'rate limited' } });
         }
@@ -185,7 +252,14 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
         const s = await store();
         switch (url.pathname) {
           case '/v1/teleport':
-            return json(await handleTeleport(payload, s, opts));
+            // Per-IP new-citizen throttle: consulted only when this teleport
+            // would mint a NEW citizen (re-teleports never spend it).
+            return json(
+              await handleTeleport(payload, s, {
+                ...opts,
+                allowNewCitizen: () => newCitizenLimiter.allow(`new:${ip}`, opts.now),
+              })
+            );
           case '/v1/events':
             return json(await handleEvents(payload, s, opts));
           case '/v1/recall':
