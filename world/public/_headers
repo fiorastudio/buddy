@@ -1,0 +1,8 @@
+# Security headers for the static plaza (Workers Static Assets reads this file).
+# The plaza talks only to its own origin: /v1 over fetch and /v1/live over WebSocket.
+# connect-src 'self' keeps the control code and token from reaching another origin.
+# style-src allows inline styles for the <style> block in index.html.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
