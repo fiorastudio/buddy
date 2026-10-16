@@ -80,6 +80,14 @@ export interface RoomPort<S> {
   // Move the control token's own citizen to `to` in D1 (idempotent, capacity
   // -gated, no XP write). Returns the redirect payload on success.
   warp(controlToken: string, to: string): Promise<WarpOutcome | null>;
+  // Re-read state AFTER an await. A Durable Object's input gate does not hold
+  // across D1 I/O, so while verify()/warp() wait, other events run: a recall
+  // or anon notice, a newer tab's hello taking this buddy over, a close. The
+  // core must decide on what is true now, not on what it read before the
+  // await. `gone`: closed, or detached from this room (left/evicted/replaced).
+  // Both optional — without them the core trusts its pre-await view (tests).
+  current?(socket: S): { gone: boolean; actor: ActorState | null };
+  peers?(except: S): Peer<S>[];
 }
 
 export interface HandleResult<S = never> {
@@ -189,6 +197,10 @@ export class RoomCore<S> {
         return { close: { code: CLOSE_POLICY, reason: 'auth required' } };
       }
       const auth = await this.port.verify(controlToken);
+      // While D1 answered, this socket may have closed or already joined (a
+      // racing duplicate hello): then there is nothing to welcome or announce.
+      const now = this.port.current?.(socket);
+      if (now && (now.gone || now.actor)) return {};
       if (!auth) {
         this.port.send(socket, { type: 'error', error: 'invalid control token' });
         return { close: { code: CLOSE_POLICY, reason: 'auth failed' } };
@@ -206,8 +218,11 @@ export class RoomCore<S> {
       // tab closed while the other was still live. The old socket is told
       // why and detached+closed by the adapter; it is NOT announced as a
       // leave — the buddy never left, and the join below moves it to spawn.
-      const replaced = peers.filter((p) => sameBuddy(p, auth));
-      const others = peers.filter((p) => !sameBuddy(p, auth));
+      // Peers are read AFTER the await, so two tabs whose hellos overlap still
+      // end with exactly one live socket (the later one takes over).
+      const present = this.port.peers?.(socket) ?? peers;
+      const replaced = present.filter((p) => sameBuddy(p, auth));
+      const others = present.filter((p) => !sameBuddy(p, auth));
       for (const old of replaced) this.port.send(old.socket, { type: 'error', error: 'taken over' });
 
       const state: ActorState = { slug: auth.slug, x: ROOM_SPAWN.x, y: ROOM_SPAWN.y, seq: 0 };
@@ -248,13 +263,21 @@ export class RoomCore<S> {
         if (typeof controlToken !== 'string' || controlToken.length < 8) return consume;
 
         const warp = await this.port.warp(controlToken, to);
+        // Re-read after the D1 round-trip: if this socket was closed, evicted
+        // or taken over meanwhile, its departure is already handled — say
+        // nothing more. Otherwise write back what is CURRENT (an anon relabel
+        // may have changed the slug), never the pre-await copy.
+        const now = this.port.current?.(socket);
+        if (now && (now.gone || !now.actor)) return {};
+        const live = now?.actor ?? attachment;
+        consume.attach = { ...live, seq: Math.max(live.seq, seq) };
         if (!warp || !warp.ok || !warp.district || !warp.url) return consume;
 
         // Success: tell the OTHER occupants I left this town (excluding self so
         // my socket only hears the redirect), then redirect ME to the new one.
         // A DO cannot hand a socket to another DO, so there is no handoff — the
         // client closes, navigates to ?district=new, and reconnects there.
-        this.port.broadcast({ type: 'leave', slug: attachment.slug }, socket);
+        this.port.broadcast({ type: 'leave', slug: live.slug }, socket);
         this.port.send(socket, {
           type: 'room_redirect',
           district: warp.district,

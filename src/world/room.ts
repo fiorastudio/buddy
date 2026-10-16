@@ -40,11 +40,14 @@ interface RoomEnv {
 // hello authenticates), so it's available on every subsequent message without
 // DO memory. `actor` is null until the hello succeeds. `citizenId` is the
 // owner (server-side only, never sent) so an HTTP recall/anon change can find
-// this citizen's live socket.
+// this citizen's live socket. `left` marks a socket that has left the room
+// (warped, evicted, taken over) and is only waiting for its close: its frames
+// are ignored, so it can never re-enter presence (e.g. by re-sending hello).
 interface SocketAttachment {
   district: string;
   actor: ActorState | null;
   citizenId?: string;
+  left?: boolean;
 }
 
 const WebSocketPairCtor = (globalThis as unknown as {
@@ -54,6 +57,11 @@ const WebSocketPairCtor = (globalThis as unknown as {
 // Coalesce move_to bursts (owner sends 5–10 Hz) into one snapshot per window.
 const SNAPSHOT_FLUSH_MS = 60;
 
+// Frames a socket may have queued behind one in-flight D1 call (a hello or a
+// portal_enter). Real clients queue a handful at most; past this the socket is
+// flooding and further frames are dropped until the queue drains.
+const MAX_QUEUED_FRAMES = 32;
+
 export class WorldRoom {
   private storePromise: Promise<D1WorldStore> | null = null;
   // Ephemeral batching state. Safe to lose on hibernation: positions live on the
@@ -62,6 +70,17 @@ export class WorldRoom {
   // actively moving, so it never blocks an IDLE room from hibernating.
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBroadcast = new Map<string, ActorState>();
+  // B5: frames are handled ONE AT A TIME PER SOCKET. A DO's input gate does not
+  // hold across D1 I/O, so without this a second frame from the same socket
+  // runs while the first awaits D1 — two portal_enters both passing the seq
+  // dedupe (double warp/leave/redirect), two hellos each broadcasting a join,
+  // a move_to refused as "expected hello" mid-handshake. Memory only, and safe
+  // to lose: a socket with a frame in flight keeps the DO awake, and an empty
+  // queue is deleted, so hibernation never strands one.
+  private queues = new Map<CfWebSocket, { tail: Promise<void>; depth: number }>();
+  // Sockets whose close/error already ran, so an in-flight frame that resumes
+  // after its D1 await doesn't announce a socket that is gone.
+  private closed = new WeakSet<CfWebSocket>();
 
   constructor(private state: DurableObjectStateLike, private env: RoomEnv) {}
 
@@ -121,6 +140,11 @@ export class WorldRoom {
       broadcast: (msg, except) => this.broadcastToAuthed(msg, except),
       verify: (token) => this.verify(token),
       warp: (token, to) => this.warp(token, to),
+      current: (ws) => {
+        const att = this.attachmentOf(ws);
+        return { gone: this.closed.has(ws) || !att || !!att.left, actor: att?.actor ?? null };
+      },
+      peers: (ws) => this.peersExcept(ws),
     };
   }
 
@@ -169,14 +193,18 @@ export class WorldRoom {
 
   // ── Cloudflare entry points ──────────────────────────────────────────────
 
-  // Persist a RoomCore decision onto the socket and act on it.
-  private apply(ws: CfWebSocket, att: SocketAttachment, res: HandleResult<CfWebSocket>): void {
+  // Persist a RoomCore decision onto the socket and act on it. The attachment
+  // is re-read HERE, not passed in: a decision reached after a D1 await must
+  // merge onto what is stored now, never write back a pre-await copy.
+  private apply(ws: CfWebSocket, res: HandleResult<CfWebSocket>): void {
+    const att = this.attachmentOf(ws) ?? { district: '', actor: null };
+    if (att.left) return; // already out of the room; nothing left to decide
     if (res.detach) {
       // Left the room (portal redirect / eviction): clear the actor (and owner)
       // so this socket is gone from every presence path immediately — even
       // during the close window and across any hibernation rehydration before
       // the runtime drops it.
-      ws.serializeAttachment({ district: att.district, actor: null } satisfies SocketAttachment);
+      ws.serializeAttachment({ district: att.district, actor: null, left: true } satisfies SocketAttachment);
     } else if (res.attach) {
       const citizenId = res.citizenId ?? att.citizenId;
       ws.serializeAttachment({ district: att.district, actor: res.attach, citizenId } satisfies SocketAttachment);
@@ -186,7 +214,7 @@ export class WorldRoom {
     for (const old of res.takeover ?? []) {
       const oldAtt = this.attachmentOf(old);
       try {
-        old.serializeAttachment({ district: oldAtt?.district ?? att.district, actor: null } satisfies SocketAttachment);
+        old.serializeAttachment({ district: oldAtt?.district ?? att.district, actor: null, left: true } satisfies SocketAttachment);
         old.close(CLOSE_TAKEN_OVER.code, CLOSE_TAKEN_OVER.reason);
       } catch {
         // already closing — its close handler will find no actor either way
@@ -209,11 +237,11 @@ export class WorldRoom {
           notice.kind === 'evict'
             ? core.evict(ws, att.actor)
             : core.relabel(ws, att.actor, notice.slug, this.peersExcept(ws));
-        this.apply(ws, att, res);
+        this.apply(ws, res);
       } catch {
         // A racing close: still make sure an evicted socket is detached.
         if (notice.kind === 'evict') {
-          ws.serializeAttachment({ district: att.district, actor: null } satisfies SocketAttachment);
+          ws.serializeAttachment({ district: att.district, actor: null, left: true } satisfies SocketAttachment);
         }
       }
       touched++;
@@ -246,18 +274,37 @@ export class WorldRoom {
     return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
   }
 
-  async webSocketMessage(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
-    const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
+  webSocketMessage(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
+    // Chain behind this socket's previous frame (see `queues`).
+    const q = this.queues.get(ws) ?? { tail: Promise.resolve(), depth: 0 };
+    if (q.depth >= MAX_QUEUED_FRAMES) return Promise.resolve();
+    q.depth++;
+    this.queues.set(ws, q);
+    const run = q.tail.then(() => this.handleFrame(ws, message));
+    q.tail = run
+      .catch(() => {})
+      .then(() => {
+        if (--q.depth === 0 && this.queues.get(ws) === q) this.queues.delete(ws);
+      });
+    return run;
+  }
+
+  private async handleFrame(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
     const att = this.attachmentOf(ws) ?? { district: '', actor: null };
+    // Left the room (or closed) while this frame was queued: it is moot.
+    if (att.left || this.closed.has(ws)) return;
+    const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
     const core = new RoomCore<CfWebSocket>(att.district, this.port());
     const res = await core.onMessage(ws, att.actor, raw, this.peersExcept(ws));
-    this.apply(ws, att, res);
+    this.apply(ws, res);
   }
 
   async webSocketClose(ws: CfWebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     // A portal-redirect close already detached the actor (null) and broadcast the
     // leave, so onClose(null) no-ops — no double announcement. A normal drop
     // still carries its actor and gets the usual single leave.
+    if (this.closed.has(ws)) return; // an error already announced it
+    this.closed.add(ws);
     const att = this.attachmentOf(ws);
     const core = new RoomCore<CfWebSocket>(att?.district ?? '', this.port());
     core.onClose(att?.actor ?? null);
@@ -266,6 +313,8 @@ export class WorldRoom {
   async webSocketError(ws: CfWebSocket, _error: unknown): Promise<void> {
     // Treat a socket error like a close for presence purposes (same detach-aware
     // no-op behavior as webSocketClose).
+    if (this.closed.has(ws)) return; // close already announced it
+    this.closed.add(ws);
     const att = this.attachmentOf(ws);
     const core = new RoomCore<CfWebSocket>(att?.district ?? '', this.port());
     core.onClose(att?.actor ?? null);

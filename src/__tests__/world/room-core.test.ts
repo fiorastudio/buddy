@@ -469,3 +469,52 @@ describe('room-core one socket per buddy (newest wins)', () => {
     expect(rec.sent.filter((s) => s.socket === 'oldTab')).toHaveLength(0);
   });
 });
+
+// B5: the core decides on state re-read AFTER each await (port.current/peers),
+// because other events run while D1 answers. Adapter-level interleaving is in
+// room-adapter.test.ts.
+describe('room-core re-reads state after an await', () => {
+  const HELLO = JSON.stringify({ type: 'hello', controlToken: 'good-control-token' });
+  const ENTER = JSON.stringify({ type: 'portal_enter', seq: 3, to: 'plaza-2', controlToken: 'good-control-token' });
+
+  it('a hello whose socket closed during verify welcomes and announces nothing', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'shadowpaw-ab12', district: DISTRICT }) });
+    rec.port.current = () => ({ gone: true, actor: null });
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', null, HELLO, []);
+    expect(res).toEqual({});
+    expect(rec.sent).toHaveLength(0);
+    expect(rec.broadcasts).toHaveLength(0);
+  });
+
+  it('a hello builds its roster (and takeover) from peers read after verify', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'shadowpaw-ab12', district: DISTRICT, citizenId: 'cit-1' }) });
+    rec.port.current = () => ({ gone: false, actor: null });
+    rec.port.peers = () => [{ socket: 'otherTab', state: actor('shadowpaw-ab12'), citizenId: 'cit-1' }];
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', null, HELLO, []);
+    expect(res.takeover).toEqual(['otherTab']);
+  });
+
+  it('a warp whose socket was evicted or replaced meanwhile says nothing more', async () => {
+    const rec = makePort();
+    rec.port.current = () => ({ gone: true, actor: null });
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('x'), ENTER, []);
+    expect(res).toEqual({});
+    expect(rec.broadcasts).toHaveLength(0);
+    expect(rec.sent).toHaveLength(0);
+  });
+
+  it('a failed warp writes back the CURRENT actor (relabeled meanwhile), not the pre-await copy', async () => {
+    const rec = makePort({ warp: () => ({ ok: false, error: 'town_full' }) });
+    rec.port.current = () => ({ gone: false, actor: actor('anon-1a2b3c', { x: 0.7, y: 0.2, seq: 1 }) });
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('shadowpaw-ab12'), ENTER, []);
+    expect(res.attach).toEqual({ slug: 'anon-1a2b3c', x: 0.7, y: 0.2, seq: 3 });
+  });
+
+  it('a successful warp announces the leave under the CURRENT slug', async () => {
+    const rec = makePort();
+    rec.port.current = () => ({ gone: false, actor: actor('anon-1a2b3c') });
+    const res = await new RoomCore<Sock>(DISTRICT, rec.port).onMessage('me', actor('shadowpaw-ab12'), ENTER, []);
+    expect(res.detach).toBe(true);
+    expect(rec.broadcasts).toEqual([{ msg: { type: 'leave', slug: 'anon-1a2b3c' }, except: 'me' }]);
+  });
+});
