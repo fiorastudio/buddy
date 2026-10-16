@@ -218,6 +218,22 @@ describe('world worker live (WS upgrade) routing', () => {
     expect(res.status).toBe(503);
   });
 
+  // B7: each upgrade is a socket the room holds (and a D1 lookup on hello).
+  it('websocket upgrades are rate-limited per client IP', async () => {
+    const { handler } = makeHandlerWithRoom();
+    const from = (ip: string) =>
+      new Request('https://world.example.com/v1/live/plaza-1', {
+        headers: { Upgrade: 'websocket', 'cf-connecting-ip': ip },
+      });
+    for (let i = 0; i < 30; i++) {
+      expect((await handler(from('203.0.113.7'))).headers.get('x-room-forwarded')).toBe('1');
+    }
+    const limited = await handler(from('203.0.113.7'));
+    expect(limited.status).toBe(429);
+    // Another client is unaffected.
+    expect((await handler(from('203.0.113.8'))).headers.get('x-room-forwarded')).toBe('1');
+  });
+
   it('a GET without the Upgrade header does not hijack the live path', async () => {
     const { handler } = makeHandlerWithRoom();
     const res = await handler(new Request('https://world.example.com/v1/live/plaza-1'));

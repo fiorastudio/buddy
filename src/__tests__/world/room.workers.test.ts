@@ -4,7 +4,7 @@
 // WebSocketPair, the DO Hibernation API (state.acceptWebSocket), and a real
 // eviction → rehydration cycle. Excluded from the node run in vitest.config.ts.
 import { describe, it, expect } from 'vitest';
-import { SELF, env, runInDurableObject, evictDurableObject } from 'cloudflare:test';
+import { SELF, env, runInDurableObject, evictDurableObject, runDurableObjectAlarm } from 'cloudflare:test';
 import { totalXpForLevel } from '../../lib/leveling.js';
 
 // env bindings provided by vitest.workers.config.ts' miniflare block.
@@ -67,7 +67,9 @@ interface Client {
 }
 
 async function connect(district: string): Promise<Client> {
-  const res = await SELF.fetch(`${BASE}/v1/live/${district}`, { headers: { Upgrade: 'websocket' } });
+  const res = await SELF.fetch(`${BASE}/v1/live/${district}`, {
+    headers: { Upgrade: 'websocket', 'cf-connecting-ip': nextIp() },
+  });
   expect(res.status).toBe(101);
   const ws = res.webSocket!;
   ws.accept();
@@ -371,6 +373,39 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
 
     b.close();
     c.close();
+  });
+
+  // B7: a socket that never says hello is closed by the room's alarm (which,
+  // unlike a timer, lets the room hibernate in the meantime).
+  it('an upgrade arms the hello-deadline alarm, which closes a socket that never authenticated', async () => {
+    const stub = env.ROOM.get(env.ROOM.idFromName('plaza-6'));
+    const ctA = await mintControlToken('ws-deadline-token-aaa', 'plaza-6');
+    const member = await connect('plaza-6');
+    member.send({ type: 'hello', controlToken: ctA });
+    await member.next(); // welcome
+
+    const lurker = await connect('plaza-6');
+    const armed = await runInDurableObject(stub, (_i, state) => state.storage.getAlarm());
+    expect(armed).not.toBeNull();
+
+    // Fast-forward: hibernate the room, then backdate the lurker's connect
+    // time past the deadline, as if 10s had passed with no hello.
+    await evictDurableObject(stub);
+    await runInDurableObject(stub, (_i, state) => {
+      for (const ws of state.getWebSockets()) {
+        const att = ws.deserializeAttachment() as { actor: unknown; connectedAt?: number };
+        if (!att.actor) ws.serializeAttachment({ ...att, connectedAt: 0 });
+      }
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+
+    expect(await lurker.next()).toEqual({ type: 'error', error: 'hello timeout' });
+    expect(await lurker.closed).toEqual({ code: 1008, reason: 'hello timeout' });
+
+    // The authenticated member is untouched and still served.
+    member.send({ type: 'ping' });
+    expect((await member.next()).type).toBe('pong');
+    member.close();
   });
 
   // Runs last: it warps its citizen out of plaza-1, so it must not perturb the

@@ -340,3 +340,24 @@ export class RoomCore<S> {
     this.port.broadcast({ type: 'leave', slug: attachment.slug });
   }
 }
+
+// Per-socket frame budget (token bucket): `ratePerSec` sustained, bursts up to
+// `burst`. The adapter drops frames over budget — a well-behaved plaza streams
+// move_to at ~8 Hz, so only a flooding client ever notices.
+export class FrameBudget {
+  private tokens: number;
+  private last: number;
+
+  constructor(private ratePerSec: number, private burst: number, now: number) {
+    this.tokens = burst;
+    this.last = now;
+  }
+
+  take(now: number): boolean {
+    this.tokens = Math.min(this.burst, this.tokens + ((now - this.last) / 1000) * this.ratePerSec);
+    this.last = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
+  }
+}

@@ -20,6 +20,7 @@ import {
   type Peer,
   ROOM_NOTICE_PATH,
   CLOSE_TAKEN_OVER,
+  FrameBudget,
 } from '../lib/world/room-core.js';
 import { D1WorldStore, type D1Like } from '../lib/world/d1-store.js';
 import { hashToken, handlePortalWarp, publicSlug, type RoomNotice } from '../lib/world/handlers.js';
@@ -43,11 +44,13 @@ interface RoomEnv {
 // this citizen's live socket. `left` marks a socket that has left the room
 // (warped, evicted, taken over) and is only waiting for its close: its frames
 // are ignored, so it can never re-enter presence (e.g. by re-sending hello).
+// `connectedAt` starts the hello deadline for a not-yet-authenticated socket.
 interface SocketAttachment {
   district: string;
   actor: ActorState | null;
   citizenId?: string;
   left?: boolean;
+  connectedAt?: number;
 }
 
 const WebSocketPairCtor = (globalThis as unknown as {
@@ -61,6 +64,17 @@ const SNAPSHOT_FLUSH_MS = 60;
 // portal_enter). Real clients queue a handful at most; past this the socket is
 // flooding and further frames are dropped until the queue drains.
 const MAX_QUEUED_FRAMES = 32;
+
+// B7 limits. A socket must authenticate within AUTH_DEADLINE_MS of connecting
+// (the plaza sends hello on open) or it is closed 1008 by the room's alarm.
+// Frames over MAX_FRAME_CHARS close the socket (1009); the protocol's largest
+// legitimate frame is a few hundred bytes. move_to is budgeted at ~15 Hz with
+// a burst of 15 (the plaza streams ~8 Hz); every other frame at 5/s, burst 10.
+// Frames over budget are dropped, not answered.
+export const AUTH_DEADLINE_MS = 10_000;
+const MAX_FRAME_CHARS = 4096;
+const MOVE_RATE = { perSec: 15, burst: 15 };
+const OTHER_RATE = { perSec: 5, burst: 10 };
 
 export class WorldRoom {
   private storePromise: Promise<D1WorldStore> | null = null;
@@ -81,6 +95,13 @@ export class WorldRoom {
   // Sockets whose close/error already ran, so an in-flight frame that resumes
   // after its D1 await doesn't announce a socket that is gone.
   private closed = new WeakSet<CfWebSocket>();
+  // Per-socket frame budgets (B7). Memory only: a hibernation wake hands every
+  // socket a fresh budget, which is harmless.
+  private budgets = new WeakMap<CfWebSocket, { move: FrameBudget; other: FrameBudget }>();
+  // Decoded attachments, so a broadcast or roster walk doesn't deserialize
+  // every socket (idle unauthenticated ones included) each time. Written only
+  // through setAttachment(); rebuilt lazily after a hibernation wake.
+  private attCache = new WeakMap<CfWebSocket, SocketAttachment | null>();
 
   constructor(private state: DurableObjectStateLike, private env: RoomEnv) {}
 
@@ -104,8 +125,9 @@ export class WorldRoom {
 
   // Presence/snapshots reach only sockets that completed the hello handshake —
   // a socket that connected but never authenticated must not receive (even
-  // masked) peer identities. Idle unauth sockets simply hear nothing; we don't
-  // time them out (a timer would block hibernation).
+  // masked) peer identities. Idle unauth sockets hear nothing and are closed
+  // by the hello-deadline alarm (an alarm, unlike a timer, lets the DO
+  // hibernate).
   private broadcastToAuthed(msg: ServerMsg, except?: CfWebSocket): void {
     const frame = JSON.stringify(msg);
     for (const ws of this.state.getWebSockets()) {
@@ -175,7 +197,17 @@ export class WorldRoom {
   }
 
   private attachmentOf(ws: CfWebSocket): SocketAttachment | null {
-    return (ws.deserializeAttachment() as SocketAttachment | null) ?? null;
+    if (this.attCache.has(ws)) return this.attCache.get(ws) ?? null;
+    const att = (ws.deserializeAttachment() as SocketAttachment | null) ?? null;
+    this.attCache.set(ws, att);
+    return att;
+  }
+
+  // Persist (survives hibernation) and cache. Never mutate a returned
+  // attachment in place — always write a new object through here.
+  private setAttachment(ws: CfWebSocket, att: SocketAttachment): void {
+    ws.serializeAttachment(att);
+    this.attCache.set(ws, att);
   }
 
   // Every OTHER authenticated socket, rebuilt from attachments (hibernation-safe).
@@ -199,22 +231,23 @@ export class WorldRoom {
   private apply(ws: CfWebSocket, res: HandleResult<CfWebSocket>): void {
     const att = this.attachmentOf(ws) ?? { district: '', actor: null };
     if (att.left) return; // already out of the room; nothing left to decide
-    if (res.detach) {
-      // Left the room (portal redirect / eviction): clear the actor (and owner)
-      // so this socket is gone from every presence path immediately — even
-      // during the close window and across any hibernation rehydration before
-      // the runtime drops it.
-      ws.serializeAttachment({ district: att.district, actor: null, left: true } satisfies SocketAttachment);
+    if (res.detach || res.close) {
+      // Left the room (portal redirect / eviction), or refused (bad hello):
+      // clear the actor (and owner) so this socket is gone from every presence
+      // path immediately — even during the close window and across any
+      // hibernation rehydration before the runtime drops it — and so frames it
+      // already queued are ignored (a burst of bad hellos costs ONE D1 query).
+      this.setAttachment(ws, { district: att.district, actor: null, left: true });
     } else if (res.attach) {
       const citizenId = res.citizenId ?? att.citizenId;
-      ws.serializeAttachment({ district: att.district, actor: res.attach, citizenId } satisfies SocketAttachment);
+      this.setAttachment(ws, { district: att.district, actor: res.attach, citizenId });
     }
     // Newest wins: older sockets for this buddy leave presence silently (the
     // buddy never left — no `leave`, and their close handler finds no actor).
     for (const old of res.takeover ?? []) {
       const oldAtt = this.attachmentOf(old);
       try {
-        old.serializeAttachment({ district: oldAtt?.district ?? att.district, actor: null, left: true } satisfies SocketAttachment);
+        this.setAttachment(old, { district: oldAtt?.district ?? att.district, actor: null, left: true });
         old.close(CLOSE_TAKEN_OVER.code, CLOSE_TAKEN_OVER.reason);
       } catch {
         // already closing — its close handler will find no actor either way
@@ -241,7 +274,7 @@ export class WorldRoom {
       } catch {
         // A racing close: still make sure an evicted socket is detached.
         if (notice.kind === 'evict') {
-          ws.serializeAttachment({ district: att.district, actor: null, left: true } satisfies SocketAttachment);
+          this.setAttachment(ws, { district: att.district, actor: null, left: true });
         }
       }
       touched++;
@@ -268,19 +301,89 @@ export class WorldRoom {
     // Hibernatable accept — no ws.accept()/addEventListener, so the runtime can
     // evict this DO between frames.
     this.state.acceptWebSocket(server);
-    const attachment: SocketAttachment = { district, actor: null };
-    server.serializeAttachment(attachment);
+    const connectedAt = Date.now();
+    this.setAttachment(server, { district, actor: null, connectedAt });
+    await this.armAuthDeadline(connectedAt + AUTH_DEADLINE_MS);
 
     return new Response(null, { status: 101, webSocket: client } as unknown as ResponseInit);
   }
 
+  // Make sure an alarm fires by `deadline`. Deadlines only grow (later
+  // connects), so an already-armed alarm is early enough; alarm() re-arms for
+  // whatever is still pending when it runs.
+  private async armAuthDeadline(deadline: number): Promise<void> {
+    const armed = await this.state.storage.getAlarm();
+    if (armed === null || armed > deadline) await this.state.storage.setAlarm(deadline);
+  }
+
+  // B7 hello deadline: close every socket that hasn't authenticated within
+  // AUTH_DEADLINE_MS. 1008, so a client that somehow never sent hello doesn't
+  // reconnect-loop (the plaza parks on 1008). A socket whose hello is being
+  // verified right now is spared; the alarm re-arms for it.
+  async alarm(): Promise<void> {
+    const now = Date.now();
+    let next = Infinity;
+    for (const ws of this.state.getWebSockets()) {
+      const att = this.attachmentOf(ws);
+      if (!att || att.actor || att.left) continue;
+      if (this.queues.has(ws)) {
+        next = Math.min(next, now + 1000);
+        continue;
+      }
+      const deadline = (att.connectedAt ?? 0) + AUTH_DEADLINE_MS;
+      if (deadline > now) {
+        next = Math.min(next, deadline);
+        continue;
+      }
+      try {
+        this.setAttachment(ws, { district: att.district, actor: null, left: true });
+        ws.send(JSON.stringify({ type: 'error', error: 'hello timeout' } satisfies ServerMsg));
+        ws.close(1008, 'hello timeout');
+      } catch {
+        // already closing
+      }
+    }
+    if (next !== Infinity) await this.state.storage.setAlarm(next);
+  }
+
+  // Drop a frame that is over this socket's budget (B7). Unparseable frames
+  // count against the general budget; the core answers them with an error.
+  private withinBudget(ws: CfWebSocket, raw: string): boolean {
+    const now = Date.now();
+    let b = this.budgets.get(ws);
+    if (!b) {
+      b = {
+        move: new FrameBudget(MOVE_RATE.perSec, MOVE_RATE.burst, now),
+        other: new FrameBudget(OTHER_RATE.perSec, OTHER_RATE.burst, now),
+      };
+      this.budgets.set(ws, b);
+    }
+    let type: unknown;
+    try {
+      type = (JSON.parse(raw) as { type?: unknown } | null)?.type;
+    } catch {
+      type = undefined;
+    }
+    return (type === 'move_to' ? b.move : b.other).take(now);
+  }
+
   webSocketMessage(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
+    const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
+    if (raw.length > MAX_FRAME_CHARS) {
+      try {
+        ws.close(1009, 'frame too large');
+      } catch {
+        // already closing
+      }
+      return Promise.resolve();
+    }
+    if (!this.withinBudget(ws, raw)) return Promise.resolve();
     // Chain behind this socket's previous frame (see `queues`).
     const q = this.queues.get(ws) ?? { tail: Promise.resolve(), depth: 0 };
     if (q.depth >= MAX_QUEUED_FRAMES) return Promise.resolve();
     q.depth++;
     this.queues.set(ws, q);
-    const run = q.tail.then(() => this.handleFrame(ws, message));
+    const run = q.tail.then(() => this.handleFrame(ws, raw));
     q.tail = run
       .catch(() => {})
       .then(() => {
@@ -289,11 +392,10 @@ export class WorldRoom {
     return run;
   }
 
-  private async handleFrame(ws: CfWebSocket, message: string | ArrayBuffer): Promise<void> {
+  private async handleFrame(ws: CfWebSocket, raw: string): Promise<void> {
     const att = this.attachmentOf(ws) ?? { district: '', actor: null };
     // Left the room (or closed) while this frame was queued: it is moot.
     if (att.left || this.closed.has(ws)) return;
-    const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
     const core = new RoomCore<CfWebSocket>(att.district, this.port());
     const res = await core.onMessage(ws, att.actor, raw, this.peersExcept(ws));
     this.apply(ws, res);

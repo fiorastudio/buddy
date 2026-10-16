@@ -4,9 +4,9 @@
 // delivers the next. Here a D1 that yields a macrotask per query plays the
 // real D1, and frames are delivered WITHOUT awaiting the previous one — the
 // sequential room-core tests can't see these races.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { WorldRoom } from '../../world/room.js';
+import { WorldRoom, AUTH_DEADLINE_MS } from '../../world/room.js';
 import { createWorldFetchHandler } from '../../world/worker-core.js';
 import { sqliteAsD1 } from './d1-shim.js';
 import { totalXpForLevel } from '../../lib/leveling.js';
@@ -14,8 +14,8 @@ import type { D1Like } from '../../lib/world/d1-store.js';
 import type { CfWebSocket, DurableObjectStateLike } from '../../world/runtime.js';
 
 // Every query resolves only after a macrotask, like a real D1 round-trip — the
-// window in which another socket event can run.
-function yieldingD1(inner: D1Like): D1Like {
+// window in which another socket event can run. `queries` counts round-trips.
+function yieldingD1(inner: D1Like, queries: { n: number } = { n: 0 }): D1Like {
   const tick = () => new Promise((r) => setTimeout(r, 0));
   return {
     async exec(sql) {
@@ -26,6 +26,7 @@ function yieldingD1(inner: D1Like): D1Like {
       return {
         bind(...args: unknown[]) {
           const stmt = inner.prepare(sql).bind(...args);
+          queries.n++;
           return {
             run: async () => (await tick(), stmt.run()),
             all: async <T>() => (await tick(), stmt.all<T>()),
@@ -77,21 +78,21 @@ function snap(name: string) {
 
 const flush = () => new Promise((r) => setTimeout(r, 20));
 
-describe('WorldRoom adapter under interleaved frames (B5)', () => {
-  let http: (req: Request) => Promise<Response>;
-  let room: WorldRoom;
-  let sockets: FakeWs[];
-
-  beforeEach(() => {
-    const db = new Database(':memory:');
-    http = createWorldFetchHandler({ db: sqliteAsD1(db), baseUrl: 'https://w.example', ratePerMinute: 1000 });
-    sockets = [];
-    const state: DurableObjectStateLike = {
-      acceptWebSocket: (ws) => void sockets.push(ws as FakeWs),
-      getWebSockets: () => sockets.filter((s) => !s.closedWith),
-    };
-    room = new WorldRoom(state, { DB: yieldingD1(sqliteAsD1(db)), BASE_URL: 'https://w.example' });
-  });
+function setup() {
+  const db = new Database(':memory:');
+  const http = createWorldFetchHandler({ db: sqliteAsD1(db), baseUrl: 'https://w.example', ratePerMinute: 1000 });
+  const sockets: FakeWs[] = [];
+  const alarm = { at: null as number | null };
+  const queries = { n: 0 };
+  const state: DurableObjectStateLike = {
+    acceptWebSocket: (ws) => void sockets.push(ws as FakeWs),
+    getWebSockets: () => sockets.filter((s) => !s.closedWith),
+    storage: {
+      getAlarm: async () => alarm.at,
+      setAlarm: async (t) => void (alarm.at = t),
+    },
+  };
+  const room = new WorldRoom(state, { DB: yieldingD1(sqliteAsD1(db), queries), BASE_URL: 'https://w.example' });
 
   async function post(path: string, body: unknown): Promise<any> {
     const res = await http(
@@ -111,14 +112,12 @@ describe('WorldRoom adapter under interleaved frames (B5)', () => {
   }
 
   // What room.fetch does for an upgrade, minus the WebSocketPair node lacks.
-  function connect(district = 'plaza-1'): FakeWs {
+  function connect(district = 'plaza-1', connectedAt = Date.now()): FakeWs {
     const ws = new FakeWs();
     sockets.push(ws);
-    ws.serializeAttachment({ district, actor: null });
+    ws.serializeAttachment({ district, actor: null, connectedAt });
     return ws;
   }
-
-  const frame = (m: unknown) => JSON.stringify(m);
 
   async function joined(ct: string): Promise<FakeWs> {
     const ws = connect();
@@ -126,6 +125,22 @@ describe('WorldRoom adapter under interleaved frames (B5)', () => {
     expect(ws.of('welcome')).toHaveLength(1);
     return ws;
   }
+
+  return { room, sockets, alarm, queries, controlToken, connect, joined };
+}
+
+const frame = (m: unknown) => JSON.stringify(m);
+
+describe('WorldRoom adapter under interleaved frames (B5)', () => {
+  let room: WorldRoom;
+  let sockets: FakeWs[];
+  let controlToken: (worldToken: string, name: string) => Promise<string>;
+  let connect: (district?: string) => FakeWs;
+  let joined: (ct: string) => Promise<FakeWs>;
+
+  beforeEach(() => {
+    ({ room, sockets, controlToken, connect, joined } = setup());
+  });
 
   it('two portal_enter frames in flight together warp once: one redirect, one leave', async () => {
     const observer = await joined(await controlToken('tok-observer-0001', 'Mistcoil'));
@@ -238,5 +253,85 @@ describe('WorldRoom adapter under interleaved frames (B5)', () => {
     expect(observer.of('leave')).toHaveLength(1); // the eviction's, only
     expect(ws.of('room_redirect')).toHaveLength(0);
     expect(ws.closedWith).toEqual({ code: 1008, reason: 'recalled' });
+  });
+});
+
+describe('WorldRoom adapter limits (B7)', () => {
+  let t: ReturnType<typeof setup>;
+  beforeEach(() => {
+    t = setup();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('the alarm closes sockets that never said hello in time, and re-arms for the rest', async () => {
+    const member = await t.joined(await t.controlToken('tok-member-00001', 'Mistcoil'));
+    const now = Date.now();
+    const stale = t.connect('plaza-1', now - AUTH_DEADLINE_MS - 1);
+    const fresh = t.connect('plaza-1', now - 1000);
+
+    await t.room.alarm();
+
+    expect(stale.closedWith).toEqual({ code: 1008, reason: 'hello timeout' });
+    expect(stale.of('error')).toEqual([{ type: 'error', error: 'hello timeout' }]);
+    expect(fresh.closedWith).toBeNull();
+    expect(member.closedWith).toBeNull();
+    // Re-armed for the fresh socket's own deadline.
+    expect(t.alarm.at).toBe(now - 1000 + AUTH_DEADLINE_MS);
+  });
+
+  it('the alarm spares a socket whose hello is being verified right now', async () => {
+    const ct = await t.controlToken('tok-slowhello-01', 'Shadowpaw');
+    const ws = t.connect('plaza-1', Date.now() - AUTH_DEADLINE_MS - 1);
+    const hello = t.room.webSocketMessage(ws, frame({ type: 'hello', controlToken: ct }));
+    await t.room.alarm(); // runs while the hello awaits D1
+    await hello;
+    expect(ws.closedWith).toBeNull();
+    expect(ws.of('welcome')).toHaveLength(1);
+  });
+
+  it('move_to is budgeted per socket: a flood is cut to the burst, then ~15 Hz', async () => {
+    const ws = await t.joined(await t.controlToken('tok-flooder-0001', 'Shadowpaw'));
+    let clock = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    for (let seq = 1; seq <= 40; seq++) {
+      await t.room.webSocketMessage(ws, frame({ type: 'move_to', seq, x: 0.5, y: seq / 100 }));
+    }
+    expect((ws.deserializeAttachment() as any).actor.seq).toBe(15); // burst of 15, rest dropped
+    clock += 1000; // a second later the budget has refilled
+    await t.room.webSocketMessage(ws, frame({ type: 'move_to', seq: 41, x: 0.5, y: 0.41 }));
+    expect((ws.deserializeAttachment() as any).actor.seq).toBe(41);
+    expect(ws.closedWith).toBeNull(); // throttled, not disconnected
+  });
+
+  it('pings are budgeted too', async () => {
+    const ws = await t.joined(await t.controlToken('tok-pinger-00001', 'Shadowpaw'));
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    for (let i = 0; i < 50; i++) await t.room.webSocketMessage(ws, frame({ type: 'ping' }));
+    expect(ws.of('pong').length).toBeLessThanOrEqual(10);
+    expect(ws.of('pong').length).toBeGreaterThan(0);
+  });
+
+  it('an oversized frame closes the socket (1009) without reaching the core', async () => {
+    const ws = t.connect();
+    const before = t.queries.n;
+    await t.room.webSocketMessage(ws, frame({ type: 'hello', controlToken: 'x'.repeat(5000) }));
+    expect(ws.closedWith?.code).toBe(1009);
+    expect(t.queries.n).toBe(before);
+  });
+
+  it('a burst of bad hellos costs ONE D1 lookup (the socket is out after the first)', async () => {
+    await t.joined(await t.controlToken('tok-warmup-00001', 'Mistcoil')); // room store bootstrapped
+    const ws = t.connect();
+    const before = t.queries.n;
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        t.room.webSocketMessage(ws, frame({ type: 'hello', controlToken: 'bogus-control-token' }))
+      )
+    );
+    expect(ws.closedWith?.code).toBe(1008);
+    expect(ws.of('error')).toEqual([{ type: 'error', error: 'invalid control token' }]);
+    expect(t.queries.n - before).toBe(1);
   });
 });

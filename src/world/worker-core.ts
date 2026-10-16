@@ -27,6 +27,10 @@ export interface WorldWorkerConfig {
   db: D1Like;
   baseUrl: string;
   ratePerMinute?: number;
+  // Live-room websocket upgrades per client IP per minute (default 30). Each
+  // upgrade is a socket the room holds and, on hello, a D1 lookup; the plaza
+  // reconnects with capped exponential backoff, so a real viewer needs few.
+  upgradesPerMinute?: number;
   now?: () => number;
   // The WorldRoom Durable Object namespace. Absent in older/preview contexts —
   // the live route then reports 503 rather than crashing.
@@ -82,6 +86,7 @@ function json(result: HandlerResult): Response {
 
 export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Request) => Promise<Response> {
   const limiter = new RateLimiter(config.ratePerMinute ?? 60, 60_000);
+  const upgradeLimiter = new RateLimiter(config.upgradesPerMinute ?? 30, 60_000);
   const now = config.now ?? (() => Date.now());
   let storePromise: Promise<WorldStore> | null = null;
   const notifyRooms = roomNotifier(config.roomNamespace);
@@ -120,6 +125,10 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
         const district = districtForTown(liveMatch[1]);
         if (!district) return json({ status: 404, body: { error: 'unknown town' } });
         if (!config.roomNamespace) return json({ status: 503, body: { error: 'rooms unavailable' } });
+        const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+        if (!upgradeLimiter.allow(`ip:${ip}`, opts.now)) {
+          return json({ status: 429, body: { error: 'rate limited' } });
+        }
         // Key the room by the VALIDATED district and forward it explicitly so the
         // DO trusts the worker's validation, not raw path input.
         const roomUrl = new URL(req.url);
