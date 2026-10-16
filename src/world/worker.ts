@@ -4,6 +4,8 @@
 //
 // Deploy (from world/):
 //   wrangler d1 create buddy-world && wrangler d1 migrations apply buddy-world
+//   wrangler secret put ANON_SECRET   (once; any long random string — keys the
+//                                      anon mask, see handlers.publicSlug)
 //   wrangler deploy
 // Requires compatibility_flags = ["nodejs_compat"] (node:crypto usage).
 
@@ -18,6 +20,7 @@ export { WorldRoom } from './room.js';
 interface Env {
   DB: D1Like;
   BASE_URL?: string;
+  ANON_SECRET?: string;
   ROOM: DurableObjectNamespaceLike;
 }
 
@@ -30,11 +33,15 @@ export default {
     // namespace. (Tests build the handler directly via createWorldFetchHandler,
     // passing roomNamespace explicitly or omitting it, so they never poison this
     // cache.)
+    if (!handler && !env.ANON_SECRET) {
+      console.error('buddy-world: ANON_SECRET is not set; anon masks use the public dev key (wrangler secret put ANON_SECRET)');
+    }
     handler ??= createWorldFetchHandler({
       db: env.DB,
       baseUrl: env.BASE_URL ?? 'https://buddyworldonline.com',
       ratePerMinute: 60,
       roomNamespace: env.ROOM,
+      anonSecret: env.ANON_SECRET,
     });
     return handler(req);
   },
