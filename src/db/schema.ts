@@ -3,6 +3,7 @@ import path from 'path';
 import { mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { initReasoningSchema } from '../lib/reasoning/schema.js';
+import { initXpEventsSchema } from './xp-events-schema.js';
 
 // BUDDY_DB_PATH env var allows tests to use an isolated DB
 // instead of the production ~/.buddy/buddy.db
@@ -86,6 +87,9 @@ export function initDb(conn: Database.Database = db) {
       FOREIGN KEY(companion_id) REFERENCES companions(id)
     );
   `);
+
+  // xp_events provenance columns (source, dedupe_of).
+  initXpEventsSchema(db);
 
   // Migration: add observer_mode column (safe for existing DBs)
   addColumnIfMissing(conn, 'companions', `observer_mode TEXT DEFAULT 'both'`);
