@@ -5,17 +5,17 @@
 // at ~/.buddy/pending-events.jsonl until the next buddy_observe ingests them.
 
 import { appendFileSync, existsSync, readFileSync, unlinkSync, mkdirSync, renameSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { BUDDY_DB_PATH } from './constants.js';
+import { dirname } from 'node:path';
+import { BUDDY_PENDING_EVENTS_PATH } from './constants.js';
 
 export interface PendingEvent {
   type: string;
   ts: number;
 }
 
-// Derive from the DB path so the ~/.buddy location has exactly one owner
-// (constants.ts) — a future env override there carries over automatically.
-export const DEFAULT_PENDING_EVENTS_PATH = join(dirname(BUDDY_DB_PATH), 'pending-events.jsonl');
+// Owned by constants.ts: next to the DB, so a BUDDY_DB_PATH override carries
+// over, unless BUDDY_PENDING_EVENTS_PATH overrides it directly.
+export const DEFAULT_PENDING_EVENTS_PATH = BUDDY_PENDING_EVENTS_PATH;
 
 export function appendPendingEvent(file: string, event: PendingEvent): void {
   try {
