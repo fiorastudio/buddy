@@ -34,10 +34,19 @@ function snap(over: Record<string, unknown> = {}) {
   };
 }
 
+// Every test shares ONE worker isolate, so its per-IP rate limiter. Give each
+// request its own client IP so the suite's volume (it grows with every test)
+// never trips the 60/min budget meant for a single real client.
+let clientIp = 0;
+function nextIp(): string {
+  clientIp++;
+  return `10.0.${clientIp >> 8}.${clientIp & 255}`;
+}
+
 function post(path: string, body: unknown) {
   return SELF.fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': nextIp() },
     body: JSON.stringify(body),
   });
 }
@@ -307,6 +316,59 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     expect(welcomeC.actors.map((x: any) => x.slug)).not.toContain(slugA);
 
     again.close();
+    b.close();
+    c.close();
+  });
+
+  // B6: a second tab for the same buddy takes over; the old one is retired
+  // quietly (1008 so the plaza doesn't reconnect and steal it back).
+  it('a second socket for the same buddy takes over: one roster entry, no leave until the live tab closes', async () => {
+    const ctA = await mintControlToken('ws-dupe-token-aaa', 'plaza-5');
+    const ctB = await mintControlToken('ws-dupe-token-bbb', 'plaza-5');
+
+    const b = await connect('plaza-5'); // an observer
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next();
+
+    const tab1 = await connect('plaza-5');
+    tab1.send({ type: 'hello', controlToken: ctA });
+    const slugA = (await tab1.next()).self as string;
+    expect((await b.next()).type).toBe('join');
+
+    const tab2 = await connect('plaza-5');
+    tab2.send({ type: 'hello', controlToken: ctA });
+    const welcome2 = await tab2.next();
+    expect(welcome2).toMatchObject({ type: 'welcome', self: slugA });
+    expect(welcome2.actors.map((x: any) => x.slug)).not.toContain(slugA);
+
+    expect(await tab1.next()).toEqual({ type: 'error', error: 'taken over' });
+    expect(await tab1.closed).toEqual({ code: 1008, reason: 'taken over' });
+
+    // The observer hears the buddy re-join at spawn — and no leave for the old tab.
+    const rejoin = await b.next();
+    expect(rejoin).toMatchObject({ type: 'join', actor: { slug: slugA } });
+
+    // A fresh joiner sees the buddy exactly once.
+    const ctC = await mintControlToken('ws-dupe-token-ccc', 'plaza-5');
+    const c = await connect('plaza-5');
+    c.send({ type: 'hello', controlToken: ctC });
+    const welcomeC = await c.next();
+    expect(welcomeC.actors.filter((x: any) => x.slug === slugA)).toHaveLength(1);
+    expect((await b.next()).type).toBe('join'); // observer hears C
+
+    // Only the live tab moves the buddy, and closing it is the one leave.
+    tab2.send({ type: 'move_to', seq: 1, x: 0.25, y: 0.75, clientTs: 1 });
+    let snap: any;
+    for (let i = 0; i < 5 && !snap; i++) {
+      const m = await b.next();
+      expect(m.type, 'no leave while the buddy is still live').not.toBe('leave');
+      if (m.type === 'snapshot') snap = m;
+    }
+    expect(snap.actors.find((x: any) => x.slug === slugA)).toMatchObject({ x: 0.25, y: 0.75 });
+
+    tab2.close();
+    expect(await b.next()).toEqual({ type: 'leave', slug: slugA });
+
     b.close();
     c.close();
   });

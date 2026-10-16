@@ -414,3 +414,58 @@ describe('room-core server-initiated identity changes (recall / anon)', () => {
     expect(rec.broadcasts).toHaveLength(0);
   });
 });
+
+// B6: one live socket per buddy. A second tab (or a reconnect that beats the
+// old socket's close) takes over; the old socket is retired without a `leave`.
+describe('room-core one socket per buddy (newest wins)', () => {
+  const HELLO = JSON.stringify({ type: 'hello', controlToken: 'good-control-token' });
+
+  it('a second hello for the same owner takes over the older socket', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'shadowpaw-ab12', district: DISTRICT, citizenId: 'cit-1' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const peers = [
+      { socket: 'oldTab', state: actor('shadowpaw-ab12', { x: 0.2, y: 0.3, seq: 9 }), citizenId: 'cit-1' },
+      { socket: 'peerA', state: actor('mistcoil-99'), citizenId: 'cit-2' },
+    ];
+    const res = await core.onMessage('newTab', null, HELLO, peers);
+
+    expect(res.attach).toEqual({ slug: 'shadowpaw-ab12', x: 0.5, y: 0.5, seq: 0 });
+    expect(res.takeover).toEqual(['oldTab']);
+    // The old tab is told why before the adapter closes it.
+    expect(rec.sent).toContainEqual({ socket: 'oldTab', msg: { type: 'error', error: 'taken over' } });
+    // The newcomer's roster never lists itself (the old socket's actor).
+    const welcome = rec.sent.find((s) => s.socket === 'newTab')!.msg as Extract<ServerMsg, { type: 'welcome' }>;
+    expect(welcome.actors.map((a) => a.slug)).toEqual(['mistcoil-99']);
+    // Peers hear no leave — the buddy never left — only the join at spawn.
+    expect(rec.broadcasts.map((b) => b.msg.type)).toEqual(['join']);
+    // The owner id stays server-side.
+    expect(JSON.stringify([...rec.sent, ...rec.broadcasts])).not.toContain('cit-');
+  });
+
+  it('matches by public slug when an older socket carries no owner id', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'anon-1a2b3c', district: DISTRICT, citizenId: 'cit-1' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('newTab', null, HELLO, [{ socket: 'oldTab', state: actor('anon-1a2b3c') }]);
+    expect(res.takeover).toEqual(['oldTab']);
+  });
+
+  it('a different buddy is never taken over', async () => {
+    const rec = makePort({ verify: () => ({ slug: 'shadowpaw-ab12', district: DISTRICT, citizenId: 'cit-1' }) });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, HELLO, [
+      { socket: 'peerA', state: actor('mistcoil-99'), citizenId: 'cit-2' },
+    ]);
+    expect(res.takeover).toBeUndefined();
+    expect(rec.sent.filter((s) => s.socket === 'peerA')).toHaveLength(0);
+  });
+
+  it('a failed hello never takes over anyone', async () => {
+    const rec = makePort({ verify: () => null });
+    const core = new RoomCore<Sock>(DISTRICT, rec.port);
+    const res = await core.onMessage('me', null, HELLO, [
+      { socket: 'oldTab', state: actor('shadowpaw-ab12'), citizenId: 'cit-1' },
+    ]);
+    expect(res.takeover).toBeUndefined();
+    expect(rec.sent.filter((s) => s.socket === 'oldTab')).toHaveLength(0);
+  });
+});

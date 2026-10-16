@@ -17,7 +17,9 @@ import {
   type ServerMsg,
   type WarpOutcome,
   type HandleResult,
+  type Peer,
   ROOM_NOTICE_PATH,
+  CLOSE_TAKEN_OVER,
 } from '../lib/world/room-core.js';
 import { D1WorldStore, type D1Like } from '../lib/world/d1-store.js';
 import { hashToken, handlePortalWarp, publicSlug, type RoomNotice } from '../lib/world/handlers.js';
@@ -153,12 +155,14 @@ export class WorldRoom {
   }
 
   // Every OTHER authenticated socket, rebuilt from attachments (hibernation-safe).
-  private peersExcept(self: CfWebSocket) {
-    const peers: Array<{ socket: CfWebSocket; state: ActorState }> = [];
+  // Each carries its owner id (server-side only) so a hello can find an older
+  // socket for the same buddy.
+  private peersExcept(self: CfWebSocket): Peer<CfWebSocket>[] {
+    const peers: Peer<CfWebSocket>[] = [];
     for (const ws of this.state.getWebSockets()) {
       if (ws === self) continue;
       const att = this.attachmentOf(ws);
-      if (att?.actor) peers.push({ socket: ws, state: att.actor });
+      if (att?.actor) peers.push({ socket: ws, state: att.actor, citizenId: att.citizenId });
     }
     return peers;
   }
@@ -166,7 +170,7 @@ export class WorldRoom {
   // ── Cloudflare entry points ──────────────────────────────────────────────
 
   // Persist a RoomCore decision onto the socket and act on it.
-  private apply(ws: CfWebSocket, att: SocketAttachment, res: HandleResult): void {
+  private apply(ws: CfWebSocket, att: SocketAttachment, res: HandleResult<CfWebSocket>): void {
     if (res.detach) {
       // Left the room (portal redirect / eviction): clear the actor (and owner)
       // so this socket is gone from every presence path immediately — even
@@ -176,6 +180,17 @@ export class WorldRoom {
     } else if (res.attach) {
       const citizenId = res.citizenId ?? att.citizenId;
       ws.serializeAttachment({ district: att.district, actor: res.attach, citizenId } satisfies SocketAttachment);
+    }
+    // Newest wins: older sockets for this buddy leave presence silently (the
+    // buddy never left — no `leave`, and their close handler finds no actor).
+    for (const old of res.takeover ?? []) {
+      const oldAtt = this.attachmentOf(old);
+      try {
+        old.serializeAttachment({ district: oldAtt?.district ?? att.district, actor: null } satisfies SocketAttachment);
+        old.close(CLOSE_TAKEN_OVER.code, CLOSE_TAKEN_OVER.reason);
+      } catch {
+        // already closing — its close handler will find no actor either way
+      }
     }
     if (res.flush) this.scheduleFlush();
     if (res.close) ws.close(res.close.code, res.close.reason);
