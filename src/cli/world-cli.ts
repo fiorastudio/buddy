@@ -143,8 +143,9 @@ export async function worldCommand(argv: string[], deps: WorldCliDeps): Promise<
     }
 
     // link: mint a personal, one-time URL that lets THIS browser drive your own
-    // buddy in the plaza. The real world token never leaves this machine — the
-    // URL carries only a short-lived, single-use code.
+    // buddy in the plaza. The real world token goes only to the Buddy World
+    // server (to prove ownership), never into the URL or the browser — the URL
+    // carries only a short-lived, single-use code.
     case 'link': {
       const cfg = loadWorldConfig(configPath);
       if (!cfg?.slug) return ['Your buddy is not in the world yet. Run: buddy-world teleport'];
