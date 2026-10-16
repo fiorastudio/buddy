@@ -13,9 +13,18 @@ import { detectCommandEvent } from "../lib/xp-classify.js";
 import { appendPendingEvent, DEFAULT_PENDING_EVENTS_PATH } from "../lib/pending-events.js";
 
 // Error patterns — word-boundary anchored to avoid false positives
-// like "error handling added", "0 errors", or "isError: false"
-// Note: Error: (capitalized) intentionally has no \b prefix so TypeError:, RangeError: etc. match
-export const ERROR_REGEX = /\berror:|Error:|\bENOENT\b|\bEACCES\b|exit code [1-9]\d*|\bFAILED\b|panicked at/;
+// like "error handling added", "0 errors", or "isError: false".
+// Case-insensitive part: "ERROR:", "Error:", "error:", "Exit code 1",
+// "npm ERR!", git's "fatal:" (X8 — uppercase ERROR: and "Exit code" used to
+// slip through, and "isError: false" used to match the bare Error: pattern).
+const ERROR_ANY_CASE = /\berror:|\bENOENT\b|\bEACCES\b|\bexit(?:ed with)? code [1-9]\d*|panicked at|\bnpm ERR!|^fatal:/im;
+// Case-sensitive part: named error classes (TypeError:, FetchError:) must
+// start a word with a capital, so "isError:" stays out; FAILED stays uppercase so "0 failed" / "no tests failed" don't fire.
+const ERROR_EXACT_CASE = /\b[A-Z][A-Za-z]*Error:|\bFAILED\b/;
+
+export function looksLikeError(output: string): boolean {
+  return ERROR_ANY_CASE.test(output) || ERROR_EXACT_CASE.test(output);
+}
 
 // Concerned reactions — species-generic, short
 const CONCERNED_REACTIONS = [
@@ -68,7 +77,7 @@ function inferToolOutput(input: GenericHookInput): string {
   if (typeof input.tool_response === "string") return input.tool_response;
   // Documented Claude Code shape: object with text (success) or
   // error/stdout/stderr (failure). Include the error string so the
-  // ERROR_REGEX ("exit code N", "Error:") sees real failures.
+  // looksLikeError ("exit code N", "Error:") sees real failures.
   if (input.tool_response && typeof input.tool_response === "object") {
     const r = input.tool_response as { text?: string; error?: string; stdout?: string; stderr?: string };
     const parts = [r.error, r.text, r.stdout, r.stderr].filter(
@@ -161,7 +170,7 @@ export function recordGroundTruthEvent(
   const exitCode =
     typeof (input as GenericHookInput).exitCode === "number"
       ? ((input as GenericHookInput).exitCode as number)
-      : ERROR_REGEX.test(output)
+      : looksLikeError(output)
         ? 1
         : 0;
   const canonicalTool = toolName.toLowerCase() === "bash" ? "Bash" : toolName;
@@ -179,7 +188,7 @@ export function handlePostToolUse(input: PostToolUseInput | GenericHookInput, st
   const output = inferToolOutput(input);
 
   // Check for error patterns
-  if (!ERROR_REGEX.test(output)) return false;
+  if (!looksLikeError(output)) return false;
 
   // Write concerned reaction (includes single-pass race protection)
   return writeConcernedReaction(statusPath);
