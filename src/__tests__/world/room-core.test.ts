@@ -384,6 +384,14 @@ describe('room-core server-initiated identity changes (recall / anon)', () => {
     expect(rec.sent).toEqual([{ socket: 'me', msg: { type: 'error', error: 'recalled' } }]);
   });
 
+  it("evict for a revoke (B18) tells the socket it was revoked, not recalled", () => {
+    const rec = makePort();
+    const res = new RoomCore<Sock>(DISTRICT, rec.port).evict('me', actor('shadowpaw-ab12'), 'revoked');
+    expect(res).toEqual({ detach: true, close: { code: 1008, reason: 'revoked' } });
+    expect(rec.sent).toEqual([{ socket: 'me', msg: { type: 'error', error: 'revoked' } }]);
+    expect(rec.broadcasts).toEqual([{ msg: { type: 'leave', slug: 'shadowpaw-ab12' }, except: 'me' }]);
+  });
+
   it('relabel (anon on): peers see the real slug leave and the masked one join; owner is re-welcomed', () => {
     const rec = makePort();
     const core = new RoomCore<Sock>(DISTRICT, rec.port);

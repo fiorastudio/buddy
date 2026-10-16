@@ -393,6 +393,16 @@ export class D1WorldStore implements WorldStore {
       .run();
   }
 
+  async revokeBrowserAccess(citizenId: string): Promise<number> {
+    await this.db.prepare('DELETE FROM link_codes WHERE citizen_id = ?').bind(citizenId).run();
+    // RETURNING gives the count the same way on D1 and the SQLite shim.
+    const gone = await this.db
+      .prepare('DELETE FROM browser_sessions WHERE citizen_id = ? RETURNING token_hash')
+      .bind(citizenId)
+      .all<{ token_hash: string }>();
+    return gone.results.length;
+  }
+
   async findCitizenByBrowserToken(
     tokenHash: string,
     nowMs: number

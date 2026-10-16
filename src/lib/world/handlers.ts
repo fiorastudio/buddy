@@ -53,6 +53,7 @@ export const CONTROL_TOKEN_SCOPE = 'move,portal_warp';
 // Link codes are short-lived: minted by the CLI, redeemed by the browser at once.
 export const LINK_CODE_TTL_MS = 30 * 60_000; // 30 minutes (single-use; roomy enough to paste a link and click it later)
 // Control tokens live in localStorage across sessions, so a generous window.
+// The owner can end them all early with /v1/browser-sessions/revoke (B18).
 export const CONTROL_TOKEN_TTL_MS = 30 * 86_400_000; // 30 days
 
 export interface HandlerResult {
@@ -156,10 +157,13 @@ function anonView(c: Omit<CitizenRow, 'id'>, opts: HandlerOpts) {
 // Privacy changes made over HTTP must reach sockets already live in a room
 // (a Durable Object). The host injects this; the handlers stay host-agnostic
 // and it is simply absent (no-op) where there are no rooms (tests, self-host).
-//   evict   — recall/purge: drop the citizen's live socket(s) for good.
+//   evict   — recall/purge, or the owner revoked browser access: drop the
+//             citizen's live socket(s) for good. `reason` (default
+//             'recalled') is what the closed socket is told.
 //   relabel — anon toggle: re-key the live actor under its new public slug.
+export type EvictReason = 'recalled' | 'revoked';
 export type RoomNotice =
-  | { kind: 'evict'; citizenId: string }
+  | { kind: 'evict'; citizenId: string; reason?: EvictReason }
   | { kind: 'relabel'; citizenId: string; slug: string };
 export type RoomNotifier = (notice: RoomNotice) => Promise<void>;
 
@@ -358,6 +362,25 @@ export async function handleBrowserLink(
       url: `${opts.baseUrl}/?district=${citizen.district}#code=${code}`,
     },
   };
+}
+
+// browser-sessions/revoke (B18): the owner, proving control with the REAL
+// world token, signs every browser out. All control tokens and unused link
+// codes are deleted, and the rooms close any socket still driving the buddy:
+// a live socket authenticated once at hello and would otherwise keep moving it.
+export async function handleRevokeBrowserSessions(
+  payload: { token?: unknown },
+  store: WorldStore,
+  notifyRooms?: RoomNotifier
+): Promise<HandlerResult> {
+  if (typeof payload.token !== 'string' || payload.token.length < 8) {
+    return bad(400, 'missing or malformed token');
+  }
+  const citizen = await store.findByTokenHash(hashToken(payload.token));
+  if (!citizen) return bad(401, 'unknown token');
+  const revoked = await store.revokeBrowserAccess(citizen.id);
+  await notifyRooms?.({ kind: 'evict', citizenId: citizen.id, reason: 'revoked' });
+  return { status: 200, body: { revoked } };
 }
 
 // browser-session: exchange a one-time code for a scoped control token. The

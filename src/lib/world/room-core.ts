@@ -308,10 +308,12 @@ export class RoomCore<S> {
   // Peers hear one `leave`; the socket is detached at once (out of every
   // presence path) and closed with 1008 so the client stops reconnecting —
   // its control token is revoked, so a retry would fail auth anyway.
-  evict(socket: S, attachment: ActorState): HandleResult<S> {
+  // The same for a revoke (B18): the owner signed every browser out, so the
+  // socket is closed with reason 'revoked' instead.
+  evict(socket: S, attachment: ActorState, reason: 'recalled' | 'revoked' = 'recalled'): HandleResult<S> {
     this.port.broadcast({ type: 'leave', slug: attachment.slug }, socket);
-    this.port.send(socket, { type: 'error', error: 'recalled' });
-    return { detach: true, close: { code: CLOSE_POLICY, reason: 'recalled' } };
+    this.port.send(socket, { type: 'error', error: reason });
+    return { detach: true, close: { code: CLOSE_POLICY, reason } };
   }
 
   // The owner toggled anon over HTTP: re-key the live actor under its new

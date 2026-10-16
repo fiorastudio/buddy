@@ -294,7 +294,7 @@ export class WorldRoom {
       try {
         const res =
           notice.kind === 'evict'
-            ? core.evict(ws, att.actor)
+            ? core.evict(ws, att.actor, notice.reason)
             : core.relabel(ws, att.actor, notice.slug, this.peersExcept(ws));
         this.apply(ws, res);
       } catch {
@@ -473,9 +473,11 @@ export class WorldRoom {
 
 function parseNotice(raw: string): RoomNotice | null {
   try {
-    const n = JSON.parse(raw) as Partial<{ kind: unknown; citizenId: unknown; slug: unknown }>;
+    const n = JSON.parse(raw) as Partial<{ kind: unknown; citizenId: unknown; slug: unknown; reason: unknown }>;
     if (typeof n.citizenId !== 'string' || !n.citizenId) return null;
-    if (n.kind === 'evict') return { kind: 'evict', citizenId: n.citizenId };
+    if (n.kind === 'evict') {
+      return { kind: 'evict', citizenId: n.citizenId, ...(n.reason === 'revoked' ? { reason: 'revoked' as const } : {}) };
+    }
     if (n.kind === 'relabel' && typeof n.slug === 'string' && n.slug) {
       return { kind: 'relabel', citizenId: n.citizenId, slug: n.slug };
     }

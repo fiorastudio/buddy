@@ -435,7 +435,7 @@ describe('world worker room notices (recall / anon reach live rooms)', () => {
     url: string;
     method: string;
     upgrade: string | null;
-    body: { kind: string; citizenId: string; slug?: string };
+    body: { kind: string; citizenId: string; slug?: string; reason?: string };
   }
 
   function makeHandler(opts: { failRoom?: string; noRooms?: boolean } = {}) {
@@ -509,6 +509,25 @@ describe('world worker room notices (recall / anon reach live rooms)', () => {
       expect(n.body).toEqual({ kind: 'relabel', citizenId: expect.any(String), slug: world.citizens[0].slug });
     }
     expect(world.citizens[0].slug).toMatch(/^anon-[0-9a-f]{6}$/);
+  });
+
+  it('POST /v1/browser-sessions/revoke signs browsers out and evicts their sockets in every room (B18)', async () => {
+    const { handler, post, notices } = makeHandler();
+    await post('/v1/teleport', { token: TOKEN, snapshot: snap() });
+    const { code } = (await (await post('/v1/browser-link', { token: TOKEN })).json()) as { code: string };
+    const { controlToken } = (await (await post('/v1/browser-session', { code })).json()) as { controlToken: string };
+    const me = () =>
+      handler(new Request('https://world.example.com/v1/me', { headers: { authorization: `Bearer ${controlToken}` } }));
+    expect((await me()).status).toBe(200);
+
+    const res = await post('/v1/browser-sessions/revoke', { token: TOKEN });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revoked: 1 });
+    expect((await me()).status).toBe(401);
+    expect(notices).toHaveLength(6);
+    for (const n of notices) {
+      expect(n.body).toEqual({ kind: 'evict', citizenId: expect.any(String), reason: 'revoked' });
+    }
   });
 
   it('an unreachable room never fails the owner request', async () => {

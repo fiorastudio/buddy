@@ -120,6 +120,9 @@ export interface WorldStore {
   // Resolves a live (unexpired at `nowMs`) control token to its owner + scope.
   // A hidden (recalled) citizen never resolves, even if a session row survived.
   findCitizenByBrowserToken(tokenHash: string, nowMs: number): Promise<{ citizen: CitizenRow; scope: string } | null>;
+  // Sign every browser out (B18): delete all of a citizen's control tokens and
+  // unused link codes. Returns how many control tokens were deleted.
+  revokeBrowserAccess(citizenId: string): Promise<number>;
 }
 
 function rowToCitizen(row: Record<string, unknown>): CitizenRow {
@@ -438,6 +441,11 @@ export class SqliteWorldStore implements WorldStore {
     this.db
       .prepare('INSERT INTO browser_sessions (token_hash, citizen_id, scope, expires_at) VALUES (?, ?, ?, ?)')
       .run(tokenHash, citizenId, scope, expiresAt);
+  }
+
+  async revokeBrowserAccess(citizenId: string): Promise<number> {
+    this.db.prepare('DELETE FROM link_codes WHERE citizen_id = ?').run(citizenId);
+    return this.db.prepare('DELETE FROM browser_sessions WHERE citizen_id = ?').run(citizenId).changes;
   }
 
   async findCitizenByBrowserToken(

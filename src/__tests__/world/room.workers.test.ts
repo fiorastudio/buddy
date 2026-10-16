@@ -326,6 +326,34 @@ describe('WorldRoom (real WebSocket + hibernation)', () => {
     c.close();
   });
 
+  // B18: the owner signs every browser out; the buddy stays in the world.
+  it('revoking browser sessions closes the live socket and its control token can no longer join', async () => {
+    const ctA = await mintControlToken('ws-revoke-token-aaa', 'plaza-2');
+    const ctB = await mintControlToken('ws-revoke-token-bbb', 'plaza-2');
+    const a = await connect('plaza-2');
+    a.send({ type: 'hello', controlToken: ctA });
+    const slugA = (await a.next()).self as string;
+    const b = await connect('plaza-2');
+    b.send({ type: 'hello', controlToken: ctB });
+    await b.next();
+    await a.next(); // A hears B join
+
+    const res = await post('/v1/browser-sessions/revoke', { token: 'ws-revoke-token-aaa' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ revoked: 1 });
+
+    expect(await a.next()).toEqual({ type: 'error', error: 'revoked' });
+    expect(await a.closed).toEqual({ code: 1008, reason: 'revoked' });
+    expect(await b.next()).toEqual({ type: 'leave', slug: slugA });
+
+    const again = await connect('plaza-2');
+    again.send({ type: 'hello', controlToken: ctA });
+    expect(await again.next()).toEqual({ type: 'error', error: 'invalid control token' });
+
+    again.close();
+    b.close();
+  });
+
   // B6: a second tab for the same buddy takes over; the old one is retired
   // quietly (1008 so the plaza doesn't reconnect and steal it back).
   it('a second socket for the same buddy takes over: one roster entry, no leave until the live tab closes', async () => {

@@ -232,6 +232,18 @@ export class WorldSync {
     if (!res || res.status !== 200) return null;
     return (await res.json()) as { code: string; url: string; district: string };
   }
+
+  /**
+   * Sign every browser out: revoke all control tokens and unused link codes,
+   * and close any live plaza socket driving this buddy. Auth'd by the real
+   * world token. Returns how many control tokens were revoked, or null on
+   * failure. Never throws.
+   */
+  async revokeBrowserSessions(): Promise<number | null> {
+    const res = await this.post('/v1/browser-sessions/revoke', { token: this.cfg.token });
+    if (!res || res.status !== 200) return null;
+    return ((await res.json()) as { revoked: number }).revoked;
+  }
 }
 
 // ── MCP server glue ──────────────────────────────────────────────────────

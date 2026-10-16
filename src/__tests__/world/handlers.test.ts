@@ -9,6 +9,7 @@ import {
   handleAnnouncements,
   handleBrowserLink,
   handleBrowserSession,
+  handleRevokeBrowserSessions,
   handleMe,
   handlePortalWarp,
   handleAnon,
@@ -863,6 +864,34 @@ describe('recall / anon reach live rooms', () => {
     expect((await handleRecall({ token: 'nobody-0000000000', purge: true }, store, notify)).status).toBe(401);
     expect((await handleAnon({ token: 'nobody-0000000000', anon: true }, store, notify)).status).toBe(401);
     expect(notices).toEqual([]);
+  });
+
+  // B18: the owner can sign every browser out without leaving the world.
+  it('revoke ends every control token and unused link code, and tells the rooms to evict', async () => {
+    const ct1 = await controlToken();
+    const ct2 = await controlToken();
+    const unused = ((await handleBrowserLink({ token: TOKEN }, store, OPTS)).body as { code: string }).code;
+
+    const res = await handleRevokeBrowserSessions({ token: TOKEN }, store, notify);
+    expect(res).toEqual({ status: 200, body: { revoked: 2 } });
+    expect((await handleMe(ct1, store, OPTS)).status).toBe(401);
+    expect((await handleMe(ct2, store, OPTS)).status).toBe(401);
+    expect((await handlePortalWarp({ controlToken: ct1, to: 'plaza-2' }, store, OPTS)).status).toBe(401);
+    expect((await handleBrowserSession({ code: unused }, store, OPTS)).status).toBe(401);
+    expect(notices).toEqual([{ kind: 'evict', citizenId: await citizenId(), reason: 'revoked' }]);
+
+    // The buddy stays in the world, and the owner can link a browser again.
+    expect((await store.findByTokenHash(hashToken(TOKEN)))!.hidden).toBe(false);
+    expect((await handleMe(await controlToken(), store, OPTS)).status).toBe(200);
+  });
+
+  it('revoke needs the world token: a control token or unknown token is refused, and no room is told', async () => {
+    const ct = await controlToken();
+    expect((await handleRevokeBrowserSessions({ token: ct }, store, notify)).status).toBe(401);
+    expect((await handleRevokeBrowserSessions({ token: 'nobody-0000000000' }, store, notify)).status).toBe(401);
+    expect((await handleRevokeBrowserSessions({}, store, notify)).status).toBe(400);
+    expect(notices).toEqual([]);
+    expect((await handleMe(ct, store, OPTS)).status).toBe(200); // untouched
   });
 
   it('anon on relabels the live actor with EXACTLY the /v1/world masked slug; anon off restores it', async () => {

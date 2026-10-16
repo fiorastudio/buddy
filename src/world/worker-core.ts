@@ -13,6 +13,7 @@ import {
   handleAnon,
   handleBrowserLink,
   handleBrowserSession,
+  handleRevokeBrowserSessions,
   handleMe,
   RateLimiter,
   NEW_CITIZENS_PER_IP_PER_DAY,
@@ -227,9 +228,15 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
 
       if (
         req.method === 'POST' &&
-        ['/v1/teleport', '/v1/events', '/v1/recall', '/v1/anon', '/v1/browser-link', '/v1/browser-session'].includes(
-          url.pathname
-        )
+        [
+          '/v1/teleport',
+          '/v1/events',
+          '/v1/recall',
+          '/v1/anon',
+          '/v1/browser-link',
+          '/v1/browser-session',
+          '/v1/browser-sessions/revoke',
+        ].includes(url.pathname)
       ) {
         // IP limit first, BEFORE the body is read or parsed (B16): a limited
         // client must not get the server to buffer and parse its payload. It
@@ -270,6 +277,8 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
             return json(await handleBrowserLink(payload, s, opts));
           case '/v1/browser-session':
             return json(await handleBrowserSession(payload, s, opts));
+          case '/v1/browser-sessions/revoke':
+            return json(await handleRevokeBrowserSessions(payload, s, notifyRooms));
         }
       }
 
