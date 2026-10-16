@@ -13,6 +13,7 @@ import {
   type WorldEventType,
 } from './schema-sql.js';
 import { makeSlug } from './identity.js';
+import { HUB_DISTRICT, WORLD_CITIZEN_LIMIT } from './districts.js';
 import type { WorldSnapshot } from './validate.js';
 
 export interface CitizenRow {
@@ -81,18 +82,28 @@ export interface WorldStore {
   updateSnapshot(citizenId: string, snap: WorldSnapshot, nowMs: number, xpBucket?: number): Promise<void>;
   recordEvents(citizenId: string, events: Array<{ type: string; ts: number }>): Promise<number>;
   recall(tokenHash: string, purge: boolean): Promise<boolean>;
-  // Events are windowed to [sinceMs, untilMs]. Handlers pass the server clock
-  // as untilMs, so a row whose ts lies in the future can't sit on top forever.
-  district(name: string, sinceMs: number, untilMs: number): Promise<DistrictView>;
+  // A town's view: events windowed to [sinceMs, untilMs] (handlers pass the
+  // server clock as untilMs, so a future-dated row can't sit on top forever),
+  // plus its residents — visible citizens last seen at/after `residentSinceMs`,
+  // capped at the `limit` most recently seen (a last_seen_at past untilMs ranks
+  // as untilMs, so a legacy future-dated row can't permanently claim a slot).
+  district(
+    name: string,
+    sinceMs: number,
+    untilMs: number,
+    residentSinceMs?: number,
+    limit?: number
+  ): Promise<DistrictView>;
   // GLOBAL celebration feed (M6): the most recent celebration-class events
   // (ANNOUNCE_EVENT_TYPES) across ALL districts, newest first, from visible
   // citizens only, ts within [sinceMs, untilMs], and at most
   // ANNOUNCE_MAX_PER_CITIZEN rows per citizen so one buddy can't fill the
   // banner. Returns raw identity; the handler masks anon buddies.
   announcements(limit: number, sinceMs: number, untilMs: number): Promise<AnnouncementRow[]>;
-  // Live per-town population, counting ONLY visible (hidden=0) citizens so the
-  // capacity gate matches what district()/handleWorld actually render.
-  districtCounts(): Promise<Record<string, number>>;
+  // Live per-town population, counting ONLY visible (hidden=0) citizens last
+  // seen at/after `sinceMs`, so the capacity gate matches what
+  // district()/handleWorld actually render (residents, not everyone ever).
+  districtCounts(sinceMs: number): Promise<Record<string, number>>;
   // Move a citizen's town. District-ONLY: never touches xp/level/etc. This is
   // the write the scoped portal-warp path uses (it must not write XP).
   setDistrict(citizenId: string, district: string): Promise<void>;
@@ -161,7 +172,7 @@ export class SqliteWorldStore implements WorldStore {
     }
 
     // Everyone lands in the same place (Prontera) — from there they can `warp`.
-    const district = desiredDistrict ?? 'plaza-1';
+    const district = desiredDistrict ?? HUB_DISTRICT;
     const id = randomUUID();
     let slug = makeSlug(snap.name);
     // Regenerate on the (rare) suffix collision rather than failing the insert.
@@ -272,10 +283,23 @@ export class SqliteWorldStore implements WorldStore {
     return true;
   }
 
-  async district(name: string, sinceMs: number, untilMs: number): Promise<DistrictView> {
+  async district(
+    name: string,
+    sinceMs: number,
+    untilMs: number,
+    residentSinceMs = 0,
+    limit = WORLD_CITIZEN_LIMIT
+  ): Promise<DistrictView> {
+    // Most-recently-seen residents win the LIMIT; the outer ORDER BY keeps the
+    // response in stable arrival order for the plaza.
     const citizenRows = this.db
-      .prepare('SELECT * FROM citizens WHERE district = ? AND hidden = 0 ORDER BY created_at')
-      .all(name) as Array<Record<string, unknown>>;
+      .prepare(
+        `SELECT * FROM (
+           SELECT * FROM citizens WHERE district = ? AND hidden = 0 AND last_seen_at >= ?
+           ORDER BY MIN(last_seen_at, ?) DESC, created_at DESC LIMIT ?
+         ) ORDER BY created_at`
+      )
+      .all(name, residentSinceMs, untilMs, limit) as Array<Record<string, unknown>>;
 
     const eventRows = this.db
       .prepare(
@@ -326,12 +350,13 @@ export class SqliteWorldStore implements WorldStore {
     }));
   }
 
-  async districtCounts(): Promise<Record<string, number>> {
+  async districtCounts(sinceMs: number): Promise<Record<string, number>> {
     // hidden = 0 only: a recalled/hidden citizen isn't shown in the town, so it
-    // must not count against the town's capacity either.
+    // must not count against the town's capacity either. Same for a citizen not
+    // seen since `sinceMs` — it has wandered off and frees its slot.
     const rows = this.db
-      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 GROUP BY district')
-      .all() as Array<{ district: string; n: number }>;
+      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 AND last_seen_at >= ? GROUP BY district')
+      .all(sinceMs) as Array<{ district: string; n: number }>;
     return Object.fromEntries(rows.map((r) => [r.district, r.n]));
   }
 

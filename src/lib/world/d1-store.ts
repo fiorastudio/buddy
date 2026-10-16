@@ -12,6 +12,7 @@ import {
   type WorldEventType,
 } from './schema-sql.js';
 import { makeSlug } from './identity.js';
+import { HUB_DISTRICT, WORLD_CITIZEN_LIMIT } from './districts.js';
 import type { WorldSnapshot } from './validate.js';
 import type {
   WorldStore,
@@ -101,7 +102,7 @@ export class D1WorldStore implements WorldStore {
     }
 
     // Everyone lands in the same place (Prontera) — from there they can `warp`.
-    const district = desiredDistrict ?? 'plaza-1';
+    const district = desiredDistrict ?? HUB_DISTRICT;
     const id = randomUUID();
     let slug = makeSlug(snap.name);
     while (await this.db.prepare('SELECT 1 FROM citizens WHERE slug = ?').bind(slug).first()) {
@@ -221,10 +222,23 @@ export class D1WorldStore implements WorldStore {
     return true;
   }
 
-  async district(name: string, sinceMs: number, untilMs: number): Promise<DistrictView> {
+  async district(
+    name: string,
+    sinceMs: number,
+    untilMs: number,
+    residentSinceMs = 0,
+    limit = WORLD_CITIZEN_LIMIT
+  ): Promise<DistrictView> {
+    // Most-recently-seen residents win the LIMIT; the outer ORDER BY keeps the
+    // response in stable arrival order for the plaza.
     const citizenRows = await this.db
-      .prepare('SELECT * FROM citizens WHERE district = ? AND hidden = 0 ORDER BY created_at')
-      .bind(name)
+      .prepare(
+        `SELECT * FROM (
+           SELECT * FROM citizens WHERE district = ? AND hidden = 0 AND last_seen_at >= ?
+           ORDER BY MIN(last_seen_at, ?) DESC, created_at DESC LIMIT ?
+         ) ORDER BY created_at`
+      )
+      .bind(name, residentSinceMs, untilMs, limit)
       .all<Record<string, unknown>>();
 
     const eventRows = await this.db
@@ -282,12 +296,13 @@ export class D1WorldStore implements WorldStore {
     );
   }
 
-  async districtCounts(): Promise<Record<string, number>> {
+  async districtCounts(sinceMs: number): Promise<Record<string, number>> {
     // hidden = 0 only: a recalled/hidden citizen isn't shown in the town, so it
-    // must not count against the town's capacity either.
+    // must not count against the town's capacity either. Same for a citizen not
+    // seen since `sinceMs` — it has wandered off and frees its slot.
     const rows = await this.db
-      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 GROUP BY district')
-      .bind()
+      .prepare('SELECT district, COUNT(*) AS n FROM citizens WHERE hidden = 0 AND last_seen_at >= ? GROUP BY district')
+      .bind(sinceMs)
       .all<{ district: string; n: number }>();
     return Object.fromEntries(rows.results.map((r) => [r.district, r.n]));
   }

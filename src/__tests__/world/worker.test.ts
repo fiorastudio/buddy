@@ -120,6 +120,30 @@ describe('world worker fetch handler', () => {
     expect(third.status).toBe(429);
   });
 
+  it('throttles NEW citizens per IP so one network cannot mint a town-filling crowd (B2)', async () => {
+    const tight = createWorldFetchHandler({
+      db: sqliteAsD1(new Database(':memory:')),
+      baseUrl: 'https://world.example.com',
+      ratePerMinute: 60,
+      newCitizensPerDay: 2,
+    });
+    const teleport = (token: string, ip = '203.0.113.9') =>
+      tight(
+        new Request('https://world.example.com/v1/teleport', {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': ip },
+          body: JSON.stringify({ token, snapshot: snap() }),
+        })
+      );
+    expect((await teleport('minted-0-0123456789abcdef')).status).toBe(200);
+    expect((await teleport('minted-1-0123456789abcdef')).status).toBe(200);
+    expect((await teleport('minted-2-0123456789abcdef')).status).toBe(429); // 3rd new citizen, same IP
+    // Re-teleporting an EXISTING citizen is never throttled.
+    expect((await teleport('minted-0-0123456789abcdef')).status).toBe(200);
+    // Another network has its own budget.
+    expect((await teleport('minted-3-0123456789abcdef', '198.51.100.4')).status).toBe(200);
+  });
+
   it('sets CORS headers so the plaza page can fetch world state', async () => {
     const res = await fetchHandler(new Request('https://world.example.com/v1/world/plaza-1'));
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
