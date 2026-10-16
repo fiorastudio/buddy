@@ -7,7 +7,7 @@
 // plaza-smoke tests don't.
 //
 // Usage:
-//   node scripts/e2e-live-smoke.mjs
+//   node scripts/e2e-live-smoke.mjs            (default: the live Worker's workers.dev alias)
 //   BUDDY_WORLD_API=https://your-world.workers.dev node scripts/e2e-live-smoke.mjs
 //
 // Requires a prior `npm run build` (imports from dist/). Exits non-zero on failure.
@@ -21,12 +21,14 @@ import { validateSnapshot, WORLD_MOODS } from '../dist/lib/world/validate.js';
 const API = (process.env.BUDDY_WORLD_API || 'https://buddy-world.fiorastudio-nj.workers.dev').replace(/\/$/, '');
 const token = `e2e-smoke-${randomUUID()}`;
 
-// Safety: this mutates a live Worker + D1. The preview default is safe (a
-// synthetic buddy that purges itself), but never touch a production world by
-// accident — refuse known prod hosts unless explicitly allowed.
-if (/buddy-mcp\.com/i.test(API) && process.env.BUDDY_WORLD_ALLOW_PROD !== '1') {
-  console.error(`Refusing to run the live smoke against a production host (${API}).`);
-  console.error('Point BUDDY_WORLD_API at a preview, or set BUDDY_WORLD_ALLOW_PROD=1 to override.');
+// Safety: this mutates a live Worker + D1. The synthetic buddy and throwaway
+// token purge themselves, but don't point it at the production custom domain by
+// accident — refuse it unless explicitly allowed. NOTE: the default host above
+// is the live Worker's workers.dev alias (it serves the same data as
+// buddyworldonline.com), so a default run DOES exercise the live stack.
+if (/buddyworldonline\.com/i.test(API) && process.env.BUDDY_WORLD_ALLOW_PROD !== '1') {
+  console.error(`Refusing to run the live smoke against the production domain (${API}).`);
+  console.error('Point BUDDY_WORLD_API at another Worker, or set BUDDY_WORLD_ALLOW_PROD=1 to override.');
   process.exit(2);
 }
 
