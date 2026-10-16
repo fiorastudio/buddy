@@ -6,10 +6,13 @@
   'use strict';
 
   const canvas = document.getElementById('plaza');
-  // willReadFrequently keeps a CPU-readable backing store — steadier under
-  // GPU-accelerated headless (where getImageData can otherwise read empty)
-  // and fine for our draw pattern.
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  // willReadFrequently keeps a CPU-readable backing store, which is steadier
+  // for getImageData under GPU-accelerated headless (it can otherwise read
+  // empty). It also takes the canvas off the GPU and rasterizes every frame on
+  // the main thread, so only tests get it: ?test=1, or a browser driven by
+  // automation (navigator.webdriver, which puppeteer sets).
+  const READBACK = new URLSearchParams(location.search).has('test') || navigator.webdriver === true;
+  const ctx = canvas.getContext('2d', READBACK ? { willReadFrequently: true } : undefined);
   const tickerEl = document.getElementById('ticker');
   const broadcastEl = document.getElementById('broadcast');
   const srListEl = document.getElementById('sr-citizens');
@@ -151,6 +154,7 @@
     porings: [], stalls: [], bubbles: {}, xpPopups: [], sittingCount: 0,
     sfxEnabled: false, spawnXpPopup: null, petBuddy: null, // bound below
     worldLoaded: false, frameErrors: 0, failNextFrameForTest: false,
+    readback: READBACK, glyphCacheSize: 0,
   };
   // Exposed from the start (not only after the first world fetch) so a failed
   // or slow feed still leaves the plaza inspectable.
@@ -259,6 +263,21 @@
       out = out.map((c) => Math.round(c + (target - c) * 0.13));
     }
     return out;
+  }
+
+  // speciesColor runs ensureContrast's search, so memoize it per
+  // (species, level, floor); the palette and floor rarely change.
+  const colorCache = new Map();
+  function citizenColor(species, level) {
+    const key = `${species}|${level}|${isNight()}|${state.palettes ? 1 : 0}`;
+    let hit = colorCache.get(key);
+    if (!hit) {
+      const rgb = speciesColor(species, level);
+      hit = { rgb, css: `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`, ratio: contrastRatio(rgb, activeTileBg()) };
+      if (colorCache.size >= 1024) colorCache.clear();
+      colorCache.set(key, hit);
+    }
+    return hit;
   }
 
   function speciesColor(species, level) {
@@ -711,12 +730,55 @@
     if (envBuf) ctx.drawImage(envBuf, 0, 0);
   }
 
+  // ── glyph sprite cache ────────────────────────────────────────────────
+  // Text with a shadow blur is the most expensive thing on the plaza, and a
+  // buddy only ever shows a handful of distinct frames. Each block of text is
+  // rendered once into an offscreen canvas, keyed by everything that changes
+  // its pixels (font, color, glow, the lines themselves: so species, frame,
+  // eye and palette), and blitted after that. Blits land on whole pixels so
+  // the cached glyphs stay as crisp as the direct fillText was.
+  const glyphCache = new Map();
+  const GLYPH_CACHE_MAX = 512;
+  let glyphMeasure = null;
+  function glyphSprite(font, fill, glow, blur, lines, lineH) {
+    const key = `${font}|${fill}|${glow}|${blur}|${lineH}|${lines.join('\n')}`;
+    let s = glyphCache.get(key);
+    if (s) return s;
+    glyphMeasure = glyphMeasure || document.createElement('canvas').getContext('2d');
+    glyphMeasure.font = font;
+    let width = 0;
+    for (const l of lines) width = Math.max(width, glyphMeasure.measureText(l).width);
+    // Room for the blur (it reaches ~1.5x shadowBlur) plus glyph overhang:
+    // ascenders above the first line box, descenders below the last.
+    const pad = Math.ceil(blur * 1.5) + 4;
+    const top = pad + lineH; // first baseline
+    const el = document.createElement('canvas');
+    el.width = Math.ceil(width) + pad * 2;
+    el.height = top + (lines.length - 1) * lineH + Math.ceil(lineH / 2) + pad;
+    const g = el.getContext('2d');
+    g.font = font;
+    g.textAlign = 'left';
+    g.fillStyle = fill;
+    if (glow && blur) { g.shadowColor = glow; g.shadowBlur = blur; }
+    lines.forEach((line, i) => g.fillText(line, pad, top + i * lineH));
+    s = { el, width, left: pad, top };
+    if (glyphCache.size >= GLYPH_CACHE_MAX) glyphCache.clear();
+    glyphCache.set(key, s);
+    state.glyphCacheSize = glyphCache.size;
+    return s;
+  }
+  // Draw a cached block so its left edge sits at x and its first baseline at y
+  // (the same anchor fillText with textAlign 'left' uses).
+  function blitGlyphs(s, x, y) {
+    ctx.drawImage(s.el, Math.round(x - s.left), Math.round(y - s.top));
+  }
+
   function drawCitizen(c, actor, now) {
     const spriteFrames = (state.sprites && state.sprites[c.species]) || [['(?)']];
     const frames = spriteFrames.length;
     const lines = spriteFrames[actor.frame % frames].map((l) => l.replaceAll('{E}', c.eye || '·'));
-    const [r, g, b2] = speciesColor(c.species, c.level);
-    state.spriteColors[c.slug] = contrastRatio([r, g, b2], activeTileBg());
+    const color = citizenColor(c.species, c.level);
+    state.spriteColors[c.slug] = color.ratio;
     const active = now - c.last_seen_at < ACTIVE_WINDOW_MS;
     const m = spriteMetrics(c.species);
     const w = m.cols * charW;
@@ -741,25 +803,17 @@
       ctx.restore();
     }
 
-    ctx.save();
-    ctx.font = SPRITE_FONT;
-    ctx.textAlign = 'left';
-    // dark halo behind glyphs for separation from the checkered tiles
-    ctx.shadowColor = active ? `rgb(${r},${g},${b2})` : 'rgba(0,0,0,0.9)';
-    ctx.shadowBlur = active ? 14 : 3;
-    ctx.fillStyle = `rgb(${r},${g},${b2})`;
+    // Recently-active buddies glow in their own color. Idle ones get no
+    // shadow: ensureContrast already keeps the glyphs AA-readable on the floor.
+    const sprite = glyphSprite(SPRITE_FONT, color.css, active ? color.css : null, active ? 14 : 0, lines, SPRITE_LINE_H);
     // Horizontal: center on the stable per-species box (immune to frames
     // that render narrower). Vertical: bottom-anchor THIS frame's lines so
     // variable line counts can never bob the sprite. Sitting buddies drop a
     // few px (RO seated posture) and get a little cushion.
     const sitDrop = actor.sitting ? 6 : 0;
-    let lastLineY = actor.y;
-    lines.forEach((line, i) => {
-      const y = actor.y + (i - lines.length) * SPRITE_LINE_H + sitDrop;
-      ctx.fillText(line, actor.x - w / 2, y);
-      lastLineY = y;
-    });
-    ctx.restore();
+    const firstLineY = actor.y - lines.length * SPRITE_LINE_H + sitDrop;
+    blitGlyphs(sprite, actor.x - w / 2, firstLineY);
+    const lastLineY = lines.length ? firstLineY + (lines.length - 1) * SPRITE_LINE_H : actor.y;
     if (actor.sitting) {
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -885,15 +939,13 @@
           }
           ctx.globalAlpha = 1;
         }
-        ctx.font = 'bold 13px Menlo, Consolas, monospace';
-        ctx.fillStyle = '#ffd700';
-        ctx.shadowColor = '#ff8c00';
-        ctx.shadowBlur = 10;
+        // Glowing text from the glyph cache (centered: x minus half its width).
         const bob = REDUCED_MOTION ? 0 : (age % 3) * 4;
-        ctx.fillText('✧ LEVEL UP! ✧', actor.x, actor.y - 74 - bob);
-        ctx.font = '16px serif';
-        ctx.fillText('🪽', actor.x, actor.y - 56);
-        ctx.shadowBlur = 0;
+        const banner = glyphSprite('bold 13px Menlo, Consolas, monospace', '#ffd700', '#ff8c00', 10, ['✧ LEVEL UP! ✧'], 13);
+        blitGlyphs(banner, actor.x - banner.width / 2, actor.y - 74 - bob);
+        const wings = glyphSprite('16px serif', '#ffd700', '#ff8c00', 10, ['🪽'], 16);
+        blitGlyphs(wings, actor.x - wings.width / 2, actor.y - 56);
+        ctx.fillStyle = '#ffd700'; // what later celebrations used to inherit
         continue;
       }
       const spec = CELEBRATION_SPEC[cel.type];

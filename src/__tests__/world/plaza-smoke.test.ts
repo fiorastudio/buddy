@@ -690,6 +690,37 @@ describe('plaza smoke test (headless browser)', () => {
     }
   }, 60_000);
 
+  it('renders sprites from a bounded glyph cache, with pixel readback only for automation', async () => {
+    const page = await browser.newPage();
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction('window.__PLAZA__ && window.__PLAZA__.glyphCacheSize > 0', { timeout: 15_000 });
+    // puppeteer sets navigator.webdriver, so this page keeps a readable canvas.
+    expect(await page.evaluate('window.__PLAZA__.readback')).toBe(true);
+    await new Promise((r) => setTimeout(r, 2000)); // every buddy cycles through its frames
+    const s = (await page.evaluate(`(() => {
+      const p = window.__PLAZA__;
+      // One cached block per (citizen, frame), plus the level-up banner and wings.
+      const bound = p.citizens.reduce((n, c) => n + ((p.sprites[c.species] || [0]).length), 0) + 2;
+      return { size: p.glyphCacheSize, bound };
+    })()`)) as { size: number; bound: number };
+    expect(s.size).toBeGreaterThan(0);
+    expect(s.size).toBeLessThanOrEqual(s.bound);
+    await page.close();
+
+    // A real visitor's browser (no automation flag) keeps the GPU canvas;
+    // ?test=1 opts back into readback.
+    for (const [query, readback] of [['', false], ['&test=1', true]] as const) {
+      const visitor = await browser.newPage();
+      await visitor.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      });
+      await visitor.goto(`${baseUrl}/?district=plaza-1${query}`, { waitUntil: 'networkidle0' });
+      await visitor.waitForFunction('window.__PLAZA__ && window.__PLAZA__.glyphCacheSize > 0', { timeout: 15_000 });
+      expect(await visitor.evaluate('window.__PLAZA__.readback')).toBe(readback);
+      await visitor.close();
+    }
+  }, 60_000);
+
   it('runs under a CSP that only allows its own origin', async () => {
     const csp = staticHeaders()['Content-Security-Policy'];
     expect(csp).toMatch(/connect-src 'self'/);
