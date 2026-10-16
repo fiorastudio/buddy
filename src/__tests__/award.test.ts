@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { db, initDb } from '../db/schema.js';
 import { awardXpBatchCore, awardWithGates, HOOK_DEDUPE_WINDOW_MINUTES } from '../lib/award.js';
-import { appendPendingEvent, consumePendingEvents } from '../lib/pending-events.js';
+import Database from 'better-sqlite3';
+import { appendPendingEvent, consumePendingEvents, withPendingEvents } from '../lib/pending-events.js';
 import { classifySummary, SELF_REPORT_DAILY_CAP } from '../lib/xp-classify.js';
 import { hasXpReward, xpRewardFor } from '../lib/leveling.js';
 
@@ -268,6 +269,45 @@ describe('awardWithGates — 7-day streak milestone (the cross-transaction race)
     awardWithGates(db, ID, 'observe', []);
     expect(countType('streak_7')).toBe(1);
     expect(xp()).toBe(eventSum());
+  });
+});
+
+/**
+ * X6: the observe path used to unlink the claimed pending-events batch before
+ * the award ran, so an award that failed (here: SQLITE_BUSY because another
+ * process holds the write lock) dropped real hook-verified events.
+ */
+describe('withPendingEvents + awardWithGates — queue survives a failed award (X6)', () => {
+  let dir: string;
+  let queue: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'buddy-x6-'));
+    queue = join(dir, 'pending-events.jsonl');
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('keeps the events queued when the award throws SQLITE_BUSY, and pays them on retry', () => {
+    appendPendingEvent(queue, { type: 'commit', ts: Date.now() });
+
+    const other = new Database(process.env.BUDDY_DB_PATH!);
+    const prevTimeout = db.pragma('busy_timeout', { simple: true });
+    db.pragma('busy_timeout = 0');
+    try {
+      other.exec('BEGIN IMMEDIATE'); // another session holds the write lock
+      expect(() =>
+        withPendingEvents((pending) => awardWithGates(db, ID, 'observe', pending), queue),
+      ).toThrow(/busy|locked/i);
+      other.exec('ROLLBACK');
+    } finally {
+      db.pragma(`busy_timeout = ${prevTimeout}`);
+      other.close();
+    }
+
+    expect(countType('commit')).toBe(0);
+    const { worldEvents } = withPendingEvents((pending) => awardWithGates(db, ID, 'observe', pending), queue);
+    expect(worldEvents).toEqual(['observe', 'commit']);
+    expect(countType('commit')).toBe(1);
+    expect(consumePendingEvents(queue)).toEqual([]); // consumed exactly once
   });
 });
 
