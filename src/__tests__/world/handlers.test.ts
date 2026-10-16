@@ -447,21 +447,37 @@ describe('snapshot bounds (release audit B4)', () => {
     expect(Object.keys(row!.stats).sort()).toEqual(['chaos', 'debugging', 'patience', 'snark', 'wisdom']);
   });
 
-  it('rejects an unknown avatar on teleport and on events, writing nothing', async () => {
+  // An unknown avatar is dropped, not a 400: a 400 on /v1/events would make the
+  // client drop the snapshot, silently stopping level/XP sync for anyone whose
+  // world.json holds a bad avatar.
+  it('drops an unknown avatar on teleport and on events; the rest still syncs', async () => {
     const bad = snap({ avatar: '<svg onload=alert(1)>' + 'z'.repeat(5000) });
     const tp = await handleTeleport({ token: 'secret-token', snapshot: bad }, store, OPTS);
-    expect(tp.status).toBe(400);
-    expect(await store.findByTokenHash(hashToken('secret-token'))).toBeNull();
+    expect(tp.status).toBe(200);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBeNull();
+    const served = await handleWorld('plaza-1', store, OPTS);
+    expect((served.body as { citizens: Array<{ avatar: unknown }> }).citizens[0].avatar).toBeNull();
+    expect(JSON.stringify(served.body)).not.toMatch(/svg|zzzzz/);
 
+    // Re-teleport with a valid avatar sets it; a later bad one keeps it.
     await handleTeleport({ token: 'secret-token', snapshot: snap() }, store, OPTS);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBe('chibi-3');
+    await handleTeleport({ token: 'secret-token', snapshot: bad }, store, OPTS);
+    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBe('chibi-3');
+
     const ev = await handleEvents(
-      { token: 'secret-token', events: [{ type: 'commit', ts: T0 }], snapshot: bad },
+      {
+        token: 'secret-token',
+        events: [{ type: 'commit', ts: T0 }],
+        snapshot: { ...bad, mood: 'grumpy' },
+      },
       store,
       LATER
     );
-    expect(ev.status).toBe(400);
-    expect((await store.district('plaza-1', 0, Number.MAX_SAFE_INTEGER)).events).toHaveLength(0);
-    expect((await store.findByTokenHash(hashToken('secret-token')))!.avatar).toBe('chibi-3');
+    expect(ev).toMatchObject({ status: 200, body: { accepted: 1 } });
+    const row = (await store.findByTokenHash(hashToken('secret-token')))!;
+    expect(row.mood).toBe('grumpy'); // the snapshot was applied
+    expect(row.avatar).toBe('chibi-3');
   });
 });
 
