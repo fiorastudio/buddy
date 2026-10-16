@@ -118,6 +118,7 @@ export interface WorldStore {
   consumeLinkCode(codeHash: string, nowMs: number): Promise<string | null>;
   createBrowserSession(citizenId: string, tokenHash: string, scope: string, expiresAt: number): Promise<void>;
   // Resolves a live (unexpired at `nowMs`) control token to its owner + scope.
+  // A hidden (recalled) citizen never resolves, even if a session row survived.
   findCitizenByBrowserToken(tokenHash: string, nowMs: number): Promise<{ citizen: CitizenRow; scope: string } | null>;
 }
 
@@ -278,6 +279,11 @@ export class SqliteWorldStore implements WorldStore {
       this.db.prepare('DELETE FROM browser_sessions WHERE citizen_id = ?').run(citizen.id);
       this.db.prepare('DELETE FROM citizens WHERE id = ?').run(citizen.id);
     } else {
+      // Recall = leave the world: revoke every browser credential too, so a
+      // stale control token can't rejoin a live room or read /v1/me. A later
+      // re-teleport un-hides the citizen; the owner mints a fresh link then.
+      this.db.prepare('DELETE FROM link_codes WHERE citizen_id = ?').run(citizen.id);
+      this.db.prepare('DELETE FROM browser_sessions WHERE citizen_id = ?').run(citizen.id);
       this.db.prepare('UPDATE citizens SET hidden = 1 WHERE id = ?').run(citizen.id);
     }
     return true;
@@ -442,7 +448,7 @@ export class SqliteWorldStore implements WorldStore {
       .prepare(
         `SELECT c.*, s.scope AS session_scope FROM browser_sessions s
          JOIN citizens c ON c.id = s.citizen_id
-         WHERE s.token_hash = ? AND s.expires_at > ?`
+         WHERE s.token_hash = ? AND s.expires_at > ? AND c.hidden = 0`
       )
       .get(tokenHash, nowMs) as Record<string, unknown> | undefined;
     if (!row) return null;

@@ -98,6 +98,22 @@ describe.each(IMPLS)('%s', (_name, makeStore) => {
     expect(await store.findByTokenHash('tokenhash-2')).toBeNull();
   });
 
+  it('recall (no purge) revokes browser sessions and link codes; a hidden citizen never resolves by control token', async () => {
+    await store.teleport('tokenhash-1', snap(), T0);
+    const c = (await store.findByTokenHash('tokenhash-1'))!;
+    await store.createBrowserSession(c.id, 'ctl-hash-1', 'move,portal_warp', T0 + 86_400_000);
+    await store.createLinkCode(c.id, 'code-hash-1', T0 + 60_000);
+    expect(await store.findCitizenByBrowserToken('ctl-hash-1', T0)).not.toBeNull();
+
+    await store.recall('tokenhash-1', false);
+    expect(await store.findCitizenByBrowserToken('ctl-hash-1', T0)).toBeNull();
+    expect(await store.consumeLinkCode('code-hash-1', T0)).toBeNull();
+
+    // Even a session row that exists while hidden must not authenticate.
+    await store.createBrowserSession(c.id, 'ctl-hash-2', 'move,portal_warp', T0 + 86_400_000);
+    expect(await store.findCitizenByBrowserToken('ctl-hash-2', T0)).toBeNull();
+  });
+
   it('district listing excludes token hashes', async () => {
     await store.teleport('tokenhash-1', snap(), T0);
     const world = await store.district('plaza-1', 0, UNTIL);

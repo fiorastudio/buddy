@@ -18,8 +18,10 @@ import {
   NEW_CITIZENS_PER_IP_PER_DAY,
   NEW_CITIZEN_WINDOW_MS,
   type HandlerResult,
+  type RoomNotifier,
 } from '../lib/world/handlers.js';
-import { districtForTown } from '../lib/world/towns.js';
+import { districtForTown, TOWN_NAMES } from '../lib/world/towns.js';
+import { ROOM_NOTICE_PATH } from '../lib/world/room-core.js';
 import type { WorldStore } from '../lib/world/store.js';
 import type { DurableObjectNamespaceLike } from './runtime.js';
 
@@ -29,6 +31,13 @@ export interface WorldWorkerConfig {
   ratePerMinute?: number;
   // Brand-new citizens one IP may create per day (default NEW_CITIZENS_PER_IP_PER_DAY).
   newCitizensPerDay?: number;
+  // Live-room websocket upgrades per client IP per minute (default 30). Each
+  // upgrade is a socket the room holds and, on hello, a D1 lookup; the plaza
+  // reconnects with capped exponential backoff, so a real viewer needs few.
+  upgradesPerMinute?: number;
+  // Keys the anon mask (handlers.publicSlug). MUST be set in production
+  // (`wrangler secret put ANON_SECRET`); absent → a public dev constant.
+  anonSecret?: string;
   now?: () => number;
   // The WorldRoom Durable Object namespace. Absent in older/preview contexts —
   // the live route then reports 503 rather than crashing.
@@ -41,6 +50,39 @@ const CORS_HEADERS = {
   // `authorization` so the browser can send the Bearer control token to /v1/me.
   'access-control-allow-headers': 'content-type, authorization',
 };
+
+// Push a recall/anon change into the live rooms. EVERY town's room is told, not
+// just the citizen's stored district: a socket is only district-checked at
+// hello, so one can still be live in a town its owner has since teleported out
+// of. Six rooms, rare action — cheap. Best-effort: the D1 write (and token
+// revocation) already happened, so a room that can't be reached must not fail
+// the owner's request.
+export function roomNotifier(ns: DurableObjectNamespaceLike | undefined): RoomNotifier | undefined {
+  if (!ns) return undefined;
+  return async (notice) => {
+    const body = JSON.stringify(notice);
+    const results = await Promise.allSettled(
+      TOWN_NAMES.map(async (_, i) => {
+        const district = `plaza-${i + 1}`;
+        const stub = ns.get(ns.idFromName(district));
+        const res = await stub.fetch(
+          new Request(`https://room.internal${ROOM_NOTICE_PATH}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body,
+          })
+        );
+        // Always drain the body: an unread DO response keeps the subrequest
+        // open (and the room unable to hibernate) until it is GC'd.
+        await res.text();
+        if (!res.ok) throw new Error(`room ${district} answered ${res.status}`);
+      })
+    );
+    for (const r of results) {
+      if (r.status === 'rejected') console.error('buddy-world room notice failed:', r.reason);
+    }
+  };
+}
 
 function json(result: HandlerResult): Response {
   return new Response(JSON.stringify(result.body), {
@@ -114,8 +156,10 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
     config.newCitizensPerDay ?? NEW_CITIZENS_PER_IP_PER_DAY,
     NEW_CITIZEN_WINDOW_MS
   );
+  const upgradeLimiter = new RateLimiter(config.upgradesPerMinute ?? 30, 60_000);
   const now = config.now ?? (() => Date.now());
   let storePromise: Promise<WorldStore> | null = null;
+  const notifyRooms = roomNotifier(config.roomNamespace);
 
   function store(): Promise<WorldStore> {
     // Lazy: D1 migrations may not have applied when the isolate boots. Clear the
@@ -137,7 +181,7 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
       // fallback. Absent off-Cloudflare — handlers treat undefined as "no flag".
       const cf = (req as { cf?: { country?: string } }).cf;
       const country = cf?.country ?? req.headers.get('cf-ipcountry') ?? undefined;
-      const opts = { now: now(), baseUrl: config.baseUrl, country };
+      const opts = { now: now(), baseUrl: config.baseUrl, country, anonSecret: config.anonSecret };
 
       if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -151,6 +195,10 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
         const district = districtForTown(liveMatch[1]);
         if (!district) return json({ status: 404, body: { error: 'unknown town' } });
         if (!config.roomNamespace) return json({ status: 503, body: { error: 'rooms unavailable' } });
+        const ip = req.headers.get('cf-connecting-ip') ?? 'unknown';
+        if (!upgradeLimiter.allow(`ip:${ip}`, opts.now)) {
+          return json({ status: 429, body: { error: 'rate limited' } });
+        }
         // Key the room by the VALIDATED district and forward it explicitly so the
         // DO trusts the worker's validation, not raw path input.
         const roomUrl = new URL(req.url);
@@ -215,9 +263,9 @@ export function createWorldFetchHandler(config: WorldWorkerConfig): (req: Reques
           case '/v1/events':
             return json(await handleEvents(payload, s, opts));
           case '/v1/recall':
-            return json(await handleRecall(payload, s));
+            return json(await handleRecall(payload, s, notifyRooms));
           case '/v1/anon':
-            return json(await handleAnon(payload, s));
+            return json(await handleAnon(payload, s, notifyRooms, opts));
           case '/v1/browser-link':
             return json(await handleBrowserLink(payload, s, opts));
           case '/v1/browser-session':
