@@ -1423,17 +1423,51 @@
     }
   }
 
-  canvas.addEventListener('click', (ev) => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
-    let best = null, bestD = 42; // click radius
+  // The box a buddy's ASCII sprite actually covers, matching drawCitizen: the
+  // stable per-species width centred on actor.x, and the glyph rows stacked
+  // up from the feet (actor.y), down to the ground shadow. A few px of slack.
+  function spriteBox(c, actor) {
+    const m = spriteMetrics(c.species);
+    const w = m.cols * charW;
+    const sitDrop = actor.sitting ? 6 : 0;
+    const pad = 3;
+    return {
+      left: actor.x - w / 2 - pad,
+      right: actor.x + w / 2 + pad,
+      top: actor.y - m.rows * SPRITE_LINE_H - 11 + sitDrop - pad, // ~cap height above the first baseline
+      bottom: actor.y + pad,
+    };
+  }
+  // The buddy whose sprite is directly under (x, y), frontmost first (sprites
+  // further down the screen are drawn on top), or null.
+  function buddyAt(x, y) {
+    let hit = null, hitY = -Infinity;
     for (const c of state.citizens) {
       const a = actors.get(c.slug);
       if (!a) continue;
-      const d = Math.hypot(a.x - mx, a.y - my);
-      if (d < bestD) { bestD = d; best = c.slug; }
+      const b = spriteBox(c, a);
+      if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom && a.y > hitY) {
+        hit = c.slug;
+        hitY = a.y;
+      }
     }
-    if (best) petBuddy(best);
+    return hit;
+  }
+  state.buddyAt = buddyAt; // test hook
+  state.spriteBoxFor = (slug) => { // test hook
+    const c = state.citizens.find((x) => x.slug === slug);
+    const a = actors.get(slug);
+    return c && a ? spriteBox(c, a) : null;
+  };
+
+  // Click directly on a buddy's sprite to pet it. Anywhere else moves my sprite
+  // (or, for a spectator, drops the RO move-marker). There used to be a 42px
+  // radius around each buddy's feet, so a busy plaza swallowed most move clicks.
+  canvas.addEventListener('click', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+    const hit = buddyAt(mx, my);
+    if (hit) petBuddy(hit);
     else if (ownerActor()) moveOwnerTo(mx, my); // I drive my own sprite
     else state.clickMarkers.push({ x: mx, y: my, born: performance.now() }); // spectator RO move-marker
   });

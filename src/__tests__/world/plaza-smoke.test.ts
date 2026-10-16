@@ -504,6 +504,59 @@ describe('plaza smoke test (headless browser)', () => {
     expect(mv.y).toBeLessThanOrEqual(1);
   }, 60_000);
 
+  it('pets a buddy only on a direct hit on its sprite; a click beside one still moves me (C11)', async () => {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1200, height: 800 });
+    // Reduced motion: sprites hold still, so the planned click points stay valid.
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(`${baseUrl}/?district=plaza-1`, { waitUntil: 'networkidle0' });
+    await page.waitForFunction(
+      'window.__PLAYER__ && window.__PLAZA__.actorFrames && Object.keys(window.__PLAZA__.actorFrames).length === 8'
+    );
+    await page.evaluate(`window.__PLAZA__.meSlug = 'buddy-0'`);
+
+    // Pick a peer, a point on its sprite, and a "near miss" inside the old 42px
+    // pet radius around its feet that isn't on any sprite (and is clear of the
+    // HTML overlays and inside the courtyard, so a move lands where I clicked).
+    type Pt = { x: number; y: number };
+    const plan = (await page.evaluate(`(() => {
+      const P = window.__PLAZA__;
+      for (const c of P.citizens) {
+        if (c.slug === 'buddy-0') continue;
+        const a = P.actorPos(c.slug), box = P.spriteBoxFor(c.slug);
+        const hit = { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2 };
+        if (P.buddyAt(hit.x, hit.y) !== c.slug || hit.y < 60) continue;
+        for (const [dx, dy] of [[0, 30], [0, 24], [36, 12], [-36, 12], [38, -14], [-38, -14]]) {
+          const near = { x: a.x + dx, y: a.y + dy };
+          if (Math.hypot(dx, dy) >= 42 || P.buddyAt(near.x, near.y) !== null) continue;
+          if (near.y < 80 || near.y > innerHeight - 80 || near.x < 200 || near.x > innerWidth - 200) continue;
+          const f = P.rtToFraction(near.x, near.y);
+          if (f.x <= 0.02 || f.x >= 0.98 || f.y <= 0.02 || f.y >= 0.98) continue;
+          return { slug: c.slug, hit, near };
+        }
+      }
+      return null;
+    })()`)) as { slug: string; hit: Pt; near: Pt } | null;
+    expect(plan).not.toBeNull();
+    const { slug, hit, near } = plan!;
+
+    // On the sprite: a pet, and my own buddy stays put.
+    await page.evaluate(`delete window.__PLAZA__.bubbles[${JSON.stringify(slug)}]`);
+    await page.mouse.click(hit.x, hit.y);
+    expect(((await page.evaluate(`window.__PLAZA__.bubbles[${JSON.stringify(slug)}]`)) as { emote: string } | undefined)?.emote).toBe('♥');
+    expect(((await page.evaluate(`window.__PLAZA__.actorPos('buddy-0')`)) as { owned: boolean }).owned).toBe(false);
+
+    // Beside it (the old code petted anything within 42px of the feet): a move.
+    await page.evaluate(`delete window.__PLAZA__.bubbles[${JSON.stringify(slug)}]`);
+    await page.mouse.click(near.x, near.y);
+    expect(await page.evaluate(`window.__PLAZA__.bubbles[${JSON.stringify(slug)}]`)).toBeUndefined();
+    const me = (await page.evaluate(`window.__PLAZA__.actorPos('buddy-0')`)) as { tx: number; ty: number; owned: boolean };
+    expect(me.owned).toBe(true);
+    expect(Math.abs(me.tx - near.x)).toBeLessThanOrEqual(1); // mouse events land on whole pixels
+    expect(Math.abs(me.ty - near.y)).toBeLessThanOrEqual(1);
+    await page.close();
+  }, 60_000);
+
   it('room snapshots drive non-owner sprites toward the server position (and never my own)', async () => {
     const page = await browser.newPage();
     await page.setViewport({ width: 1200, height: 800 });
