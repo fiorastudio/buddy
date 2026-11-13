@@ -9,6 +9,10 @@ import { colorFor } from "./lib/color.js";
 import { BUDDY_STATUS_PATH } from "./lib/constants.js";
 import { getAnimationProfile, getAnimationState, pickFrame, DEFAULT_DWELL_MS } from "./lib/animation.js";
 import { seededIndex } from "./lib/rng.js";
+import { joinColumns } from "./lib/columns.js";
+import { buildUsageModel, renderUsagePanel } from "./lib/usage.js";
+import { collectUsageSources } from "./lib/usage-sources.js";
+import { maybeSpawnRefresh } from "./lib/usage-refresh.js";
 
 const toUnix = (p: string) => p.replace(/\\/g, "/");
 // Legacy fallback tick interval (SPRITE_BODIES path uses animation.ts profiles instead)
@@ -299,38 +303,26 @@ try {
   }
 } catch { /* no buddy status file */ }
 
-// Merge: HUD lines on the left, buddy on the right (side-by-side)
-if (hudLines.length === 0 && buddyRight.length === 0) {
+// Claude Code usage panel — account, context window and rate-limit gauges.
+// Purely decorative: any failure leaves the rest of the statusline untouched.
+let usageLines: string[] = [];
+if (process.env.BUDDY_STATUSLINE_USAGE !== "0") {
+  try {
+    const now = Date.now();
+    const sources = collectUsageSources(stdinData);
+    usageLines = renderUsagePanel(buildUsageModel(sources, now), now);
+    // Fire-and-forget; this render already used whatever the cache holds.
+    maybeSpawnRefresh({ now });
+  } catch { /* usage panel unavailable */ }
+}
+
+// Merge: HUD on the left, buddy in the middle, usage panel on the right
+if (hudLines.length === 0 && buddyRight.length === 0 && usageLines.length === 0) {
   process.exit(0);
 }
 
-if (buddyRight.length === 0) {
-  // No buddy, just output HUD as-is
-  for (const line of hudLines) {
-    console.log(line);
-  }
-} else {
-  // Find the max visible width of HUD lines for padding
-  const hudVisibleWidths = hudLines.map((l) => stripAnsi(l).length);
-  const maxHudWidth = Math.max(...hudVisibleWidths, 0);
-  // Add a gutter between HUD and buddy
-  const gutter = 3;
-  const padWidth = maxHudWidth + gutter;
-
-  const totalLines = Math.max(hudLines.length, buddyRight.length);
-  for (let i = 0; i < totalLines; i++) {
-    const hudPart = hudLines[i] || "";
-    const buddyPart = buddyRight[i] || "";
-
-    if (buddyPart) {
-      // Pad the HUD line to align buddy column
-      const visibleLen = stripAnsi(hudPart).length;
-      const padding = " ".repeat(Math.max(0, padWidth - visibleLen));
-      console.log(`${hudPart}${padding}${buddyPart}`);
-    } else {
-      console.log(hudPart);
-    }
-  }
+for (const line of joinColumns([hudLines, buddyRight, usageLines], 3)) {
+  console.log(line);
 }
 
 function moodColor(mood: string): string {
