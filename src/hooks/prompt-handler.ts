@@ -178,7 +178,7 @@ export async function reinjectExtractionInstructionIfLapsed(
       db = schema.db;
     }
 
-    const companion = db.prepare("SELECT id FROM companions LIMIT 1").get() as
+    const companion = db.prepare("SELECT id FROM companions ORDER BY created_at ASC, id ASC LIMIT 1").get() as
       { id: string } | undefined;
     if (!companion) return false;
 

@@ -19,7 +19,7 @@ let statusDirEnsured = false;
  * Returns the row if found, null otherwise.
  */
 export function companionExists(): any | null {
-  return db.prepare('SELECT * FROM companions LIMIT 1').get() || null;
+  return db.prepare('SELECT * FROM companions ORDER BY created_at ASC, id ASC LIMIT 1').get() || null;
 }
 
 /**
@@ -61,9 +61,43 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
     xp,
     mood: row.mood,
     availablePoints: row.stat_points_available || 0,
-    hatchedAt: new Date(row.created_at).getTime(),
+    hatchedAt: parseCreatedAt(row.created_at),
     guardMode: row.guard_mode ?? 0,
   };
+}
+
+/**
+ * created_at arrives in two shapes. Rescued buddies get an explicit ISO 8601
+ * string with a 'Z', which parses correctly. Everyone else gets SQLite's
+ * DEFAULT CURRENT_TIMESTAMP — 'YYYY-MM-DD HH:MM:SS', UTC but with no zone
+ * designator, which JavaScript reads as *local* time. Left alone that makes a
+ * normally-hatched companion's age wrong by the UTC offset, and negative for
+ * the first N hours after hatching anywhere west of Greenwich.
+ */
+export function parseCreatedAt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value) return Date.now();
+
+  const raw = String(value).trim();
+  const iso = /[TZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z';
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : Date.now();
+}
+
+/**
+ * Reads the mute flag straight from the DB. Cheap (single indexed row) and
+ * always current, so it cannot drift from what buddy_mute wrote.
+ */
+function isMuted(): boolean {
+  try {
+    const row = db
+      .prepare("SELECT muted FROM companions ORDER BY created_at ASC, id ASC LIMIT 1")
+      .get() as { muted?: number } | undefined;
+    return (row?.muted ?? 0) === 1;
+  } catch {
+    // Column missing (pre-migration) or DB unavailable — fail open, as before.
+    return false;
+  }
 }
 
 /**
@@ -71,6 +105,10 @@ export function loadCompanion(row: any, userIdOverride?: string): Companion | nu
  */
 export function writeBuddyStatus(companion: Companion, reaction?: { state: string; text: string; expires: number; eyeOverride?: string; indicator?: string; bubbleLines?: string[]; petActiveUntil?: number }) {
   try {
+    // Muted buddies never write the statusline file. Guarding here rather than
+    // at each of the six call sites means a new caller can't silently un-mute.
+    if (isMuted()) return;
+
     if (!statusDirEnsured) {
       mkdirSync(dirname(BUDDY_STATUS_PATH), { recursive: true });
       statusDirEnsured = true;
