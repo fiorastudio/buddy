@@ -58,7 +58,7 @@ function withFiller(claims: FixtureClaim[], edges: FixtureEdge[], padTo: number 
 // ── Load-bearing vibes ──────────────────────────────────────────────────────
 
 describe('detectLoadBearingVibes', () => {
-  it('fires when vibes claim has ≥3 downstream', () => {
+  it('fires when vibes claim has ≥2 downstream (threshold tuned in #129)', () => {
     const g = withFiller([
       { id: 'v1', basis: 'vibes', text: 'we need auth' },
       { id: 'd1', basis: 'deduction' },
@@ -80,10 +80,8 @@ describe('detectLoadBearingVibes', () => {
     const g = withFiller([
       { id: 'v1', basis: 'vibes' },
       { id: 'd1', basis: 'deduction' },
-      { id: 'd2', basis: 'deduction' },
     ], [
       { from: 'd1', to: 'v1', type: 'depends_on' },
-      { from: 'd2', to: 'v1', type: 'supports' },
     ]);
     expect(detectLoadBearingVibes(g)).toHaveLength(0);
   });
@@ -152,7 +150,10 @@ describe('detectUnchallengedChain', () => {
     // chainHasChallenge inspects edges where both endpoints are in the chain,
     // so a challenge from outside doesn't count. To properly challenge, the
     // question edge needs both endpoints in the chain.
-    // Reconfigure: have c2 questions c1 within the chain.
+    // Note the detector walks a chain from EVERY node, so a sub-chain that
+    // starts below the challenged pair (here c2→c3→c4) is itself a candidate
+    // once it meets the length minimum. Challenge each link so no qualifying
+    // sub-chain is left unchallenged.
     const g2 = withFiller([
       { id: 'c1', basis: 'assumption' },
       { id: 'c2', basis: 'deduction' },
@@ -163,6 +164,7 @@ describe('detectUnchallengedChain', () => {
       { from: 'c2', to: 'c3', type: 'depends_on' },
       { from: 'c3', to: 'c4', type: 'depends_on' },
       { from: 'c2', to: 'c1', type: 'questions' },
+      { from: 'c3', to: 'c2', type: 'questions' },
     ]);
     expect(detectUnchallengedChain(g2)).toHaveLength(0);
   });
@@ -171,10 +173,8 @@ describe('detectUnchallengedChain', () => {
     const g = withFiller([
       { id: 'c1', basis: 'assumption' },
       { id: 'c2', basis: 'deduction' },
-      { id: 'c3', basis: 'deduction' },
     ], [
       { from: 'c1', to: 'c2', type: 'depends_on' },
-      { from: 'c2', to: 'c3', type: 'depends_on' },
     ]);
     expect(detectUnchallengedChain(g)).toHaveLength(0);
   });
@@ -238,7 +238,7 @@ describe('detectEchoChamber', () => {
 // ── Bright: well-sourced load-bearer ────────────────────────────────────────
 
 describe('detectWellSourcedLoadBearer', () => {
-  it('fires on research/empirical/deduction basis with ≥3 downstream', () => {
+  it('fires on research/empirical/deduction basis with ≥2 downstream (threshold tuned in #129)', () => {
     const g = withFiller([
       { id: 'r1', basis: 'research', text: 'OWASP ranks XSS #3' },
       { id: 'd1', basis: 'deduction' }, { id: 'd2', basis: 'deduction' }, { id: 'd3', basis: 'deduction' },
